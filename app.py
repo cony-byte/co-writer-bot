@@ -133,10 +133,10 @@ def _post_code(channel: str, thread_ts: str, text: str) -> None:
 
 
 _INPUT_HELP = (
-    "입력 형식이에요 👇 (첫 줄=작품명, 다음 줄부터 `항목: 내용`)\n"
-    "```\n[입력] 날 혐오하는 남편\n로그라인: 정략결혼한 여주가 남편을 살리고 도망친다\n"
+    "입력 형식이에요 👇 (한 줄에 하나씩 `항목: 내용`)\n"
+    "```\n[입력]\n작품명: 날 혐오하는 남편\n로그라인: 정략결혼한 여주가 남편을 살리고 도망친다\n"
     "인물: 연우(여주) 1~38화 활동 / 태식(남주) 38화까지 냉대\n줄거리: 결혼지옥 → 이탈 → 후회\n현재: 24화\n```\n"
-    "항목: 로그라인·타겟·인물·줄거리·회차표·현재·N화개요·N화대본"
+    "항목: *작품명* · 로그라인 · 타겟 · 인물 · 줄거리 · 회차표 · 현재 · N화개요 · N화대본"
 )
 
 
@@ -168,23 +168,50 @@ def _handle_convert(channel: str, thread_ts: str, query: str) -> None:
         )
 
 
+WORK_FIELD = {"작품명", "작품", "제목", "title"}
+
+
 def _handle_input(channel: str, thread_ts: str, sheet, query: str) -> None:
-    """[입력] 블록 파싱 → 항목별 시트 upsert. 여러 줄 값 지원."""
+    """[입력] 블록 파싱 → 항목별 시트 upsert. 여러 줄 값 지원.
+    작품명은 '작품명:/작품:/제목:' 필드로, 또는 첫 줄(비필드 텍스트)로 지정."""
     raw = INPUT_CMD_RE.sub("", query).strip()
     lines = [ln.rstrip() for ln in raw.splitlines() if ln.strip()]
-    if not lines or FIELD_RE.match(lines[0]):
+    if not lines:
         app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=_INPUT_HELP)
         return
-    work = lines[0].strip()
+
+    # 작품명 추출: '작품명: X' 필드 우선, 없으면 첫 줄이 비필드면 그걸 작품명으로
+    work = None
+    field_lines: list[str] = []
+    for i, ln in enumerate(lines):
+        m = FIELD_RE.match(ln)
+        if m and m.group(1).strip().replace(" ", "") in WORK_FIELD:
+            work = m.group(2).strip()
+        elif i == 0 and not m:
+            work = ln.strip()
+        else:
+            field_lines.append(ln)
+
+    if not work:
+        app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=_INPUT_HELP)
+        return
 
     # 항목 블록 조립: 알려진 '키:' 로 시작하면 새 항목, 아니면 이전 항목 값에 이어붙임
     items: list[list[str]] = []
-    for ln in lines[1:]:
+    for ln in field_lines:
         m = FIELD_RE.match(ln)
         if m and _norm_field(m.group(1)):
             items.append([m.group(1), m.group(2)])
         elif items:
             items[-1][1] += "\n" + ln
+
+    if not items:  # 작품명만 있고 저장할 항목이 없음
+        app.client.chat_postMessage(
+            channel=channel, thread_ts=thread_ts,
+            text=(f"작품 *{work}* 확인했어요. 저장할 항목도 같이 넣어주세요 👇\n"
+                  f"```\n[입력] 작품명: {work}\n로그라인: …\n인물: …\n현재: 24화\n```"),
+        )
+        return
 
     saved, skipped = [], []
     for key, val in items:
