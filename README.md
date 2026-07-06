@@ -35,10 +35,23 @@
 ```bash
 pip install -r requirements.txt
 python3 scripts/sync_reference.py       # 레퍼런스 DB 동기화
-cp .env.example .env && vi .env         # 토큰 3개 입력
+
+# Anthropic 인증 — 팀 클로드(구독)로 실행 (API 키 불필요)
+brew install anthropics/tap/ant
+xattr -d com.apple.quarantine "$(brew --prefix)/bin/ant"
+ant auth login                          # 브라우저에서 팀 계정 로그인 → 프로필 저장
+ant auth status                         # 어떤 자격증명이 잡혔는지 확인
+
+cp .env.example .env && vi .env         # 슬랙 토큰 2개만 입력
 set -a && source .env && set +a
-python3 app.py                          # Socket Mode — 공개 URL 불필요
+python3 app.py                          # 기동 시 자격증명 헬스체크 후 시작
 ```
+
+### 팀 클로드 인증 주의사항
+
+- **`ANTHROPIC_API_KEY`를 설정하지 마세요** — 빈 값(`""`)이라도 설정돼 있으면 OAuth 프로필보다 우선돼 인증이 깨집니다. 어딘가에서 export되고 있다면 `unset ANTHROPIC_API_KEY`.
+- 갱신 토큰은 언젠가 만료됩니다 — 봇이 인증 오류로 죽으면 `ant auth login`을 다시 실행하고 재기동하면 됩니다.
+- 계정이 여러 워크스페이스에 걸쳐 있으면 `ant auth login --profile cowriter`로 전용 프로필을 만들고 `ANTHROPIC_PROFILE=cowriter`로 지정할 수 있습니다.
 
 ### Slack 앱 설정 (api.slack.com/apps → Create New App → From a manifest)
 
@@ -69,8 +82,7 @@ settings:
 
 1. 앱 생성 후 **App-Level Token** 발급 (`connections:write`) → `SLACK_APP_TOKEN` (xapp-)
 2. **Install to Workspace** → `SLACK_BOT_TOKEN` (xoxb-)
-3. `ANTHROPIC_API_KEY` — Claude API 키
-4. 사용할 채널에 `/invite @co-writer`
+3. 사용할 채널에 `/invite @co-writer`
 
 ## 구조
 

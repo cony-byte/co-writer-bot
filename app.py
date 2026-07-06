@@ -109,5 +109,6 @@ def on_message(event, ack):
 
 
 if __name__ == "__main__":
+    generator.healthcheck()  # Anthropic 자격증명 확인 (API 키 또는 ant auth login 프로필)
     log.info("co-writer-bot 시작 (model=%s, reference=%s)", config.MODEL, config.REFERENCE_DIR)
     SocketModeHandler(app, config.SLACK_APP_TOKEN).start()

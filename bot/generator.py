@@ -4,7 +4,27 @@ import anthropic
 
 from . import config, prompts
 
+# 인자 없는 생성자 — 자격증명 자동 해석:
+# ANTHROPIC_API_KEY → ANTHROPIC_AUTH_TOKEN → `ant auth login` OAuth 프로필(팀 플랜).
+# 팀 클로드로 돌릴 때는 API 키를 아예 설정하지 않는다 (빈 문자열도 프로필을 가려버림).
 _client = anthropic.Anthropic()
+
+
+def healthcheck() -> str:
+    """기동 시 자격증명 검증. 토큰 카운트는 과금 없는 엔드포인트."""
+    try:
+        _client.messages.count_tokens(
+            model=config.MODEL,
+            messages=[{"role": "user", "content": "ping"}],
+        )
+        return "ok"
+    except anthropic.AuthenticationError:
+        raise SystemExit(
+            "Anthropic 자격증명이 없거나 만료됨.\n"
+            "팀 클로드로 돌리는 경우: `ant auth login` 후 재실행 "
+            "(ANTHROPIC_API_KEY는 설정하지 말 것 — 빈 값도 프로필보다 우선됨).\n"
+            "토큰 갱신이 계속 실패하면 `ant auth login`을 다시 실행."
+        )
 
 
 def generate(thread_messages: list[dict], query: str) -> str:
