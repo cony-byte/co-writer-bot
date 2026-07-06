@@ -27,3 +27,9 @@ TEMPLATES_DIR = Path(os.environ.get("COWRITER_TEMPLATES_DIR", BASE_DIR / "templa
 
 # 스레드 히스토리를 몇 메시지까지 모델에 넘길지
 THREAD_HISTORY_LIMIT = int(os.environ.get("COWRITER_THREAD_LIMIT", "40"))
+
+# 구글 시트 스토리 바이블 — 입력은 슬랙 봇, 열람은 시트. Apps Script 웹앱(google_sheet/Code.gs) 경유.
+# URL·SECRET 둘 다 설정돼야 바이블 기능 활성. 없으면 봇은 바이블 없이 동작(패턴·사례 기반 생성만).
+SHEET_WEBAPP_URL = os.environ.get("SHEET_WEBAPP_URL", "")
+SHEET_SECRET = os.environ.get("SHEET_SECRET", "")
+SHEET_CACHE_TTL = int(os.environ.get("COWRITER_SHEET_TTL", "300"))  # 초 (기본 5분)

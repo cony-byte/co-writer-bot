@@ -48,8 +48,17 @@ def load_trend():
     return TrendSearch(str(path))
 
 
+@lru_cache(maxsize=1)
+def sheet():
+    """구글 시트 바이블 핸들 (URL·SECRET 설정 시). 미설정이면 None — 바이블 기능 비활성."""
+    if not (config.SHEET_WEBAPP_URL and config.SHEET_SECRET):
+        return None
+    from .sheet_bible import SheetBible
+    return SheetBible()
+
+
 def reload() -> None:
-    """레퍼런스/템플릿 갱신 후 캐시 무효화 (프로세스 재시작 없이)."""
+    """레퍼런스/템플릿 갱신 후 캐시 무효화 (프로세스 재시작 없이). 시트 바이블은 별도(TTL/새로고침)."""
     load_db.cache_clear()
     load_patterns.cache_clear()
     load_templates.cache_clear()
