@@ -81,6 +81,20 @@ def generate(thread_messages: list[dict], query_text: str,
     return text or "(빈 응답)"
 
 
+def complete(system_text: str, user_text: str) -> str:
+    """단발 (system, user) → text. script_format 등 llm 콜러블용. 스레드/바이블 없이 순수 호출."""
+    if config.BACKEND == "api":
+        import anthropic
+        client = anthropic.Anthropic()
+        with client.messages.stream(
+            model=config.MODEL, max_tokens=config.MAX_TOKENS,
+            system=system_text, messages=[{"role": "user", "content": user_text}],
+        ) as stream:
+            message = stream.get_final_message()
+        return "".join(b.text for b in message.content if b.type == "text")
+    return asyncio.run(_agent_generate(system_text, user_text))
+
+
 def healthcheck() -> None:
     """기동 시 자격증명/환경 fail-fast."""
     if config.BACKEND == "api":
