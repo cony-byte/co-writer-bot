@@ -87,7 +87,7 @@ def _handle(event: dict) -> None:
         if trend is None:
             app.client.chat_postMessage(
                 channel=channel, thread_ts=thread_ts,
-                text="트렌드 DB(reference_db_v4.json)가 아직 없어요. 데이터 반영 후 다시 물어봐 주세요.",
+                text="트렌드 DB가 아직 없어요. `sync_reference.py`로 데이터 반영 후 다시 물어봐 주세요.",
             )
             return
         try:

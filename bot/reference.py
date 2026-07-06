@@ -39,8 +39,9 @@ def load_templates() -> str:
 
 @lru_cache(maxsize=1)
 def load_trend():
-    """트렌드서치 인스턴스 (v4 DB). 파일 없으면 None — 봇은 트렌드 기능만 비활성."""
-    path = Path(config.REFERENCE_DB_V4)
+    """트렌드서치 인스턴스 (통합 DB v5 — v4_tagged 편으로 게이트).
+    파일 없으면 None — 봇은 트렌드 기능만 비활성."""
+    path = Path(config.REFERENCE_DIR) / "reference_db.json"
     if not path.exists():
         return None
     from .trend_search import TrendSearch

@@ -1,49 +1,16 @@
 # -*- coding: utf-8 -*-
-"""유사 사례 선별 — 요청 텍스트에서 태그 신호를 뽑아 레퍼런스 DB에서 2~3편 고른다.
+"""유사 사례 선별 — 요청 텍스트에서 태그 신호를 뽑아 통합 DB(v5)에서 2~3편 고른다.
 
 패턴 레이어 원칙(patterns/INDEX.md): 생성 프롬프트에는 원본 76편이 아니라
 '패턴 요약 + 유사 사례 2~3편'만 들어간다.
+v5 통합 DB: v3 정제축(영어 trope·hook_type…) + v4 생성축(catharsis_type·hook_beat·cliffhanger_type).
 """
 from __future__ import annotations
 
-# 한국어 키워드 → v3 태그 별칭 사전 (가벼운 규칙 기반 1차 매칭)
-ALIASES: dict[str, list[str]] = {
-    # trope_tags
-    "삼각관계": ["love_triangle_or_rival"], "연적": ["love_triangle_or_rival"],
-    "계약": ["contract_or_fake_relationship"], "위장": ["contract_or_fake_relationship"],
-    "신데렐라": ["class_gap_cinderella"], "신분": ["class_gap_cinderella"],
-    "복수": ["revenge_betrayal_or_payback"], "배신": ["revenge_betrayal_or_payback"],
-    "정체": ["secret_identity_or_hidden_truth"], "비밀": ["secret_identity_or_hidden_truth"],
-    "보스": ["boss_employee_or_power_romance"], "사장": ["boss_employee_or_power_romance"],
-    "회장": ["boss_employee_or_power_romance"], "상사": ["boss_employee_or_power_romance"],
-    "앙숙": ["enemies_to_lovers"], "원수": ["enemies_to_lovers"],
-    "재회": ["second_chance_or_regret"], "첫사랑": ["second_chance_or_regret"],
-    "후회": ["second_chance_or_regret"],
-    "집착": ["obsessive_devotion"], "독점": ["obsessive_devotion"],
-    "구원": ["danger_rescue_romance", "protective_male_or_partner"],
-    "금지": ["forbidden_love"], "불륜": ["forbidden_love"],
-    "결혼": ["marriage_contract_or_family_pressure"], "이혼": ["marriage_contract_or_family_pressure"],
-    "이별": ["breakup_sacrifice_or_noble_idiot"], "희생": ["breakup_sacrifice_or_noble_idiot"],
-    "오해": ["misunderstanding_to_reconciliation"],
-    "힐링": ["healing_or_comfort"], "위로": ["healing_or_comfort"],
-    # setting
-    "학교": ["school_campus"], "캠퍼스": ["school_campus"],
-    "회사": ["office_workplace"], "오피스": ["office_workplace"], "직장": ["office_workplace"],
-    "재벌": ["chaebol_highsociety"], "상류": ["chaebol_highsociety"],
-    "병원": ["medical"], "의사": ["medical"],
-    "사극": ["historical_palace"], "궁": ["historical_palace"],
-    "아이돌": ["entertainment_idol"], "연예": ["entertainment_idol"],
-    "판타지": ["fantasy_supernatural"], "늑대인간": ["fantasy_supernatural"],
-    "회귀": ["fantasy_supernatural"], "빙의": ["fantasy_supernatural"],
-    # story_type
-    "질투": ["jealousy_rival_drama", "jealousy_possession_or_rival"],
-    "폭로": ["secret_reveal_betrayal_drama"],
-    "말싸움": ["dialogue_conflict_driven"], "밀당": ["dialogue_conflict_driven"],
-    # male_lead
-    "츤데레": ["cold_to_warm"], "다정": ["devoted_straightforward"],
-    "직진": ["devoted_straightforward"], "보호": ["protective_rescuer"],
-    "위험한": ["dangerous_forbidden"], "마피아": ["dangerous_forbidden"],
-}
+from .tag_vocab import ALIASES
+
+# 화자 라벨 표시용 — ML/FL 채워지면 한글화, 화자중립(화자1/2)이면 그대로 (재크롤링에 graceful)
+_ROLE_KO = {"ML": "남주", "FL": "여주", "SUP": "조연", "NAR": "나레이션", "UNK": "미상"}
 
 
 def extract_tags(text: str) -> set[str]:
@@ -58,34 +25,58 @@ def _entry_tags(e: dict) -> set[str]:
     t = e["tags"]
     return {
         *t.get("trope_tags", []), *t.get("dialogue_tags", []),
-        *t.get("male_lead", []),
+        *t.get("male_lead", []), *t.get("hook_beat", []),
         t.get("hook_type", ""), t.get("story_type", ""), t.get("setting", ""),
+        t.get("catharsis_type", ""), t.get("cliffhanger_type", ""),
     } - {""}
 
 
 def select_examples(query: str, db: list[dict], k: int = 3) -> list[dict]:
-    """태그 겹침 점수 → 동점이면 ER 순. 정제 대본(script) 있는 편 우선."""
+    """태그 겹침 점수 → v4 생성축 보너스 → 정제 대본 유무 → ER 순."""
     want = extract_tags(query)
+    # 생성축(catharsis/hook_beat/cliffhanger) 쿼리 신호가 있으면 v4_tagged 편에 가점
+    v4_axes = {"regret_grovel", "revenge_payback", "status_reversal", "devotion_thrill",
+               "salvation", "forbidden_tension", "humor_flutter"}
+    want_v4 = bool(want & v4_axes)
 
     def score(e: dict) -> tuple:
         overlap = len(want & _entry_tags(e)) if want else 0
+        v4_bonus = 1 if (want_v4 and e.get("v4_tagged")) else 0
         has_script = 1 if e.get("script") else 0
         er = e["metrics"].get("er") or 0
-        return (overlap, has_script, er)
+        return (overlap, v4_bonus, has_script, er)
 
-    ranked = sorted(db, key=score, reverse=True)
-    return ranked[:k]
+    return sorted(db, key=score, reverse=True)[:k]
+
+
+def _fmt_line(line: dict) -> str:
+    rh = line.get("role_hint") or line.get("speaker") or "?"
+    return f"  {_ROLE_KO.get(rh, rh)}: {line['line']}"
 
 
 def format_example(e: dict) -> str:
+    t = e["tags"]
+    tropes = t.get("trope_tags_ko") or t.get("trope_tags") or []  # 한글 우선
     lines = [
         f"### 사례 {e['id']} (ER {e['metrics'].get('er')}, {e['metrics'].get('dur')}초)",
         f"- 훅(첫 3초): {e.get('hook_desc') or '(불명)'}",
-        f"- story_type: {e['tags'].get('story_type') or '-'} / hook_type: {e['tags'].get('hook_type') or '-'}",
-        f"- 트로프: {', '.join(e['tags'].get('trope_tags') or []) or '-'}",
-        f"- 남주: {', '.join(e['tags'].get('male_lead') or []) or '-'} / 배경: {e['tags'].get('setting') or '-'}",
+        f"- 트로프: {', '.join(tropes) or '-'}",
+        f"- 남주: {', '.join(t.get('male_lead') or []) or '-'} / 배경: {t.get('setting') or '-'}",
     ]
+    # v4 생성축 (있는 편만 — 미태깅편은 빈값이라 자동 생략)
+    gen = []
+    if t.get("catharsis_type"):
+        gen.append(f"정서={t['catharsis_type']}")
+    if t.get("hook_beat"):
+        gen.append(f"훅비트={'·'.join(t['hook_beat'])}")
+    if t.get("cliffhanger_type"):
+        gen.append(f"절단점={t['cliffhanger_type']}")
+    cs = t.get("character_setup") or {}
+    if cs.get("villain") and cs["villain"] != "없음":
+        gen.append(f"악역={cs['villain']}")
+    if gen:
+        lines.append("- 생성축: " + " / ".join(gen))
     if e.get("script"):
         lines.append("- 정제 대본:")
-        lines += [f"  {s['speaker']}: {s['line']}" for s in e["script"]]
+        lines += [_fmt_line(s) for s in e["script"]]
     return "\n".join(lines)

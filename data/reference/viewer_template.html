@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>레퍼런스 대본 라이브러리 (내부용)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#F6F5F1; --page:#FFFFFF; --ink:#1C1E2A; --ink-soft:#5A5D6E;
+  --line:#E3E1D9; --hl:#FFE96B; --rose:#D9376E; --rose-soft:#FBE9F0;
+  --mute:#8B8E9C; --blue:#2E6FB0; --blue-soft:#E7F0F8;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{background:var(--paper);color:var(--ink);font-family:'Noto Sans KR',sans-serif;font-size:14px;line-height:1.6}
+.mono{font-family:'IBM Plex Mono',monospace}
+
+/* ---- 비밀번호 게이트 ---- */
+#gate{position:fixed;inset:0;background:var(--paper);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px}
+#gate.hidden{display:none}
+.gatebox{background:var(--page);border:1px solid var(--line);border-radius:16px;padding:32px 28px;max-width:360px;width:100%;text-align:center}
+.gatebox .eyebrow{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.14em;color:var(--rose);text-transform:uppercase;margin-bottom:8px}
+.gatebox h2{font-family:'Gowun Batang',serif;font-size:20px;margin-bottom:6px}
+.gatebox p{font-size:12.5px;color:var(--ink-soft);margin-bottom:18px}
+.gatebox input{width:100%;padding:11px 14px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:15px;text-align:center;letter-spacing:.05em}
+.gatebox input:focus{outline:2px solid var(--rose);outline-offset:1px;border-color:transparent}
+.gatebox button{width:100%;margin-top:10px;padding:11px;border:none;border-radius:9px;background:var(--ink);color:#fff;font:inherit;font-size:14px;font-weight:700;cursor:pointer}
+.gatebox button:disabled{opacity:.5;cursor:default}
+.gateerr{color:var(--rose);font-size:12.5px;margin-top:10px;min-height:16px}
+
+header{padding:28px 20px 18px;border-bottom:1px solid var(--line);background:var(--page)}
+.hwrap{max-width:1060px;margin:0 auto}
+.eyebrow{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.14em;color:var(--rose);text-transform:uppercase;margin-bottom:6px}
+h1{font-family:'Gowun Batang',serif;font-size:26px;font-weight:700;letter-spacing:-.01em}
+.subtitle{color:var(--ink-soft);font-size:13px;margin-top:6px}
+.subtitle b{color:var(--ink)}
+
+.toolbar{position:sticky;top:0;z-index:20;background:var(--paper);border-bottom:1px solid var(--line);padding:12px 20px}
+.twrap{max-width:1060px;margin:0 auto;display:flex;flex-direction:column;gap:10px}
+.row1{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+input[type=search]{flex:1;min-width:200px;padding:9px 14px;border:1px solid var(--line);border-radius:8px;background:var(--page);font:inherit;font-size:14px;color:var(--ink)}
+input[type=search]:focus{outline:2px solid var(--rose);outline-offset:1px;border-color:transparent}
+select{padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--page);font:inherit;font-size:13px;color:var(--ink)}
+.toggle{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-soft);cursor:pointer;user-select:none;white-space:nowrap}
+.toggle input{accent-color:var(--rose);width:15px;height:15px}
+.chiprow{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.chiplabel{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.1em;color:var(--mute);text-transform:uppercase;margin-right:2px}
+.chip{border:1px solid var(--line);background:var(--page);border-radius:99px;padding:4px 11px;font-size:12px;color:var(--ink-soft);cursor:pointer;transition:all .12s}
+.chip:hover{border-color:var(--rose)}
+.chip.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.chip.kw.on{background:var(--rose);border-color:var(--rose)}
+.count{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--mute)}
+
+main{max-width:1060px;margin:0 auto;padding:20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.card{background:var(--page);border:1px solid var(--line);border-radius:12px;padding:16px 16px 14px;cursor:pointer;display:flex;flex-direction:column;gap:10px;transition:border-color .12s, box-shadow .12s}
+.card:hover{border-color:var(--rose);box-shadow:0 2px 12px rgba(217,55,110,.08)}
+.card:focus-visible{outline:2px solid var(--rose);outline-offset:2px}
+.cardtop{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.ranknum{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mute)}
+.er{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:500;color:var(--rose)}
+.hooktext{font-family:'Gowun Batang',serif;font-size:15px;line-height:1.55;font-weight:700;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.hooktext.empty{font-family:'Noto Sans KR';font-size:12.5px;color:var(--mute);font-style:italic;font-weight:400}
+.cardtags{display:flex;gap:5px;flex-wrap:wrap}
+.tag{font-size:11px;background:var(--rose-soft);color:var(--rose);border-radius:5px;padding:2px 7px}
+.tag.gray{background:#EFEEE9;color:var(--ink-soft)}
+.tag.warn{background:#FFF3D6;color:#9A6B00}
+.tag.blue{background:var(--blue-soft);color:var(--blue)}
+.cardmeta{display:flex;gap:12px;flex-wrap:wrap;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mute);border-top:1px dashed var(--line);padding-top:9px;margin-top:auto}
+
+.empty{padding:60px 20px;text-align:center;color:var(--mute)}
+.empty b{color:var(--ink-soft)}
+
+/* detail overlay */
+.overlay{position:fixed;inset:0;background:rgba(28,30,42,.45);z-index:50;display:none;align-items:flex-end;justify-content:center}
+.overlay.open{display:flex}
+@media(min-width:720px){.overlay.open{align-items:center}}
+.sheet{background:var(--page);width:100%;max-width:720px;max-height:92vh;overflow-y:auto;border-radius:18px 18px 0 0;padding:26px 24px 40px;position:relative}
+@media(min-width:720px){.sheet{border-radius:16px;max-height:88vh}}
+.close{position:sticky;top:0;float:right;background:var(--paper);border:1px solid var(--line);border-radius:99px;width:34px;height:34px;font-size:16px;cursor:pointer;color:var(--ink-soft);z-index:2}
+.d-rank{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.1em;color:var(--rose);text-transform:uppercase;margin-bottom:8px}
+.d-title{font-family:'Gowun Batang',serif;font-size:17px;font-weight:700;line-height:1.5;margin-bottom:10px}
+.d-desc{font-size:12.5px;color:var(--ink-soft);margin-bottom:14px;word-break:break-all}
+.d-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:6px}
+.metric{background:var(--paper);padding:10px 12px}
+.metric .v{font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:500}
+.metric .k{font-size:11px;color:var(--mute);margin-top:1px}
+.d-section{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;color:var(--mute);text-transform:uppercase;margin:20px 0 8px;display:flex;align-items:center;gap:8px}
+.d-section .badge{font-family:'Noto Sans KR';letter-spacing:0;text-transform:none;background:var(--paper);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:10px;color:var(--ink-soft)}
+
+/* 대본 (화자 분리) */
+.script{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.line{display:flex;gap:10px;padding:5px 0;align-items:baseline}
+.line + .line{border-top:1px dashed var(--line)}
+.spk{flex:0 0 58px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:500;padding-top:2px}
+.spk.s1{color:var(--rose)} .spk.s2{color:var(--blue)} .spk.s3{color:#7A5AA8}
+.spk.nar{color:var(--mute);font-style:italic} .spk.unk{color:var(--mute)}
+.linetext{font-family:'Gowun Batang',serif;font-size:15px;line-height:1.6;flex:1;word-break:keep-all}
+.linetext mark{background:linear-gradient(transparent 52%, var(--hl) 52%);padding:0 1px}
+.nar .linetext{color:var(--ink-soft);font-style:italic;font-size:14px}
+
+/* 장면 타임라인 */
+.scenes{border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.scenerow{display:grid;grid-template-columns:76px 1fr 70px 44px;gap:8px;padding:6px 12px;font-size:12px;align-items:center}
+.scenerow + .scenerow{border-top:1px solid var(--line)}
+.scenerow.head{background:var(--paper);font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.08em;color:var(--mute);text-transform:uppercase}
+.sc-time{font-family:'IBM Plex Mono',monospace;color:var(--ink-soft)}
+.sc-bar{height:8px;background:var(--rose-soft);border-radius:4px}
+.sc-bar>i{display:block;height:100%;background:var(--rose);border-radius:4px}
+.sc-shot{color:var(--ink-soft)} .sc-ppl{font-family:'IBM Plex Mono',monospace;color:var(--mute);text-align:right}
+
+.d-tags{display:flex;gap:6px;flex-wrap:wrap}
+.tlink{display:inline-block;margin-top:20px;font-size:13px;color:var(--rose);font-weight:500;text-decoration:none;border-bottom:1px solid var(--rose)}
+.noscript-big{padding:22px;background:var(--paper);border:1px dashed var(--line);border-radius:10px;color:var(--mute);font-size:13px;text-align:center}
+.notes{font-size:12px;color:var(--ink-soft);background:var(--paper);border-left:3px solid var(--line);padding:8px 12px;margin-top:8px;border-radius:0 6px 6px 0}
+
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+@media(max-width:480px){
+.grid{grid-template-columns:1fr}
+h1{font-size:22px}
+.d-metrics{grid-template-columns:repeat(2,1fr)}
+.scenerow{grid-template-columns:70px 1fr 60px 38px}
+}
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <div class="gatebox">
+    <div class="eyebrow">Internal · Protected</div>
+    <h2>레퍼런스 대본 라이브러리</h2>
+    <p>사내 내부 자료입니다.<br>접근 비밀번호를 입력하세요.</p>
+    <input type="password" id="gatepw" placeholder="비밀번호" autocomplete="current-password">
+    <button id="gatebtn">열기</button>
+    <div class="gateerr" id="gateerr"></div>
+  </div>
+</div>
+
+<div id="app" style="display:none">
+<header>
+  <div class="hwrap">
+    <div class="eyebrow">Reference Script Library · Internal</div>
+    <h1>레퍼런스 대본 라이브러리</h1>
+    <div class="subtitle">drama_clip <b id="totalCount"></b>편 · 정제 대본 <b id="scriptCount"></b>편 · 발행 <span id="pubRange"></span></div>
+  </div>
+</header>
+
+<div class="toolbar">
+  <div class="twrap">
+    <div class="row1">
+      <input type="search" id="q" placeholder="대사·설명·훅 검색">
+      <select id="sort"></select>
+      <label class="toggle"><input type="checkbox" id="onlyScript">정제 대본 있는 것만</label>
+      <label class="toggle"><input type="checkbox" id="hideReview">검수 필요 숨기기</label>
+      <span class="count" id="count"></span>
+    </div>
+    <div id="chipZones"></div>
+    <div class="chiprow" id="kwZone"><span class="chiplabel">키워드</span></div>
+  </div>
+</div>
+
+<main>
+  <div class="grid" id="grid"></div>
+  <div class="empty" id="empty" style="display:none">조건에 맞는 영상이 없어요.<br><b>필터를 하나 풀어보세요.</b></div>
+</main>
+
+<div class="overlay" id="overlay" role="dialog" aria-modal="true">
+  <div class="sheet" id="sheet"></div>
+</div>
+</div>
+
+<script>
+// 빌드 시 주입: {plain:{data,filters}} 또는 {enc:{salt,iv,ct,iter}}
+const PAYLOAD = /*__PAYLOAD__*/null;
+
+const LAB = {
+"emotional_question_or_confrontation":"감정 추궁·대치","threat_danger_or_revenge":"위협·복수","jealousy_possession_or_rival":"질투·독점·라이벌","love_confession_or_desire":"고백·욕망","marriage_family_or_pregnancy":"결혼·가족·임신","choice_ultimatum_or_deadline":"선택·최후통첩","power_money_or_status":"권력·돈·지위","misunderstanding_or_accusation":"오해·누명","apology_regret_or_sacrifice":"사과·후회·희생","humiliation_status_drop_or_bullying":"굴욕·괄시","breakup_rejection_or_distance":"이별·거절·거리두기","protective_claim_or_rescue":"보호 선언·구원","secret_lie_or_reveal":"비밀·거짓·폭로",
+"love_triangle_or_rival":"삼각관계·라이벌","marriage_contract_or_family_pressure":"계약결혼·가족 압박","class_gap_cinderella":"신분 격차·신데렐라","forced_choice_or_ultimatum":"강요된 선택","danger_rescue_romance":"위기구원 로맨스","forbidden_love":"금지된 사랑","revenge_betrayal_or_payback":"복수·배신","secret_identity_or_hidden_truth":"숨겨진 정체","protective_male_or_partner":"보호형 남주","breakup_sacrifice_or_noble_idiot":"이별·희생","misunderstanding_to_reconciliation":"오해와 화해","boss_employee_or_power_romance":"상사·권력 로맨스",
+"enemies_to_lovers":"적에서 연인으로","second_chance_or_regret":"재회·후회","contract_or_fake_relationship":"계약·위장 연애","obsessive_devotion":"집착·독점 애정","healing_or_comfort":"치유·위로",
+"emotion_reaction_driven":"감정 리액션 중심","dialogue_conflict_driven":"대사 갈등 중심","power_status_romance":"권력·지위 로맨스","jealousy_rival_drama":"질투·라이벌극","fast_cut_tension_driven":"빠른 컷 긴장형","danger_protection_drama":"위기·보호극","secret_reveal_betrayal_drama":"비밀·배신극","marriage_family_drama":"결혼·가족극",
+"dominant_possessive":"독점·집착남","protective_rescuer":"위기구원남","cold_to_warm":"츤데레(냉→온)","devoted_straightforward":"직진·헌신남","powerful_status":"재벌·권력남","dangerous_forbidden":"위험·금지남","unknown":"남주 미상",
+"school_campus":"학교","office_workplace":"오피스","chaebol_highsociety":"재벌·상류층","historical_palace":"사극·궁중","medical":"메디컬","entertainment_idol":"연예계","everyday_neighborhood":"일상","fantasy_supernatural":"판타지·수인",
+"dialogue":"대사형","narration_recap":"줄거리 나레이션","monologue":"독백형","mixed":"혼합","none":"대본 없음"
+};
+const lab = t => LAB[t] || t;
+const fmt = n => n==null ? '–' : (n>=1e6 ? (n/1e6).toFixed(1)+'M' : n>=1e3 ? (n/1e3).toFixed(0)+'K' : String(Math.round(n)));
+const esc = s => (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const dig = (o,path)=>path.split('.').reduce((x,k)=>x==null?x:x[k],o);
+const ymd = iso => iso? iso.slice(0,10) : '';
+
+let DATA=[], FILTERS={}, state={};
+
+// ---- 값 접근 (필드 경로 + 배열 flatten) ----
+function fieldVals(rec, path){
+  // "script.line" → 모든 라인 텍스트, "tags.trope_tags" → 배열
+  if(path.startsWith('script.')){
+    const k=path.slice(7); return (rec.script||[]).map(l=>l[k]).filter(Boolean);
+  }
+  const v=dig(rec,path);
+  if(v==null) return [];
+  return Array.isArray(v)? v : [v];
+}
+function haystack(rec, fields){
+  let s=[];
+  fields.forEach(f=>{ s=s.concat(fieldVals(rec,f).map(x=>String(x))); });
+  return s.join(' ').toLowerCase();
+}
+function matchKw(rec, group){
+  const hay=haystack(rec, group.search_in||['desc']);
+  return (group.any||[]).some(k=>hay.includes(String(k).toLowerCase()));
+}
+
+// ---- 초기화 ----
+function boot(payload){
+  DATA=payload.data; FILTERS=payload.filters;
+  state={q:'', sort:(FILTERS.sort_options&&FILTERS.sort_options[0]||{id:'er'}).id, onlyScript:false, hideReview:false, chips:{}, kw:new Set()};
+
+  // 정렬 옵션
+  const sortSel=document.getElementById('sort');
+  (FILTERS.sort_options||[]).forEach(o=>{
+    const opt=document.createElement('option'); opt.value=o.id; opt.textContent='정렬: '+o.label; sortSel.appendChild(opt);
+  });
+
+  // auto 칩 존
+  const zones=document.getElementById('chipZones');
+  (FILTERS.auto_chips||[]).filter(c=>c.enabled!==false).forEach(c=>{
+    const counts={};
+    DATA.forEach(rec=>fieldVals(rec,c.field).forEach(v=>{ if(v&&v!=='unknown') counts[v]=(counts[v]||0)+1; }));
+    const entries=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+    if(!entries.length) return;
+    state.chips[c.id]={field:c.field, set:new Set()};
+    const row=document.createElement('div'); row.className='chiprow';
+    row.innerHTML=`<span class="chiplabel">${esc(c.label)}</span>`;
+    entries.forEach(([t,n])=>{
+      const b=document.createElement('button'); b.className='chip'; b.textContent=`${lab(t)} ${n}`;
+      b.onclick=()=>{ const s=state.chips[c.id].set; s.has(t)?s.delete(t):s.add(t); b.classList.toggle('on'); render(); };
+      row.appendChild(b);
+    });
+    zones.appendChild(row);
+  });
+
+  // 키워드 그룹 — 우선 번들(filters.json)로 즉시 그리고, 시트 URL 있으면 거기서 덮어씀
+  buildKeywordChips(FILTERS.keyword_groups || []);
+  if(FILTERS.keyword_sheet_csv_url){
+    fetchSheetGroups(FILTERS.keyword_sheet_csv_url)
+      .then(groups=>{ if(groups && groups.length) buildKeywordChips(groups); })
+      .catch(err=>console.warn('키워드 시트 로드 실패, 번들 값 사용:', err));
+  }
+
+  // 헤더 통계
+  document.getElementById('totalCount').textContent=DATA.length;
+  document.getElementById('scriptCount').textContent=DATA.filter(r=>(r.script||[]).length).length;
+  const pubs=DATA.map(r=>ymd(r.publish_dt)).filter(Boolean).sort();
+  document.getElementById('pubRange').textContent=pubs.length? pubs[0]+' ~ '+pubs[pubs.length-1] : '—';
+
+  document.getElementById('q').addEventListener('input', e=>{state.q=e.target.value.trim(); render();});
+  sortSel.addEventListener('change', e=>{state.sort=e.target.value; render();});
+  document.getElementById('onlyScript').addEventListener('change', e=>{state.onlyScript=e.target.checked; render();});
+  document.getElementById('hideReview').addEventListener('change', e=>{state.hideReview=e.target.checked; render();});
+
+  document.getElementById('gate').classList.add('hidden');
+  document.getElementById('app').style.display='';
+  render();
+}
+
+// ---- 키워드 칩 (번들 또는 구글시트) ----
+function buildKeywordChips(groups){
+  groups = (groups||[]).filter(g=>g.label && (g.any||[]).length);
+  FILTERS.keyword_groups = groups;          // filtered()가 인덱스로 참조하므로 동일 배열로 교체
+  state.kw = new Set();                      // 재구성 시 선택 초기화
+  const kwZone=document.getElementById('kwZone');
+  kwZone.querySelectorAll('.chip.kw').forEach(el=>el.remove());  // 라벨 span만 남기고 칩 제거
+  kwZone.style.display = groups.length ? '' : 'none';
+  groups.forEach((g,i)=>{
+    const n=DATA.filter(r=>matchKw(r,g)).length;
+    const b=document.createElement('button'); b.className='chip kw'; b.textContent=`${esc(g.label)} ${n}`;
+    b.onclick=()=>{ state.kw.has(i)?state.kw.delete(i):state.kw.add(i); b.classList.toggle('on'); render(); };
+    kwZone.appendChild(b);
+  });
+  render();
+}
+
+// 구글시트 published/gviz CSV → 키워드 그룹. 컬럼: 라벨 | 키워드(| 구분) | 검색범위(선택) | 사용(선택)
+async function fetchSheetGroups(url){
+  const r=await fetch(url,{cache:'no-store'}); if(!r.ok) throw new Error('HTTP '+r.status);
+  const rows=parseCSV(await r.text()).filter(row=>row.some(c=>c.trim()));
+  if(rows.length<2) return [];
+  const head=rows[0].map(h=>h.trim());
+  const col=name=>head.indexOf(name);
+  const iL=col('라벨'), iK=col('키워드'), iS=col('검색범위'), iOn=col('사용');
+  if(iL<0 || iK<0) throw new Error("시트 헤더에 '라벨'·'키워드' 필요");
+  const off=/^(n|no|off|x|0|아니오?|끄기|비활성)$/i;
+  const groups=[];
+  for(let k=1;k<rows.length;k++){
+    const row=rows[k];
+    const label=(row[iL]||'').trim();
+    const any=(row[iK]||'').split('|').map(s=>s.trim()).filter(Boolean);
+    if(!label || !any.length) continue;
+    if(iOn>=0 && off.test((row[iOn]||'').trim())) continue;
+    const scope=(iS>=0 && (row[iS]||'').trim())
+      ? row[iS].split('|').map(s=>s.trim()).filter(Boolean)
+      : ['desc','script.line','hook_desc'];
+    groups.push({label, any, search_in:scope});
+  }
+  return groups;
+}
+
+function parseCSV(text){
+  const rows=[]; let field='', row=[], inQ=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(inQ){
+      if(c==='"'){ if(text[i+1]==='"'){field+='"';i++;} else inQ=false; }
+      else field+=c;
+    } else if(c==='"'){ inQ=true; }
+    else if(c===','){ row.push(field); field=''; }
+    else if(c==='\n'){ row.push(field); rows.push(row); row=[]; field=''; }
+    else if(c!=='\r'){ field+=c; }
+  }
+  if(field.length || row.length){ row.push(field); rows.push(row); }
+  return rows;
+}
+
+// ---- 필터 + 정렬 ----
+function filtered(){
+  const excl=FILTERS.exclude_keywords;
+  let arr=DATA.filter(rec=>{
+    if(state.onlyScript && !(rec.script||[]).length) return false;
+    if(state.hideReview && rec.needs_review) return false;
+    for(const id in state.chips){
+      const {field,set}=state.chips[id];
+      if(set.size && !fieldVals(rec,field).some(v=>set.has(v))) return false;
+    }
+    for(const i of state.kw){ if(!matchKw(rec, FILTERS.keyword_groups[i])) return false; }
+    if(excl && (excl.any||[]).length && matchKw(rec, excl)) return false;
+    if(state.q && !haystack(rec, FILTERS.search_fields||['desc']).includes(state.q.toLowerCase())) return false;
+    return true;
+  });
+  const so=(FILTERS.sort_options||[]).find(o=>o.id===state.sort)||{field:'metrics.er',dir:'desc'};
+  const dir=so.dir==='asc'?1:-1;
+  arr.sort((a,b)=>{
+    let x=dig(a,so.field), y=dig(b,so.field);
+    if(x==null) x=so.dir==='asc'?'￿':-Infinity;
+    if(y==null) y=so.dir==='asc'?'￿':-Infinity;
+    return x<y?-1*dir:x>y?1*dir:0;
+  });
+  return arr;
+}
+
+function cardHTML(rec){
+  const hasScript=(rec.script||[]).length>0;
+  const head = rec.hook_desc
+    ? `<div class="hooktext">${esc(rec.hook_desc)}</div>`
+    : `<div class="hooktext empty">${hasScript?'훅 설명 없음':'대본 없음 — 원본 확인 필요'}</div>`;
+  const tags=[
+    ...(rec.tags.story_type?[`<span class="tag">${lab(rec.tags.story_type)}</span>`]:[]),
+    ...(rec.tags.trope_tags||[]).slice(0,2).map(t=>`<span class="tag gray">${lab(t)}</span>`),
+    ...(rec.needs_review?[`<span class="tag warn">검수 필요</span>`]:[])
+  ].join('');
+  return `<div class="card" tabindex="0" data-id="${rec.id}">
+    <div class="cardtop"><span class="ranknum">#${rec.rank??'–'} · @${esc(rec.author)}</span><span class="er">ER ${rec.metrics.er==null?'–':rec.metrics.er.toFixed(2)}%</span></div>
+    ${head}
+    <div class="cardtags">${tags}</div>
+    <div class="cardmeta"><span>▶ ${fmt(rec.metrics.views)}</span><span>⏱ ${rec.metrics.dur?Math.round(rec.metrics.dur)+'s':'–'}</span>${rec.publish_dt?`<span>📅 ${ymd(rec.publish_dt)}</span>`:''}${(rec.script||[]).length?`<span>💬 ${rec.script.length}</span>`:''}</div>
+  </div>`;
+}
+
+function render(){
+  const arr=filtered();
+  document.getElementById('grid').innerHTML=arr.map(cardHTML).join('');
+  document.getElementById('empty').style.display=arr.length?'none':'block';
+  document.getElementById('count').textContent=arr.length+'편';
+}
+
+// ---- 상세 ----
+const overlay=document.getElementById('overlay'), sheet=document.getElementById('sheet');
+document.getElementById('grid').addEventListener('click', e=>{const c=e.target.closest('.card'); if(c) openDetail(c.dataset.id);});
+document.getElementById('grid').addEventListener('keydown', e=>{if(e.key==='Enter'){const c=e.target.closest('.card'); if(c) openDetail(c.dataset.id);}});
+overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.classList.remove('open'); });
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') overlay.classList.remove('open'); });
+
+const spkClass = s => s==='나레이션'?'nar' : s==='미상'?'unk' : s==='화자1'?'s1' : s==='화자2'?'s2' : 's3';
+
+function scriptHTML(rec){
+  const S=rec.script||[];
+  if(!S.length){
+    return `<div class="noscript-big">정제 대본 없음 — ${rec.transcript_raw? 'STT 원문은 있으나 정제 전':'STT 미수집(무발화 또는 오디오 수집 실패)'}.<br>전체 스크립트는 오디오 재크롤링 후 채워집니다.</div>`;
+  }
+  const lines=S.map(l=>`<div class="line ${spkClass(l.speaker)}"><span class="spk ${spkClass(l.speaker)}">${esc(l.speaker)}</span><span class="linetext">${esc(l.line)}</span></div>`).join('');
+  return `<div class="script">${lines}</div>`;
+}
+
+function scenesHTML(rec){
+  const SC=rec.scenes||[];
+  if(!SC.length) return '';
+  const max=Math.max(...SC.map(c=>c.end||0),1);
+  const rows=SC.slice(0,40).map(c=>{
+    const w=Math.max(2,Math.round(((c.end-c.start)/max)*100));
+    const off=Math.round((c.start/max)*100);
+    return `<div class="scenerow"><span class="sc-time">${c.start.toFixed(1)}–${c.end.toFixed(1)}s</span><span class="sc-bar"><i style="margin-left:${off}%;width:${w}%"></i></span><span class="sc-shot">${esc(c.shot)}</span><span class="sc-ppl">${c.people}명</span></div>`;
+  }).join('');
+  const more=SC.length>40?`<div class="scenerow"><span class="sc-time">…</span><span></span><span class="sc-shot">외 ${SC.length-40}컷</span><span></span></div>`:'';
+  return `<div class="d-section">장면 타임라인 <span class="badge">${SC.length}컷</span></div>
+    <div class="scenes"><div class="scenerow head"><span>구간</span><span>길이</span><span>샷</span><span>인물</span></div>${rows}${more}</div>`;
+}
+
+function openDetail(id){
+  const rec=DATA.find(x=>x.id===id); if(!rec) return;
+  const m=rec.metrics;
+  const metrics=[
+    [m.er==null?'–':m.er.toFixed(2)+'%','ER'],
+    [m.save_rate==null?'–':m.save_rate.toFixed(2)+'%','저장률'],
+    [fmt(m.views),'조회수'],
+    [fmt(m.likes),'좋아요'],
+    [fmt(m.shares),'공유'],
+    [m.cut_count?Math.round(m.cut_count)+'컷/'+(m.avg_cut!=null?Number(m.avg_cut).toFixed(1):'–')+'s':'–','컷 구성'],
+  ].map(([v,k])=>`<div class="metric"><div class="v">${v}</div><div class="k">${k}</div></div>`).join('');
+  const t=rec.tags;
+  const alltags=[
+    ...(t.story_type?[`<span class="tag">${lab(t.story_type)}</span>`]:[]),
+    ...(t.male_lead||[]).map(x=>`<span class="tag">${lab(x)}</span>`),
+    ...(t.setting?[`<span class="tag blue">${lab(t.setting)}</span>`]:[]),
+    ...(t.trope_tags||[]).map(x=>`<span class="tag gray">${lab(x)}</span>`),
+    ...(t.dialogue_tags||[]).map(x=>`<span class="tag gray">${lab(x)}</span>`)
+  ].join('');
+  const pubLine=[rec.publish_dt?'발행 '+ymd(rec.publish_dt):'', rec.crawl_date?'크롤 '+rec.crawl_date:'', '대본형태 '+lab(rec.transcript_form||'none')].filter(Boolean).join(' · ');
+  const conf=`신뢰도 ${rec.tag_confidence==null?'–':Number(rec.tag_confidence).toFixed(2)}${rec.needs_review?' · <b style="color:#9A6B00">검수 필요</b>':''}`;
+  sheet.innerHTML=`
+    <button class="close" onclick="overlay.classList.remove('open')" aria-label="닫기">✕</button>
+    <div class="d-rank">Rank #${rec.rank??'–'} · @${esc(rec.author)} · ${rec.metrics.dur?Math.round(rec.metrics.dur)+'초':''}</div>
+    ${rec.hook_desc?`<div class="d-title">${esc(rec.hook_desc)}</div>`:''}
+    <div class="d-desc">${esc(rec.desc)}</div>
+    <div class="d-metrics">${metrics}</div>
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mute);margin-bottom:4px">${esc(pubLine)}</div>
+    <div class="d-section">대본 <span class="badge">${lab(rec.transcript_form||'none')}</span>${(rec.script||[]).length?`<span class="badge">${rec.script.length}줄</span>`:''}</div>
+    ${scriptHTML(rec)}
+    ${scenesHTML(rec)}
+    <div class="d-section">태그</div>
+    <div class="d-tags">${alltags||'<span class="sc-shot">태그 없음</span>'}</div>
+    <div class="notes">${conf}${rec.tag_notes?' · '+esc(rec.tag_notes):''}</div>
+    ${rec.url?`<a class="tlink" href="${esc(rec.url)}" target="_blank" rel="noopener">원본 영상 보기 ↗</a>`:''}
+  `;
+  overlay.classList.add('open'); sheet.scrollTop=0;
+}
+
+// ---- 비밀번호 게이트 (AES-GCM 복호화) ----
+const b64d = s => Uint8Array.from(atob(s), c=>c.charCodeAt(0));
+async function decrypt(pw, enc){
+  const kb=await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveKey']);
+  const key=await crypto.subtle.deriveKey(
+    {name:'PBKDF2', salt:b64d(enc.salt), iterations:enc.iter||200000, hash:'SHA-256'},
+    kb, {name:'AES-GCM', length:256}, false, ['decrypt']);
+  const pt=await crypto.subtle.decrypt({name:'AES-GCM', iv:b64d(enc.iv)}, key, b64d(enc.ct));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+function initGate(enc){
+  const btn=document.getElementById('gatebtn'), pw=document.getElementById('gatepw'), err=document.getElementById('gateerr');
+  async function tryOpen(){
+    err.textContent=''; btn.disabled=true; btn.textContent='복호화 중…';
+    try{ boot(await decrypt(pw.value, enc)); }
+    catch(e){ err.textContent='비밀번호가 틀렸습니다.'; btn.disabled=false; btn.textContent='열기'; pw.select(); }
+  }
+  btn.onclick=tryOpen;
+  pw.addEventListener('keydown', e=>{ if(e.key==='Enter') tryOpen(); });
+  pw.focus();
+}
+
+// PAYLOAD가 구워져 있으면 그대로, 없으면 외부 data.json을 fetch (배포=데이터 분리형, 갱신 시 HTML 재빌드 불필요)
+(async function start(){
+  if(PAYLOAD && PAYLOAD.plain){ return boot(PAYLOAD.plain); }         // 로컬 미리보기 (구운 평문)
+  if(PAYLOAD && PAYLOAD.enc){ return initGate(PAYLOAD.enc); }         // 구운 AES (선택적 이중잠금)
+  try{
+    const r=await fetch('./data.json',{cache:'no-store'});           // Cloudflare 배포 (분리형)
+    if(!r.ok) throw new Error(r.status);
+    const d=await r.json();
+    if(d.enc) return initGate(d.enc);
+    boot(d.plain || d);
+  }catch(e){
+    document.getElementById('gate').classList.remove('hidden');
+    document.getElementById('gateerr').textContent='데이터를 불러오지 못했습니다 (data.json).';
+  }
+})();
+</script>
+</body>
+</html>

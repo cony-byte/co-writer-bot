@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-트렌드서치 모듈 v1 — 슬랙 에이전트용
-- reference_db(v4 태깅) JSON을 읽어 성과 가중 트렌드를 집계
-- 질문을 쪼개서 물어볼 수 있음: 전체 / 정서축 / 조합 / 훅 / 엔딩(절단점) / 톱클립
-- 카테고리 필터 지원: "후회남 쪽 훅은?" → filter로 좁혀서 집계
+트렌드서치 모듈 v2 — 슬랙 에이전트용 (통합 DB v5 대응)
+- 통합 정제 DB(reference_db.json, tag_version=v5.0)를 읽어 성과 가중 트렌드를 집계
+- 검색 풀은 v4 생성축이 태깅된 편만: v4_tagged=true and v4_tag_confidence>=MIN_CONF
+  (병합 후 전 레코드가 v5.0이므로 tag_version이 아니라 v4_tagged로 게이트 — 미태깅편 오염 방지)
+- 카테고리 필터: trope는 trope_tags_ko(한글) 참조
 - 시간축: crawl_date가 2개 구간 이상 쌓이면 자동으로 rising/falling 비교, 아니면 스냅샷 모드
 
 사용:
-    from trend_search import TrendSearch
-    ts = TrendSearch("reference_db_v4.json")
+    from bot.trend_search import TrendSearch
+    ts = TrendSearch("data/reference/reference_db.json")
     print(ts.answer("요즘 뭐가 트렌드야?"))
-    print(ts.answer("정서 축만 보여줘"))
     print(ts.answer("후회남 쪽 훅은 어때?"))
 """
 import json
@@ -18,6 +18,8 @@ import math
 import re
 from collections import defaultdict
 from datetime import datetime, timedelta
+
+from .tag_vocab import FILTER_ALIASES  # 한글 키워드 → (catharsis|trope) 공유 테이블
 
 # ---------------- 상수 ----------------
 CAT_KO = {
@@ -29,23 +31,7 @@ CAT_KO = {
     "forbidden_tension": "금단 긴장",
     "humor_flutter": "코믹 티키타카 설렘",
 }
-# 질문 키워드 → catharsis/trope 필터 매핑
-FILTER_ALIASES = {
-    "후회남": ("catharsis", "regret_grovel"), "후회": ("catharsis", "regret_grovel"),
-    "복수": ("catharsis", "revenge_payback"),
-    "신분상승": ("catharsis", "status_reversal"), "신데렐라": ("trope", "신데렐라(신분격차)"),
-    "집착": ("catharsis", "devotion_thrill"),
-    "구원": ("catharsis", "salvation"), "치유": ("catharsis", "salvation"),
-    "금단": ("catharsis", "forbidden_tension"),
-    "로코": ("catharsis", "humor_flutter"), "코믹": ("catharsis", "humor_flutter"),
-    "오피스": ("trope", "오피스로맨스"), "사내": ("trope", "오피스로맨스"),
-    "정략결혼": ("trope", "정략결혼"), "계약": ("trope", "계약연애"),
-    "혐관": ("trope", "혐관"), "삼각": ("trope", "삼각관계"),
-    "재회": ("trope", "재회물"), "판타지": ("trope", "능력·판타지"),
-    "늑대인간": ("trope", "능력·판타지"), "임신": ("trope", "임신·출산"),
-    "회귀": ("trope", "회귀·환생"), "마피아": ("trope", "신분숨김(히든재벌·정체은닉)"),
-}
-MIN_CONF = 0.6          # 검색 풀 신뢰도 게이트
+MIN_CONF = 0.6          # 검색 풀 신뢰도 게이트 (v4_tag_confidence)
 RECENT_DAYS = 14        # 시간축 비교: 최근 구간 길이
 MIN_BATCH_GAP_DAYS = 7  # 이 이상 날짜가 갈라져야 시간축 비교 발동
 
@@ -54,13 +40,12 @@ class TrendSearch:
     def __init__(self, db_path):
         with open(db_path, encoding="utf-8") as f:
             data = json.load(f)
-        # v4 태깅 + 신뢰도 게이트 통과분만 검색 풀에 편입
+        # v4 생성축 태깅 + 신뢰도 게이트 통과분만 검색 풀에 편입
         self.pool = [
             x for x in data
-            if x.get("tag_version") == "v4.0"
-            and (x.get("tag_confidence") or 0) >= MIN_CONF
+            if x.get("v4_tagged") and (x.get("v4_tag_confidence") or 0) >= MIN_CONF
         ]
-        self.all_tagged = [x for x in data if x.get("tag_version") == "v4.0"]
+        self.all_tagged = [x for x in data if x.get("v4_tagged")]
         self.dates = sorted({x.get("crawl_date") for x in self.pool if x.get("crawl_date")})
 
     # ---------------- 성과 점수 ----------------
@@ -107,8 +92,8 @@ class TrendSearch:
             return items
         kind, val = flt
         if kind == "catharsis":
-            return [x for x in items if x["tags"]["catharsis_type"] == val]
-        return [x for x in items if val in (x["tags"].get("trope_tags") or [])]
+            return [x for x in items if x["tags"].get("catharsis_type") == val]
+        return [x for x in items if val in (x["tags"].get("trope_tags_ko") or [])]
 
     def _rising(self, field, is_list=False):
         """시간축 있으면 최근 vs 과거 점유율 변화 상위/하위 반환."""
@@ -156,7 +141,7 @@ class TrendSearch:
             return "조합을 뽑기엔 레퍼런스가 부족해요."
         s = defaultdict(lambda: [0.0, 0])
         for x in items:
-            tr = sorted(set(x["tags"].get("trope_tags") or []))
+            tr = sorted(set(x["tags"].get("trope_tags_ko") or []))
             for i in range(len(tr)):
                 for j in range(i + 1, len(tr)):
                     s[(tr[i], tr[j])][0] += self._score(x)
@@ -205,8 +190,8 @@ class TrendSearch:
         for x in top:
             m = x["metrics"]
             lines.append(
-                f"• @{x['author']} — {CAT_KO.get(x['tags']['catharsis_type'],'')} / "
-                f"{'·'.join(x['tags']['trope_tags'][:2])}\n"
+                f"• @{x['author']} — {CAT_KO.get(x['tags'].get('catharsis_type'),'')} / "
+                f"{'·'.join((x['tags'].get('trope_tags_ko') or [])[:2])}\n"
                 f"  {x['hook_desc'][:70]}\n"
                 f"  조회 {m['views']:,.0f} · ER {m['er']}% · 저장률 {m['save_rate']}% · {x['url']}"
             )
@@ -241,14 +226,13 @@ class TrendSearch:
 
 
 if __name__ == "__main__":
-    ts = TrendSearch("reference_db_v4.json")
+    # 데모: python3 -m bot.trend_search (상대 import 때문에 -m으로 실행)
+    from . import config
+    ts = TrendSearch(str(config.REFERENCE_DIR / "reference_db.json"))
     for q in [
         "요즘 뭐가 트렌드야?",
-        "정서 축만 보여줘",
         "요즘 잘 나가는 조합 뭐야",
-        "훅은 요즘 어떻게 잡아?",
         "엔딩은 뭘로 끊는 게 좋아?",
-        "집착남 쪽 톱 클립 보여줘",
         "후회남 쪽 훅은 어때?",
     ]:
         print("=" * 60)

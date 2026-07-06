@@ -42,7 +42,7 @@ def system_blocks(query: str) -> list[dict]:
 
     stable = ROLE
     if patterns:
-        stable += "\n\n# 패턴 요약 (레퍼런스 DB v3 실측)\n\n" + patterns
+        stable += "\n\n# 패턴 요약 (레퍼런스 DB v5 실측)\n\n" + patterns
     if templates:
         stable += "\n\n# 사내 템플릿 (이 양식 우선)\n\n" + templates
 

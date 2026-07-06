@@ -7,10 +7,35 @@
 
 | 파일 | 내용 |
 |---|---|
-| `reference_db.json` | **drama_clip 76편만.** 정제 대본 + v3 재태깅 + hook_desc |
+| `reference_db.json` | **drama_clip 76편만.** 정제 대본 + v3 재태깅 + hook_desc + 발행시각 + 화자중립 + 장면 |
 | `excluded.json` | 비본편 24편 (trailer_recap 15 / fan_edit 4 / bts 3 / movie_clip 1 / other 1) — 태그 통계 오염 방지용 격리. 정제 안 함 |
 | `태깅프롬프트_v3.md` | transcript 정제·재태깅·hook_desc 프롬프트 SSOT (다음 배치 재실행용) |
 | `patterns/` | story_type별 패턴 요약 — **생성 파이프라인 프롬프트에 들어가는 건 원본 76편이 아니라 이 요약 + 유사 사례 2~3편** |
+| `enrich.py` | reference_db 후처리 — 발행시각(id→시각)·화자중립화·장면(CSV 컷) 병합 |
+| `filters.json` | **내부 뷰어 필터 설정 — 여기만 편집.** auto 칩(자동) + keyword_groups(사용자 정의) + sort |
+| `viewer_template.html` | 내부 뷰어 UI 템플릿 (`/*__PAYLOAD__*/null` 자리에 데이터 주입) |
+| `build_viewer.py` | reference_db + filters → 뷰어 HTML (평문 개발 / AES 암호화 배포) |
+| `viewer.html` | 평문 개발 빌드 (gitignore — 전체 대본 노출, 커밋 금지) |
+
+## 내부 뷰어 (사내 전용, 비밀번호 게이트)
+
+`data/`의 공개 라이브러리 뷰어(`docs/index.html`, rebuild-library가 관리)와 **별개**. 정제된 76편을 대본·화자·장면·발행시각까지 보여주는 내부 도구.
+
+```bash
+python3 reference/enrich.py --csv <system repo 로우데이터 CSV>...   # 데이터 강화(발행시각·화자·장면)
+python3 reference/build_viewer.py                                    # 로컬 미리보기(구운 단일파일) → reference/viewer.html
+python3 reference/build_viewer.py --deploy                           # Cloudflare 배포(데이터 분리형) → cloudflare/index.html + data.json
+```
+
+**발행 = Cloudflare Pages + Cloudflare Access** (2026-07-06 확정). 세팅·갱신 절차는 [`cloudflare/README.md`](../cloudflare/README.md).
+- **데이터 분리형**: `index.html`(껍데기)이 `data.json`을 런타임 fetch → 데이터만 바꾸면 사이트 갱신. Cloudflare Build command를 걸면 push마다 자동 재빌드("계속 갱신").
+- 접근 제어는 **Cloudflare Access**(문 앞 이메일/SSO 인증)가 담당 → 사람별 초대·즉시 차단·감사 로그. 파일은 **평문**이면 충분(Access가 서빙 전 차단).
+- repo는 private이라 `reference/*.json` 원본도 비노출. 배포 디렉터리는 `cloudflare/` (docs/ 공개 뷰어와 분리).
+- (선택) 이중 잠금이 필요하면 `build_viewer.py --password '비번'` → `data.json`이 AES-256-GCM 암호문이 되고 뷰어가 비번 입력 시 복호화.
+
+### 뷰어 반영 요구사항 (2026-07-06)
+- 후킹 태그 필터 제거 / 전체 대본 표시(화자1·화자2·나레이션 중립 구분 + role_hint 보존) / 컷 타임라인(시간·샷·인물) / 발행시각(id 인코딩 추출, 트렌드↔고전 구분) / filters.json 기반 키워드 필터.
+- **전체 스크립트 한계**: 76편 중 정제 대본 38편뿐. 나머지는 시드 배치가 whisper STT를 못 잡음(무발화 또는 오디오 수집 실패). 전체 대본·줄별 타임스탬프·진짜 화자분리는 **오디오 재크롤링** 후 채워진다.
 
 ## 스키마 v3 — v2.1 대비 변경
 

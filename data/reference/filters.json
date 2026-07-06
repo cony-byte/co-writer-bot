@@ -1,0 +1,116 @@
+{
+  "_README": "뷰어 필터 설정. auto 칩은 데이터에서 자동 수집. 키워드 필터는 구글시트로 관리(keyword_sheet_csv_url) — 실무자가 시트만 편집하면 됨. 시트 로드 실패 시 아래 keyword_groups(번들)로 폴백.",
+  "keyword_sheet_csv_url": "https://docs.google.com/spreadsheets/d/12eRW10XxcuYqhuFuDpplqFQQJ031UV0l7JPAksRPecY/gviz/tq?tqx=out:csv",
+  "_keyword_sheet_note": "구글시트 키워드 관리: 시트를 '링크가 있는 모든 사용자=뷰어'로 공유 후, gviz CSV URL을 여기에 넣으면 됨. 형식: https://docs.google.com/spreadsheets/d/<시트ID>/gviz/tq?tqx=out:csv&sheet=<탭이름>. 시트 컬럼(1행 헤더): 라벨 | 키워드 | 검색범위(선택) | 사용(선택). 키워드는 셀 안에서 | 로 구분(예: 재벌|CEO|billionaire). 비우면 아래 keyword_groups(번들)를 사용.",
+  "auto_chips": [
+    {
+      "id": "story_type",
+      "label": "스토리 유형",
+      "field": "tags.story_type",
+      "enabled": true
+    },
+    {
+      "id": "trope_tags",
+      "label": "트로프",
+      "field": "tags.trope_tags",
+      "enabled": true
+    },
+    {
+      "id": "male_lead",
+      "label": "남주 유형",
+      "field": "tags.male_lead",
+      "enabled": true
+    },
+    {
+      "id": "setting",
+      "label": "배경",
+      "field": "tags.setting",
+      "enabled": true
+    },
+    {
+      "id": "transcript_form",
+      "label": "대본 형태",
+      "field": "transcript_form",
+      "enabled": true
+    }
+  ],
+  "keyword_groups": [
+    {
+      "_note": "사용자 정의 영역 — 아래는 예시. label은 칩 이름, any는 이 중 하나라도 매칭되면 포함. search_in에 지정한 필드들에서 대소문자 무시하고 부분일치.",
+      "label": "예시: 재벌/CEO",
+      "any": [
+        "재벌",
+        "CEO",
+        "billionaire",
+        "회장",
+        "보스"
+      ],
+      "search_in": [
+        "desc",
+        "script.line",
+        "hook_desc"
+      ]
+    },
+    {
+      "label": "예시: 계약/위장결혼",
+      "any": [
+        "계약",
+        "위장",
+        "가짜",
+        "contract",
+        "fake"
+      ],
+      "search_in": [
+        "desc",
+        "script.line",
+        "hook_desc"
+      ]
+    }
+  ],
+  "exclude_keywords": {
+    "_note": "이 키워드가 desc/script에 있으면 목록에서 숨김 (전역 제외). 비워두면 제외 없음.",
+    "any": [],
+    "search_in": [
+      "desc",
+      "script.line"
+    ]
+  },
+  "search_fields": [
+    "desc",
+    "script.line",
+    "hook_desc",
+    "author"
+  ],
+  "sort_options": [
+    {
+      "id": "er",
+      "label": "ER 높은순",
+      "field": "metrics.er",
+      "dir": "desc"
+    },
+    {
+      "id": "views",
+      "label": "조회수",
+      "field": "metrics.views",
+      "dir": "desc"
+    },
+    {
+      "id": "save_rate",
+      "label": "저장률",
+      "field": "metrics.save_rate",
+      "dir": "desc"
+    },
+    {
+      "id": "publish_new",
+      "label": "최신 발행순",
+      "field": "publish_dt",
+      "dir": "desc"
+    },
+    {
+      "id": "publish_old",
+      "label": "오래된 발행순",
+      "field": "publish_dt",
+      "dir": "asc"
+    }
+  ]
+}

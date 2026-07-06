@@ -1,0 +1,6 @@
+# 평문 개발 빌드 (전체 대본 페이로드 노출) — 커밋 금지. 배포는 build_viewer.py --password --deploy
+viewer.html
+
+# 파이썬 캐시
+__pycache__/
+*.pyc
