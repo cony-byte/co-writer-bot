@@ -1,0 +1,2 @@
+anthropic>=0.92.0
+slack-bolt>=1.20.0
