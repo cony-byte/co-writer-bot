@@ -33,25 +33,30 @@
 ## 설치
 
 ```bash
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 python3 scripts/sync_reference.py       # 레퍼런스 DB 동기화
-
-# Anthropic 인증 — 팀 클로드(구독)로 실행 (API 키 불필요)
-brew install anthropics/tap/ant
-xattr -d com.apple.quarantine "$(brew --prefix)/bin/ant"
-ant auth login                          # 브라우저에서 팀 계정 로그인 → 프로필 저장
-ant auth status                         # 어떤 자격증명이 잡혔는지 확인
-
 cp .env.example .env && vi .env         # 슬랙 토큰 2개만 입력
 set -a && source .env && set +a
-python3 app.py                          # 기동 시 자격증명 헬스체크 후 시작
+python3 app.py                          # 기동 시 환경 헬스체크 후 시작
 ```
 
-### 팀 클로드 인증 주의사항
+### Anthropic 인증 — API 키 불필요 (기본)
 
-- **`ANTHROPIC_API_KEY`를 설정하지 마세요** — 빈 값(`""`)이라도 설정돼 있으면 OAuth 프로필보다 우선돼 인증이 깨집니다. 어딘가에서 export되고 있다면 `unset ANTHROPIC_API_KEY`.
-- 갱신 토큰은 언젠가 만료됩니다 — 봇이 인증 오류로 죽으면 `ant auth login`을 다시 실행하고 재기동하면 됩니다.
-- 계정이 여러 워크스페이스에 걸쳐 있으면 `ant auth login --profile cowriter`로 전용 프로필을 만들고 `ANTHROPIC_PROFILE=cowriter`로 지정할 수 있습니다.
+기본 백엔드(`agent`)는 **이 머신의 Claude Code 팀 로그인을 재사용**합니다
+(Claude Agent SDK가 로컬 `claude` CLI를 통해 호출). 사용량은 팀 구독에서 차감됩니다.
+
+**최초 1회**: 터미널에서 CLI 로그인이 필요합니다 —
+
+```bash
+claude          # 대화형 실행 → /login → 브라우저에서 팀 계정 로그인
+claude -p "ping"   # headless 동작 확인 (응답이 나오면 준비 완료)
+```
+
+> 데스크톱 앱으로만 로그인돼 있으면 CLI 쪽 자격증명(키체인)이 비어 있어
+> headless 호출이 "Not logged in"이 됩니다 — 위 1회 로그인으로 해결.
+
+API 키로 직접 호출하려면 `.env`에 `COWRITER_BACKEND=api` + `ANTHROPIC_API_KEY`를 설정하세요
+(프롬프트 캐싱·adaptive thinking을 쓰는 원 API 경로).
 
 ### Slack 앱 설정 (api.slack.com/apps → Create New App → From a manifest)
 

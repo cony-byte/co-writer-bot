@@ -8,7 +8,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")
 SLACK_APP_TOKEN = os.environ.get("SLACK_APP_TOKEN", "")  # Socket Mode (xapp-)
 
-MODEL = os.environ.get("COWRITER_MODEL", "claude-opus-4-8")
+# 백엔드: "agent" = Claude Agent SDK(이 머신의 Claude Code 팀 로그인 재사용, 키 불필요)
+#         "api"   = Anthropic SDK 직접 호출(API 키 또는 ant 프로필 필요)
+BACKEND = os.environ.get("COWRITER_BACKEND", "agent")
+
+MODEL = os.environ.get("COWRITER_MODEL", "claude-opus-4-8")       # api 백엔드용
+AGENT_MODEL = os.environ.get("COWRITER_AGENT_MODEL", "")           # agent 백엔드용 ("" = Claude Code 기본)
 MAX_TOKENS = int(os.environ.get("COWRITER_MAX_TOKENS", "16000"))
 
 # 레퍼런스 DB — story-v1-scripts repo의 reference/ 디렉터리.

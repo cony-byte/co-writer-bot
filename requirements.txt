@@ -1,2 +1,3 @@
-anthropic>=0.92.0
 slack-bolt>=1.20.0
+claude-agent-sdk>=0.1.0   # agent 백엔드 (기본) — Claude Code 팀 로그인 재사용
+anthropic>=0.92.0         # api 백엔드 (COWRITER_BACKEND=api일 때만 사용)
