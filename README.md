@@ -26,9 +26,26 @@
   → ML/FL/SUP/NAR 화자 표기 대본, 훅 대사로 시작 → 절단점 대사로 끝
 ```
 
+### 트렌드 검색 (v4 DB 성과 집계)
+
+"트렌드/요즘/인기/잘나가/순위/톱클립" 등이 들어간 질문은 생성 대신 트렌드서치로 갑니다.
+
+```
+@co-writer 요즘 뭐가 트렌드야?          → 정서축·조합·훅·톱클립 종합
+@co-writer 요즘 잘 나가는 조합 뭐야       → 트로프 조합 순위
+@co-writer 엔딩은 뭘로 끊는 게 좋아?      → 절단점 유형 순위
+@co-writer 후회남 쪽 훅은 어때?          → 카테고리로 좁혀 집계
+```
+
+성과지수 = 조회수(로그) × 반응률·저장률 가중. `data/reference_db_v4.json`(v4 태깅)
+기준이며 신뢰도 0.6 미만·표본 부족 축은 경고를 붙입니다. crawl_date가 2구간 이상
+쌓이면 자동으로 상승/하락 추세 비교로 전환됩니다.
+
+### 기타
+
 - 채널: 멘션으로 반응. **스레드가 곧 작업 단위** — 같은 스레드에서 계속 주고받으면 맥락 유지.
 - DM: 멘션 없이 동작.
-- `@co-writer reload`: 레퍼런스·템플릿 갱신분 반영 (재시작 불필요).
+- `@co-writer reload`: 레퍼런스·템플릿·v4 트렌드 DB 갱신분 반영 (재시작 불필요).
 
 ## 설치
 
@@ -98,7 +115,9 @@ bot/reference.py        # 레퍼런스 DB·패턴·템플릿 로드
 bot/retrieval.py        # 한국어 키워드 → v3 태그 → 유사 사례 2~3편 선별
 bot/prompts.py          # 시스템 프롬프트 조립 (고정부는 프롬프트 캐싱)
 bot/generator.py        # Claude API (claude-opus-4-8, adaptive thinking, streaming)
+bot/trend_search.py     # v4 DB 성과 가중 트렌드 집계 (정서축·조합·훅·절단점·톱클립)
 scripts/sync_reference.py  # story-v1-scripts → data/reference 동기화
+data/reference_db_v4.json  # 트렌드서치용 v4 DB (봇 전용, sync 대상 아님)
 templates/              # 사내 템플릿 자리 (*.md를 넣으면 자동 주입)
 ```
 

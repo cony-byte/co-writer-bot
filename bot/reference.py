@@ -37,8 +37,19 @@ def load_templates() -> str:
     return "\n\n---\n\n".join(p.read_text(encoding="utf-8") for p in files)
 
 
+@lru_cache(maxsize=1)
+def load_trend():
+    """트렌드서치 인스턴스 (v4 DB). 파일 없으면 None — 봇은 트렌드 기능만 비활성."""
+    path = Path(config.REFERENCE_DB_V4)
+    if not path.exists():
+        return None
+    from .trend_search import TrendSearch
+    return TrendSearch(str(path))
+
+
 def reload() -> None:
     """레퍼런스/템플릿 갱신 후 캐시 무효화 (프로세스 재시작 없이)."""
     load_db.cache_clear()
     load_patterns.cache_clear()
     load_templates.cache_clear()
+    load_trend.cache_clear()

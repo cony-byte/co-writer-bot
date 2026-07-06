@@ -26,6 +26,8 @@ app = App(token=config.SLACK_BOT_TOKEN)
 BOT_USER_ID = app.client.auth_test()["user_id"]
 
 MENTION_RE = re.compile(rf"<@{BOT_USER_ID}>\s*")
+# 트렌드 질문 트리거 — 매칭되면 생성 대신 트렌드서치로 라우팅
+TREND_RE = re.compile(r"트렌드|요즘|유행|인기|잘\s*나가|잘나가|순위|랭킹|톱\s*클립|톱클립")
 
 
 def _clean(text: str) -> str:
@@ -77,6 +79,25 @@ def _handle(event: dict) -> None:
             channel=channel, thread_ts=thread_ts,
             text="레퍼런스 DB·템플릿을 다시 불러왔어요.",
         )
+        return
+
+    # 트렌드 질문이면 생성 대신 트렌드서치 (v4 DB 성과 집계)
+    if TREND_RE.search(query):
+        trend = reference.load_trend()
+        if trend is None:
+            app.client.chat_postMessage(
+                channel=channel, thread_ts=thread_ts,
+                text="트렌드 DB(reference_db_v4.json)가 아직 없어요. 데이터 반영 후 다시 물어봐 주세요.",
+            )
+            return
+        try:
+            _post_chunks(channel, thread_ts, trend.answer(query))
+        except Exception:
+            log.exception("trend search failed")
+            app.client.chat_postMessage(
+                channel=channel, thread_ts=thread_ts,
+                text="트렌드 집계 중 오류가 났어요.",
+            )
         return
 
     messages = _thread_messages(channel, thread_ts)

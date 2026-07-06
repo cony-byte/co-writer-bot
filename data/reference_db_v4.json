@@ -1,0 +1,6301 @@
+[
+ {
+  "id": "7574740340293324045",
+  "url": "https://www.tiktok.com/@microdrama8/video/7574740340293324045",
+  "author": "microdrama8",
+  "desc": "#movie #usa🇺🇸 #tiktok #foryoupage #ceo ",
+  "rank": 2,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 32700.0,
+   "likes": 1679.0,
+   "saves": 612.0,
+   "shares": 67.0,
+   "comments": 66.0,
+   "er": 2.278,
+   "save_rate": 1.872,
+   "dur": 89.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "male_lead": [
+    "unknown"
+   ],
+   "setting": "",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.2,
+  "tag_notes": "transcript 없음, 설명문이 해시태그(#ceo 등)뿐 — 분류 근거 없음.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7638525285016636692",
+  "url": "https://www.tiktok.com/@reelixandflip/video/7638525285016636692",
+  "author": "reelixandflip",
+  "desc": "EP3- \"I wasn't a boyfriend. I was your pet.\"#Reelix #Flip #flickreels @flickreels_dramatime",
+  "rank": 5,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 12400.0,
+   "likes": 236.0,
+   "saves": 93.0,
+   "shares": 74.0,
+   "comments": 6.0,
+   "er": 1.395,
+   "save_rate": 0.75,
+   "dur": 103.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "'난 남자친구가 아니라 네 애완동물이었어'라는 대사가 핵심 훅으로 추정된다(설명문 인용 기반).",
+  "hook_desc_confidence": 0.3,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [
+    "breakup_rejection_or_distance",
+    "humiliation_status_drop_or_bullying"
+   ],
+   "trope_tags": [],
+   "male_lead": [
+    "unknown"
+   ],
+   "setting": "",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.3,
+  "tag_notes": "transcript 없음. dialogue_tags는 설명문에 인용된 대사 1줄 근거 — 첫 3초 위치 여부 불명.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7656529518080986401",
+  "url": "https://www.tiktok.com/@catlynx23/video/7656529518080986401",
+  "author": "catlynx23",
+  "desc": "My Boyfriend Is a Werewolf – Special Episode: The First Meeting [ Made with Happy Horse 1.1 ] @HappyHorseAI  #happyhorse #werewolf #romance ",
+  "rank": 6,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 106900.0,
+   "likes": 8326.0,
+   "saves": 1225.0,
+   "shares": 167.0,
+   "comments": 37.0,
+   "er": 1.337,
+   "save_rate": 1.146,
+   "dur": 35.0,
+   "cut_count": 8.0,
+   "avg_cut": 3.621
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "와, 저 사람 누구야? 정말 아름답다. 응, 진짜로. 여기서 한 번도 본 적 없는 것 같은데. 저 여자가 내 것이 될 때까지 멈추지 마. 라이커 좀 봐. 완전히 넋이 나갔어. 라이커, 정신 차려! 벌써 말문이 막힌 거야?",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "SUP",
+    "line": "와, 저 사람 누구야? 정말 아름답다."
+   },
+   {
+    "speaker": "SUP",
+    "line": "응, 진짜로. 여기서 한 번도 본 적 없는 것 같은데."
+   },
+   {
+    "speaker": "UNK",
+    "line": "저 여자가 내 것이 될 때까지 멈추지 마."
+   },
+   {
+    "speaker": "SUP",
+    "line": "라이커 좀 봐. 완전히 넋이 나갔어."
+   },
+   {
+    "speaker": "SUP",
+    "line": "라이커, 정신 차려! 벌써 말문이 막힌 거야?"
+   }
+  ],
+  "hook_desc": "남주 무리가 처음 나타난 여주를 발견하고 '저 사람 누구야, 정말 아름답다'며 술렁이고, 남주는 넋을 잃는다.",
+  "hook_desc_confidence": 0.7,
+  "tags": {
+   "catharsis_type": "devotion_thrill",
+   "trope_tags": [
+    "능력·판타지",
+    "집착남"
+   ],
+   "hook_beat": [
+    "첫만남·강렬한 조우"
+   ],
+   "cliffhanger_type": "재회·조우 순간",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": false,
+    "fl_type": "불명"
+   },
+   "male_lead": [
+    "dominant_possessive",
+    "dangerous_forbidden"
+   ],
+   "setting": "fantasy_supernatural",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.55,
+  "tag_notes": "script 명확(첫 조우+남주 홀림). '내 것이 될 때까지' → 집착. 늑대인간물 판타지. cliff는 조우 여운으로 추정.",
+  "tag_version": "v4.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "jealousy_rival_hook",
+   "story_type": "jealousy_rival_drama",
+   "dialogue_tags": [
+    "jealousy_possession_or_rival",
+    "threat_danger_or_revenge",
+    "emotional_question_or_confrontation"
+   ],
+   "trope_tags": [
+    "love_triangle_or_rival"
+   ],
+   "hook": "와, 저 사람 누구야? 정말 아름답다. 응, 진짜로. 여기서 한 번도 본 적 없는 것 같은데. 저 여자가 내 것이 될 때까지 멈추지 마. 라이커 좀 봐. 완전히 넋이 나갔어. 라이커, 정신 차려! 벌써 말문이 막힌 거야?",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "first_encounter_hook",
+   "story_type": "emotion_reaction_driven",
+   "dialogue_tags": [
+    "love_confession_or_desire",
+    "jealousy_possession_or_rival"
+   ],
+   "trope_tags": [],
+   "male_lead": [
+    "dominant_possessive",
+    "dangerous_forbidden"
+   ],
+   "setting": "fantasy_supernatural",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7652320714745187605",
+  "url": "https://www.tiktok.com/@dramaboxshorts/video/7652320714745187605",
+  "author": "dramaboxshorts",
+  "desc": "🔍 Click the link in my bio to watch the full version He bullied her from day one... then became the first to fall in love. ❤️‍🔥👀 #dramabo",
+  "rank": 8,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 91200.0,
+   "likes": 2517.0,
+   "saves": 885.0,
+   "shares": 77.0,
+   "comments": 13.0,
+   "er": 1.069,
+   "save_rate": 0.97,
+   "dur": 144.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "enemies_to_lovers"
+   ],
+   "male_lead": [
+    "cold_to_warm"
+   ],
+   "setting": "",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.4,
+  "tag_notes": "transcript 없음. trope는 설명문('He bullied her from day one... then became the first to fall in love') 근거로 명확.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7639127670298529057",
+  "url": "https://www.tiktok.com/@catlynx23/video/7639127670298529057",
+  "author": "catlynx23",
+  "desc": "My Boyfriend is a werewolf ! 🐺🩷 | Part 17 #dramaseries #romanceseries #romance #lovetriangle #fry ",
+  "rank": 10,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 109900.0,
+   "likes": 8924.0,
+   "saves": 909.0,
+   "shares": 169.0,
+   "comments": 79.0,
+   "er": 1.053,
+   "save_rate": 0.827,
+   "dur": 135.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "forbidden_love",
+    "love_triangle_or_rival"
+   ],
+   "male_lead": [
+    "dangerous_forbidden"
+   ],
+   "setting": "fantasy_supernatural",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.35,
+  "tag_notes": "transcript 없음. 시리즈(My Boyfriend is a Werewolf)+해시태그(#lovetriangle) 기반.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7649781763383758093",
+  "url": "https://www.tiktok.com/@reelshortapp/video/7649781763383758093",
+  "author": "reelshortapp",
+  "desc": "🎬 My Alpha Boss Gave Me Triplets   #reelshort #myalphabossgavemetriplets #werewolf #mustwatch #shortdrama",
+  "rank": 13,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 217900.0,
+   "likes": 7129.0,
+   "saves": 1750.0,
+   "shares": 169.0,
+   "comments": 26.0,
+   "er": 0.893,
+   "save_rate": 0.803,
+   "dur": 30.0,
+   "cut_count": 9.0,
+   "avg_cut": 3.163
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "날 좀 봐줘!",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "UNK",
+    "line": "날 좀 봐줘!"
+   }
+  ],
+  "hook_desc": "여주가 '날 좀 봐줘!'라고 외치는 순간의 신체 접촉 장면으로 시작한다.",
+  "hook_desc_confidence": 0.4,
+  "tags": {
+   "catharsis_type": "devotion_thrill",
+   "trope_tags": [
+    "능력·판타지",
+    "오피스로맨스",
+    "임신·출산"
+   ],
+   "hook_beat": [
+    "고백·유혹"
+   ],
+   "cliffhanger_type": "끊김 아님(완결형)",
+   "character_setup": {
+    "villain": "불명",
+    "sub_male": null,
+    "fl_type": "불명"
+   },
+   "male_lead": [
+    "dominant_possessive",
+    "powerful_status"
+   ],
+   "setting": "fantasy_supernatural",
+   "hook_modality": "mixed",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.3,
+  "tag_notes": "대사 '날 좀 봐줘!' 1줄뿐. trope는 시리즈 제목(Alpha Boss/Triplets) 근거 — 저신뢰.",
+  "tag_version": "v4.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "confession_or_desire_hook",
+   "story_type": "power_status_romance",
+   "dialogue_tags": [
+    "love_confession_or_desire"
+   ],
+   "trope_tags": [
+    "boss_employee_or_power_romance"
+   ],
+   "hook": "날 좀 봐줘!",
+   "tag_confidence": 0.55
+  },
+  "legacy_tags_v3": {
+   "hook_type": "confession_or_desire_hook",
+   "story_type": "power_status_romance",
+   "dialogue_tags": [
+    "love_confession_or_desire"
+   ],
+   "trope_tags": [
+    "boss_employee_or_power_romance"
+   ],
+   "male_lead": [
+    "dominant_possessive",
+    "powerful_status"
+   ],
+   "setting": "fantasy_supernatural",
+   "hook_modality": "mixed",
+   "visual_hook": "physical_contact",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7636144451290696973",
+  "url": "https://www.tiktok.com/@reelshortapp/video/7636144451290696973",
+  "author": "reelshortapp",
+  "desc": "🎬 Married the Mafioso I Saved⁠ ⁠ Take me home! ⁠ #reelshort #mafia #shortdrama #mustwatch #marriedthemafiosoisaved",
+  "rank": 14,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 389200.0,
+   "likes": 18800.0,
+   "saves": 2664.0,
+   "shares": 517.0,
+   "comments": 142.0,
+   "er": 0.854,
+   "save_rate": 0.684,
+   "dur": 28.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "danger_rescue_romance"
+   ],
+   "male_lead": [
+    "dangerous_forbidden",
+    "powerful_status"
+   ],
+   "setting": "",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.35,
+  "tag_notes": "transcript 없음. trope는 제목(Married the Mafioso I Saved) 기반.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7653462431334731028",
+  "url": "https://www.tiktok.com/@iqiyi_malaysia/video/7653462431334731028",
+  "author": "iqiyi_malaysia",
+  "desc": "Tak payah clinic, ada boyfriend dah cukup😏🔥 Tonton Midnight Temptation di iQIYI Malaysia! #iQIYI #iQIYIMalaysia #MidnightTemptation #Cheng",
+  "rank": 15,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 495100.0,
+   "likes": 13200.0,
+   "saves": 3865.0,
+   "shares": 263.0,
+   "comments": 36.0,
+   "er": 0.841,
+   "save_rate": 0.781,
+   "dur": 36.0,
+   "cut_count": 5.0,
+   "avg_cut": 5.0
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "뭐 하는 거야? 회진. 나가. 의사가 해야 할 일을 하는 거야. 왜, 다른 서비스를 원하는 거야? 원하지 않아. 게다가 내 몸은 지금 너한테 줄 수 없어. 가능해? 다음번에 보상할게. 두 번 보상해. 좋아.",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "FL",
+    "line": "뭐 하는 거야?"
+   },
+   {
+    "speaker": "ML",
+    "line": "회진."
+   },
+   {
+    "speaker": "FL",
+    "line": "나가."
+   },
+   {
+    "speaker": "ML",
+    "line": "의사가 해야 할 일을 하는 거야. 왜, 다른 서비스를 원하는 거야?"
+   },
+   {
+    "speaker": "FL",
+    "line": "원하지 않아. 게다가 내 몸은 지금 너한테 줄 수 없어."
+   },
+   {
+    "speaker": "UNK",
+    "line": "가능해?"
+   },
+   {
+    "speaker": "FL",
+    "line": "다음번에 보상할게."
+   },
+   {
+    "speaker": "ML",
+    "line": "두 번 보상해."
+   },
+   {
+    "speaker": "FL",
+    "line": "좋아."
+   }
+  ],
+  "hook_desc": "병실에 들어온 남주(의사)에게 여주가 '뭐 하는 거야'라고 쏘아붙이고 '회진'이라는 능청스러운 답이 돌아온다.",
+  "hook_desc_confidence": 0.6,
+  "tags": {
+   "catharsis_type": "humor_flutter",
+   "trope_tags": [
+    "오피스로맨스"
+   ],
+   "hook_beat": [
+    "고백·유혹"
+   ],
+   "cliffhanger_type": "반전 대사 한 방",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": false,
+    "fl_type": "당찬형"
+   },
+   "male_lead": [
+    "devoted_straightforward"
+   ],
+   "setting": "medical",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.6,
+  "tag_notes": "의사-여주 티키타카 코믹 설렘. '두 번 보상해/좋아' 반전 마무리. medical setting.",
+  "tag_version": "v4.0",
+  "needs_review": false,
+  "legacy_tags": {
+   "hook_type": "emotional_question_hook",
+   "story_type": "dialogue_conflict_driven",
+   "dialogue_tags": [
+    "love_confession_or_desire",
+    "emotional_question_or_confrontation"
+   ],
+   "trope_tags": [
+    "general_romance"
+   ],
+   "hook": "뭐 하는 거야? 회진. 나가. 의사가 해야 할 일을 하는 거야. 왜, 다른 서비스를 원하는 거야? 원하지 않아. 게다가 내 몸은 지금 너한테 줄 수 없어. 가능해? 다음번에 보상할게. 두 번 보상해. 좋아.",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "emotional_question_hook",
+   "story_type": "dialogue_conflict_driven",
+   "dialogue_tags": [
+    "emotional_question_or_confrontation",
+    "love_confession_or_desire"
+   ],
+   "trope_tags": [],
+   "male_lead": [
+    "devoted_straightforward"
+   ],
+   "setting": "medical",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7640824972226710817",
+  "url": "https://www.tiktok.com/@catlynx23/video/7640824972226710817",
+  "author": "catlynx23",
+  "desc": "My Boyfriend is a werewolf ! 🐺🩷| Part 19 #crazy #psycho #werewolf #romance #dramaseries ",
+  "rank": 17,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 54300.0,
+   "likes": 3640.0,
+   "saves": 339.0,
+   "shares": 58.0,
+   "comments": 54.0,
+   "er": 0.831,
+   "save_rate": 0.624,
+   "dur": 123.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "obsessive_devotion"
+   ],
+   "male_lead": [
+    "dangerous_forbidden",
+    "dominant_possessive"
+   ],
+   "setting": "fantasy_supernatural",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.3,
+  "tag_notes": "transcript 없음. trope는 해시태그(#crazy #psycho) 기반 추정.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7610437534421667093",
+  "url": "https://www.tiktok.com/@verticaldramamaniac/video/7610437534421667093",
+  "author": "verticaldramamaniac",
+  "desc": "He’s the world’s most powerful billionaire, yet the moment he’s about to talk to his childhood sweetheart, he blushes like a little boy! 😳 ",
+  "rank": 18,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 366100.0,
+   "likes": 11400.0,
+   "saves": 2219.0,
+   "shares": 488.0,
+   "comments": 110.0,
+   "er": 0.769,
+   "save_rate": 0.606,
+   "dur": 116.0,
+   "cut_count": 45.0,
+   "avg_cut": 2.532
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "헤일리! 도대체 뭘 꾸미는 거야? 보스, 헤일리를 찾았습니다. 그녀가 당신이 준 카드를 지역 쇼핑몰에서 사용했습니다. 18년 전 내가 준 그 카드를 썼다고? 그래! 어디 살아? 지금 당장 보러 가고 싶어. 주소를 확인 중입니다. 좋아. 드디어 이런 일이 일어나다니 믿기지 않아. 헤일리, 널 찾았어! 보스, 확인됐습니다. 여기가 헤일리의 주소입니다. 헤일리, 18년이 지났어. 다시 널 볼 생각에 너무 설레. 너도 나와 같은 마음일까? 아서, 나 어때 보여? 멋지고 성공해 보입니다. 좋은 인상을 줘야 해. 세상에서 가장 부자인 남자가 짝사랑 상대에게 말 걸기 직전의 어린 소년처럼 얼굴을 붉히고 있다. 보스, 늘 그렇듯 멋지십니다. 그녀가 싫어하진 않겠지? 날 거절하거나 하진 않겠지. 실망하지 않을 거야. 물론입니다. 하지만 18년이나 지났습니다. 헤일리 양이 아직도 당신을 기억한다고 확신하십니까? 이미 결혼했다면요? 아니, 아니야. 나와 오래전 약속했으니 결혼하지 않았을 거야. 그럴 리 없어. 헤일리, 나 돌아왔어! 빨리 보고 싶어. 보스, 너무 늦은 것 같습니다. 아니야, 그럴 리 없어. 헤일리가 결혼할 리 없어. 설마 결혼식을 망치려는 건가? 아니. 이 행복한 커플의 결합에 반대하는 분이 있다면 지금 말하거나 영원히 침묵하십시오. 반대합니다! 헤일리, 나 기억해?",
+  "transcript_form": "mixed",
+  "script": [
+   {
+    "speaker": "ML",
+    "line": "헤일리! 도대체 뭘 꾸미는 거야?"
+   },
+   {
+    "speaker": "SUP",
+    "line": "보스, 헤일리를 찾았습니다. 그녀가 당신이 준 카드를 지역 쇼핑몰에서 사용했습니다."
+   },
+   {
+    "speaker": "ML",
+    "line": "18년 전 내가 준 그 카드를 썼다고? 그래! 어디 살아? 지금 당장 보러 가고 싶어."
+   },
+   {
+    "speaker": "SUP",
+    "line": "주소를 확인 중입니다."
+   },
+   {
+    "speaker": "ML",
+    "line": "좋아. 드디어 이런 일이 일어나다니 믿기지 않아. 헤일리, 널 찾았어!"
+   },
+   {
+    "speaker": "SUP",
+    "line": "보스, 확인됐습니다. 여기가 헤일리의 주소입니다."
+   },
+   {
+    "speaker": "ML",
+    "line": "헤일리, 18년이 지났어. 다시 널 볼 생각에 너무 설레. 너도 나와 같은 마음일까? 아서, 나 어때 보여?"
+   },
+   {
+    "speaker": "SUP",
+    "line": "멋지고 성공해 보입니다."
+   },
+   {
+    "speaker": "ML",
+    "line": "좋은 인상을 줘야 해."
+   },
+   {
+    "speaker": "NAR",
+    "line": "세상에서 가장 부자인 남자가 짝사랑 상대에게 말 걸기 직전의 어린 소년처럼 얼굴을 붉히고 있다."
+   },
+   {
+    "speaker": "SUP",
+    "line": "보스, 늘 그렇듯 멋지십니다."
+   },
+   {
+    "speaker": "ML",
+    "line": "그녀가 싫어하진 않겠지? 날 거절하거나 하진 않겠지. 실망하지 않을 거야."
+   },
+   {
+    "speaker": "SUP",
+    "line": "물론입니다. 하지만 18년이나 지났습니다. 헤일리 양이 아직도 당신을 기억한다고 확신하십니까? 이미 결혼했다면요?"
+   },
+   {
+    "speaker": "ML",
+    "line": "아니, 아니야. 나와 오래전 약속했으니 결혼하지 않았을 거야. 그럴 리 없어. 헤일리, 나 돌아왔어! 빨리 보고 싶어."
+   },
+   {
+    "speaker": "SUP",
+    "line": "보스, 너무 늦은 것 같습니다."
+   },
+   {
+    "speaker": "ML",
+    "line": "아니야, 그럴 리 없어. 헤일리가 결혼할 리 없어."
+   },
+   {
+    "speaker": "UNK",
+    "line": "설마 결혼식을 망치려는 건가? 아니."
+   },
+   {
+    "speaker": "SUP",
+    "line": "이 행복한 커플의 결합에 반대하는 분이 있다면 지금 말하거나 영원히 침묵하십시오."
+   },
+   {
+    "speaker": "ML",
+    "line": "반대합니다! 헤일리, 나 기억해?"
+   }
+  ],
+  "hook_desc": "부하가 재벌 남주에게 '헤일리를 찾았습니다 — 18년 전 당신이 준 카드를 썼습니다'라고 보고한다.",
+  "hook_desc_confidence": 0.75,
+  "tags": {
+   "catharsis_type": "regret_grovel",
+   "trope_tags": [
+    "재회물",
+    "후회남",
+    "삼각관계"
+   ],
+   "hook_beat": [
+    "재회",
+    "결심선언"
+   ],
+   "cliffhanger_type": "재회·조우 순간",
+   "character_setup": {
+    "villain": "연적",
+    "sub_male": true,
+    "fl_type": "불명"
+   },
+   "male_lead": [
+    "powerful_status",
+    "devoted_straightforward"
+   ],
+   "setting": "chaebol_highsociety",
+   "hook_modality": "dialogue",
+   "narration_form": "mixed",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.7,
+  "tag_notes": "script 풍부. 18년 짝사랑 재회+결혼식 반대 난입. 남주 후회/집착 명확. cliff='반대합니다!' 난입 순간.",
+  "tag_version": "v4.0",
+  "needs_review": false,
+  "legacy_tags": {
+   "hook_type": "ultimatum_hook",
+   "story_type": "power_status_romance",
+   "dialogue_tags": [
+    "love_confession_or_desire",
+    "choice_ultimatum_or_deadline",
+    "power_money_or_status",
+    "marriage_family_or_pregnancy",
+    "emotional_question_or_confrontation"
+   ],
+   "trope_tags": [
+    "marriage_contract_or_family_pressure",
+    "class_gap_cinderella"
+   ],
+   "hook": "헤일리! 도대체 뭘 꾸미는 거야? 보스, 헤일리를 찾았습니다. 그녀가 당신이 준 카드를 지역 쇼핑몰에서 사용했습니다. 18년 전 내가 준 그 카드를 썼다고? 그래! 어디 살아? 지금 당장 보러 가고 싶어. 주소를 확인 중입니다. 좋아. 드디어 이런 일이 일어나다니 믿기지 않아. 헤일리, 널 찾았어! 보스, 확인됐습니다. ",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "status_quo_break_hook",
+   "story_type": "emotion_reaction_driven",
+   "dialogue_tags": [
+    "love_confession_or_desire",
+    "marriage_family_or_pregnancy",
+    "emotional_question_or_confrontation"
+   ],
+   "trope_tags": [
+    "second_chance_or_regret",
+    "love_triangle_or_rival"
+   ],
+   "male_lead": [
+    "powerful_status",
+    "devoted_straightforward"
+   ],
+   "setting": "chaebol_highsociety",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "mixed"
+  }
+ },
+ {
+  "id": "7544952986594741559",
+  "url": "https://www.tiktok.com/@goodshort_video/video/7544952986594741559",
+  "author": "goodshort_video",
+  "desc": "He swore he was straight… until he kissed me 💋 #GayRomCom #goodshort #straightuntilhekissedme #goodshortmustseelist #drama #NYCdrama #fy #s",
+  "rank": 19,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 468000.0,
+   "likes": 7310.0,
+   "saves": 2119.0,
+   "shares": 1369.0,
+   "comments": 74.0,
+   "er": 0.761,
+   "save_rate": 0.453,
+   "dur": 36.0,
+   "cut_count": 22.0,
+   "avg_cut": 1.588
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "난 게이가 아니야! 왜 다들 내가 게이라고 생각하는 거야? 그가 항상 그래서 내가 말하곤 했지. 내가 가면 에버렛 씨에게 말할 거야. 그건 내가 당신을 좋아하기 때문이에요. 당신이 날 좋아한다고요? 하지만 게이가 아니라고 했잖아요. 그 말은 진심이었어요.",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "ML",
+    "line": "난 게이가 아니야! 왜 다들 내가 게이라고 생각하는 거야?"
+   },
+   {
+    "speaker": "UNK",
+    "line": "그가 항상 그래서 내가 말하곤 했지."
+   },
+   {
+    "speaker": "UNK",
+    "line": "내가 가면 에버렛 씨에게 말할 거야."
+   },
+   {
+    "speaker": "ML",
+    "line": "그건 내가 당신을 좋아하기 때문이에요."
+   },
+   {
+    "speaker": "SUP",
+    "line": "당신이 날 좋아한다고요? 하지만 게이가 아니라고 했잖아요."
+   },
+   {
+    "speaker": "ML",
+    "line": "그 말은 진심이었어요."
+   }
+  ],
+  "hook_desc": "남주가 '난 게이가 아니야!'라고 강하게 부정하는 장면으로 시작한다.",
+  "hook_desc_confidence": 0.75,
+  "tags": {
+   "catharsis_type": "humor_flutter",
+   "trope_tags": [
+    "금단물",
+    "혐관"
+   ],
+   "hook_beat": [
+    "고백·유혹",
+    "오해 발생"
+   ],
+   "cliffhanger_type": "반전 대사 한 방",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": false,
+    "fl_type": "불명"
+   },
+   "male_lead": [
+    "devoted_straightforward"
+   ],
+   "setting": "",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.55,
+  "tag_notes": "'게이 아니야'→'좋아하기 때문' 반전 고백. 로맨틱 코미디 톤. FL 부재(BL).",
+  "tag_version": "v4.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "emotional_question_hook",
+   "story_type": "dialogue_conflict_driven",
+   "dialogue_tags": [
+    "emotional_question_or_confrontation"
+   ],
+   "trope_tags": [
+    "general_romance"
+   ],
+   "hook": "난 게이가 아니야! 왜 다들 내가 게이라고 생각하는 거야? 그가 항상 그래서 내가 말하곤 했지. 내가 가면 에버렛 씨에게 말할 거야. 그건 내가 당신을 좋아하기 때문이에요. 당신이 날 좋아한다고요? 하지만 게이가 아니라고 했잖아요. 그 말은 진심이었어요.",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "emotional_question_hook",
+   "story_type": "dialogue_conflict_driven",
+   "dialogue_tags": [
+    "emotional_question_or_confrontation",
+    "love_confession_or_desire"
+   ],
+   "trope_tags": [
+    "forbidden_love"
+   ],
+   "male_lead": [
+    "devoted_straightforward"
+   ],
+   "setting": "",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7480199608371563818",
+  "url": "https://www.tiktok.com/@user7128747999583/video/7480199608371563818",
+  "author": "user7128747999583",
+  "desc": "I fainted on the roadside, but unexpectedly became the maid of a billionaire CEO 5#cdrama #drama #kdrama #dramatiktok #fyp",
+  "rank": 20,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 494500.0,
+   "likes": 49200.0,
+   "saves": 3118.0,
+   "shares": 315.0,
+   "comments": 244.0,
+   "er": 0.744,
+   "save_rate": 0.631,
+   "dur": 131.0,
+   "cut_count": 102.0,
+   "avg_cut": 1.274
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "길에 쓰러진 여주가 재벌 CEO 저택의 메이드가 되는 급전개를 빠른 컷으로 몰아붙인다(설명문 기반).",
+  "hook_desc_confidence": 0.35,
+  "tags": {
+   "hook_type": "",
+   "story_type": "fast_cut_tension_driven",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "class_gap_cinderella"
+   ],
+   "male_lead": [
+    "powerful_status"
+   ],
+   "setting": "chaebol_highsociety",
+   "hook_modality": "visual",
+   "visual_hook": "action_or_chase",
+   "narration_form": "no_speech"
+  },
+  "tag_confidence": 0.5,
+  "tag_notes": "무발화(v2.1 실험 판정 visual). 컷 102개/평균 1.27초 — fast_cut 근거 확실.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "general_hook",
+   "story_type": "fast_cut_tension_driven",
+   "dialogue_tags": [
+    "general_dialogue"
+   ],
+   "trope_tags": [
+    "general_romance"
+   ],
+   "hook": "",
+   "tag_confidence": 0.5
+  }
+ },
+ {
+  "id": "7656776575408557334",
+  "url": "https://www.tiktok.com/@getlostwebsite/video/7656776575408557334",
+  "author": "getlostwebsite",
+  "desc": "It's never enough for spoilt wife 😡 This is a Vertical Drama production by Get Lost, for your entertainment 🎬 #originaldrama #scripteddram",
+  "rank": 21,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 59500.0,
+   "likes": 1306.0,
+   "saves": 178.0,
+   "shares": 126.0,
+   "comments": 136.0,
+   "er": 0.739,
+   "save_rate": 0.299,
+   "dur": 180.0,
+   "cut_count": 46.0,
+   "avg_cut": 3.803
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "male_lead": [
+    "unknown"
+   ],
+   "setting": "",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.25,
+  "tag_notes": "transcript 없음. 설명문('spoilt wife')만으로는 축 확정 불가.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "general_hook",
+   "story_type": "general_romance_drama",
+   "dialogue_tags": [
+    "general_dialogue"
+   ],
+   "trope_tags": [
+    "general_romance"
+   ],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7619939433424407829",
+  "url": "https://www.tiktok.com/@blue.rose8727/video/7619939433424407829",
+  "author": "blue.rose8727",
+  "desc": "【1】Completed Series 👉 in My Bio Link.【Gilded Cage】#FlickReels #lovestories #romanticdrama #Elite #Trendingdrama  🔍 or search for \"qhut96\" ",
+  "rank": 22,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 78200.0,
+   "likes": 1039.0,
+   "saves": 519.0,
+   "shares": 48.0,
+   "comments": 8.0,
+   "er": 0.735,
+   "save_rate": 0.664,
+   "dur": 115.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "obsessive_devotion"
+   ],
+   "male_lead": [
+    "dominant_possessive",
+    "powerful_status"
+   ],
+   "setting": "",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.3,
+  "tag_notes": "transcript 없음. trope는 제목(Gilded Cage=새장 속 연인) 기반 추정.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7657208716890230037",
+  "url": "https://www.tiktok.com/@huijuian/video/7657208716890230037",
+  "author": "huijuian",
+  "desc": "doctor on the edge episode 10, our second couple, jucheon and eom jeongseon date, he's really falling in love 🤭 #doctorontheedge #kimyoonwo",
+  "rank": 23,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 69200.0,
+   "likes": 6863.0,
+   "saves": 384.0,
+   "shares": 71.0,
+   "comments": 49.0,
+   "er": 0.728,
+   "save_rate": 0.555,
+   "dur": 44.0,
+   "cut_count": 16.0,
+   "avg_cut": 2.59
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "선생님 이상해요? 이상해요 이상할 만큼 너무 예뻐요 이건 제가 준비한 꽃이에요 아워요 이거 한번 먹어봐요 우리 같은 거 시킨 거 아니에요? 맞아요 근데 이렇게 먹여주면 너무 맛있잖아요 심지어 할게 원래 연애가 주짓맞는 거예요 짜",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "FL",
+    "line": "선생님, 이상해요?"
+   },
+   {
+    "speaker": "ML",
+    "line": "이상해요. 이상할 만큼 너무 예뻐요."
+   },
+   {
+    "speaker": "ML",
+    "line": "이건 제가 준비한 꽃이에요."
+   },
+   {
+    "speaker": "FL",
+    "line": "아, 왜요."
+   },
+   {
+    "speaker": "ML",
+    "line": "이거 한번 먹어봐요."
+   },
+   {
+    "speaker": "FL",
+    "line": "우리 같은 거 시킨 거 아니에요?"
+   },
+   {
+    "speaker": "ML",
+    "line": "맞아요. 근데 이렇게 먹여주면 너무 맛있잖아요."
+   },
+   {
+    "speaker": "UNK",
+    "line": "원래 연애가 유치한 거예요."
+   }
+  ],
+  "hook_desc": "데이트에서 여주가 '(저) 이상해요?'라고 묻자 남주가 '이상할 만큼 너무 예뻐요'라고 받아친다.",
+  "hook_desc_confidence": 0.75,
+  "tags": {
+   "catharsis_type": "humor_flutter",
+   "trope_tags": [
+    "오피스로맨스"
+   ],
+   "hook_beat": [
+    "고백·유혹"
+   ],
+   "cliffhanger_type": "끊김 아님(완결형)",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": false,
+    "fl_type": "불명"
+   },
+   "male_lead": [
+    "devoted_straightforward"
+   ],
+   "setting": "medical",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.6,
+  "tag_notes": "의사 커플 달달 데이트, 유치한 연애. 갈등 없는 스윗 클립. medical.",
+  "tag_version": "v4.0",
+  "needs_review": false,
+  "legacy_tags": {
+   "hook_type": "confession_or_desire_hook",
+   "story_type": "emotion_reaction_driven",
+   "dialogue_tags": [
+    "love_confession_or_desire"
+   ],
+   "trope_tags": [
+    "general_romance"
+   ],
+   "hook": "선생님 이상해요? 이상해요 이상할 만큼 너무 예뻐요 이건 제가 준비한 꽃이에요 아워요 이거 한번 먹어봐요 우리 같은 거 시킨 거 아니에요? 맞아요 근데 이렇게 먹여주면 너무 맛있잖아요 심지어 할게 원래 연애가 주짓맞는 거예요 짜",
+   "tag_confidence": 0.75
+  },
+  "legacy_tags_v3": {
+   "hook_type": "confession_or_desire_hook",
+   "story_type": "emotion_reaction_driven",
+   "dialogue_tags": [
+    "love_confession_or_desire"
+   ],
+   "trope_tags": [],
+   "male_lead": [
+    "devoted_straightforward"
+   ],
+   "setting": "medical",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7651793772187012366",
+  "url": "https://www.tiktok.com/@reelshortapp/video/7651793772187012366",
+  "author": "reelshortapp",
+  "desc": "🎬 Taming My Bullies 3 Just wanted to leave this here for you. ❤️ #ReelShort #TamingMyBullies3 #MustWatch #ShortDrama #Romance",
+  "rank": 27,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 180500.0,
+   "likes": 6353.0,
+   "saves": 937.0,
+   "shares": 152.0,
+   "comments": 56.0,
+   "er": 0.634,
+   "save_rate": 0.519,
+   "dur": 11.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "enemies_to_lovers"
+   ],
+   "male_lead": [
+    "cold_to_warm",
+    "dominant_possessive"
+   ],
+   "setting": "",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.35,
+  "tag_notes": "transcript 없음. trope는 시리즈 제목(Taming My Bullies) 기반.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7616529235447991566",
+  "url": "https://www.tiktok.com/@reelshortapp/video/7616529235447991566",
+  "author": "reelshortapp",
+  "desc": "▶️ Outplayed #fyp#reelshort#couple#vertical#watchthis",
+  "rank": 28,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 115900.0,
+   "likes": 3136.0,
+   "saves": 631.0,
+   "shares": 69.0,
+   "comments": 27.0,
+   "er": 0.627,
+   "save_rate": 0.544,
+   "dur": 69.0,
+   "cut_count": 7.0,
+   "avg_cut": 8.714
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "넌 내가 네 발밑에 넘어가지 않는 유일한 여자라서 싫은 거지. 그럼 네 발밑에 엎드려 줄까? 그는 내 괴롭힘 상대지만, 세상에, 너무 섹시해. 그래. 지금 당장 널 위해 무릎 꿇을게. 원한다면 그래도 돼. 하지만 난 정말 원해, 맞지? 너는... 내 선생님이야. 그리고 내 절친의 오빠야. 이런 식으로 날 만지면 안 돼. 어떤 식으로? 이렇게? 놀리지 마. 웃기지 않아. 난 웃고 있지 않아.",
+  "transcript_form": "mixed",
+  "script": [
+   {
+    "speaker": "FL",
+    "line": "넌 내가 네 발밑에 넘어가지 않는 유일한 여자라서 싫은 거지. 그럼 네 발밑에 엎드려 줄까?"
+   },
+   {
+    "speaker": "NAR",
+    "line": "그는 내 괴롭힘 상대지만, 세상에, 너무 섹시해."
+   },
+   {
+    "speaker": "ML",
+    "line": "그래. 지금 당장 널 위해 무릎 꿇을게. 원한다면 그래도 돼. 하지만 난 정말 원해, 맞지?"
+   },
+   {
+    "speaker": "FL",
+    "line": "너는… 내 선생님이야. 그리고 내 절친의 오빠야. 이런 식으로 날 만지면 안 돼."
+   },
+   {
+    "speaker": "ML",
+    "line": "어떤 식으로? 이렇게?"
+   },
+   {
+    "speaker": "FL",
+    "line": "놀리지 마. 웃기지 않아."
+   },
+   {
+    "speaker": "ML",
+    "line": "난 웃고 있지 않아."
+   }
+  ],
+  "hook_desc": "여주가 괴롭힘 상대인 남주에게 '내가 네 발밑에 넘어가지 않는 유일한 여자라서 싫은 거지'라고 도발한다.",
+  "hook_desc_confidence": 0.7,
+  "tags": {
+   "catharsis_type": "forbidden_tension",
+   "trope_tags": [
+    "금단물",
+    "혐관"
+   ],
+   "hook_beat": [
+    "고백·유혹"
+   ],
+   "cliffhanger_type": "감정 폭발 직후",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": false,
+    "fl_type": "당찬형"
+   },
+   "male_lead": [
+    "dominant_possessive",
+    "dangerous_forbidden"
+   ],
+   "setting": "school_campus",
+   "hook_modality": "dialogue",
+   "narration_form": "mixed",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.65,
+  "tag_notes": "괴롭힘 상대+선생+절친오빠 금단관계 도발. 나레이션 '괴롭힘 상대지만 섹시'. 긴장형.",
+  "tag_version": "v4.0",
+  "needs_review": false,
+  "legacy_tags": {
+   "hook_type": "ultimatum_hook",
+   "story_type": "emotion_reaction_driven",
+   "dialogue_tags": [
+    "choice_ultimatum_or_deadline",
+    "emotional_question_or_confrontation",
+    "humiliation_status_drop_or_bullying",
+    "apology_regret_or_sacrifice"
+   ],
+   "trope_tags": [
+    "forbidden_love",
+    "breakup_sacrifice_or_noble_idiot"
+   ],
+   "hook": "넌 내가 네 발밑에 넘어가지 않는 유일한 여자라서 싫은 거지. 그럼 네 발밑에 엎드려 줄까? 그는 내 괴롭힘 상대지만, 세상에, 너무 섹시해. 그래. 지금 당장 널 위해 무릎 꿇을게. 원한다면 그래도 돼. 하지만 난 정말 원해, 맞지? 너는... 내 선생님이야. 그리고 내 절친의 오빠야. 이런 식으로 날 만지면 안 돼. ",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "emotional_question_hook",
+   "story_type": "dialogue_conflict_driven",
+   "dialogue_tags": [
+    "emotional_question_or_confrontation",
+    "love_confession_or_desire",
+    "humiliation_status_drop_or_bullying"
+   ],
+   "trope_tags": [
+    "enemies_to_lovers",
+    "forbidden_love"
+   ],
+   "male_lead": [
+    "dominant_possessive",
+    "dangerous_forbidden"
+   ],
+   "setting": "school_campus",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "mixed"
+  }
+ },
+ {
+  "id": "7530585829677354258",
+  "url": "https://www.tiktok.com/@vigloo_official/video/7530585829677354258",
+  "author": "vigloo_official",
+  "desc": "When life closes a door, it opens a… marriage proposal? 🫠 #matrimoney #vigloo #shortdrama #shortformdrama #drama #verticals #verticaldrama ",
+  "rank": 29,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 484000.0,
+   "likes": 8946.0,
+   "saves": 2634.0,
+   "shares": 232.0,
+   "comments": 150.0,
+   "er": 0.623,
+   "save_rate": 0.544,
+   "dur": 170.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "marriage_contract_or_family_pressure"
+   ],
+   "male_lead": [
+    "unknown"
+   ],
+   "setting": "",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.3,
+  "tag_notes": "transcript 없음. 설명문('life closes a door, opens a marriage proposal') 기반 추정.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7657213982906158357",
+  "url": "https://www.tiktok.com/@huijuian/video/7657213982906158357",
+  "author": "huijuian",
+  "desc": "doctor on the edge episode 10, the shocking allegations against do jiui that turned pyeondongdo upside down, our do jiui 😭 #doctorontheedge",
+  "rank": 30,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 38200.0,
+   "likes": 2446.0,
+   "saves": 201.0,
+   "shares": 23.0,
+   "comments": 14.0,
+   "er": 0.623,
+   "save_rate": 0.526,
+   "dur": 53.0,
+   "cut_count": 17.0,
+   "avg_cut": 2.963
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "부직해지를 검토할 곳으로 밝혔다 아니 이거 괜히 지들 잘못 인정이 싫어가지고 허위사실 유파하고 막 그러는 거 아니에요? 갑자기 이게 무슨 얘기예요? 약물 보기가 공부이라는 저 전부 사실이에요 제가 한번 확인해 볼게요 아니였어 세만이 그래도 한번 아니야! 아마도",
+  "transcript_form": "mixed",
+  "script": [
+   {
+    "speaker": "NAR",
+    "line": "…(면허) 정지를 검토할 것으로 밝혔다."
+   },
+   {
+    "speaker": "SUP",
+    "line": "아니, 이거 괜히 자기들 잘못 인정하기 싫어가지고 허위사실 유포하고 막 그러는 거 아니에요?"
+   },
+   {
+    "speaker": "SUP",
+    "line": "갑자기 이게 무슨 얘기예요?"
+   },
+   {
+    "speaker": "ML",
+    "line": "약물 (관련 보도) 전부 사실이에요."
+   },
+   {
+    "speaker": "SUP",
+    "line": "제가 한번 확인해 볼게요."
+   },
+   {
+    "speaker": "UNK",
+    "line": "(판독 불가)"
+   }
+  ],
+  "hook_desc": "남주(의사)에 대한 충격적 의혹 보도가 터지고, 주변 인물들이 '허위사실 아니냐'며 술렁인다.",
+  "hook_desc_confidence": 0.55,
+  "tags": {
+   "catharsis_type": "salvation",
+   "trope_tags": [
+    "시한부·질병"
+   ],
+   "hook_beat": [
+    "정체폭로",
+    "위기·구출"
+   ],
+   "cliffhanger_type": "정체 폭로 직전",
+   "character_setup": {
+    "villain": "불명",
+    "sub_male": null,
+    "fl_type": "불명"
+   },
+   "male_lead": [
+    "unknown"
+   ],
+   "setting": "medical",
+   "hook_modality": "dialogue",
+   "narration_form": "mixed",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.4,
+  "tag_notes": "약물 의혹 보도 터짐. 판독불가 많고 맥락 부족. medical 위기 상황 정도만 확실. 저신뢰.",
+  "tag_version": "v4.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "general_hook",
+   "story_type": "emotion_reaction_driven",
+   "dialogue_tags": [
+    "secret_lie_or_reveal",
+    "misunderstanding_or_accusation",
+    "emotional_question_or_confrontation"
+   ],
+   "trope_tags": [
+    "general_romance"
+   ],
+   "hook": "부직해지를 검토할 곳으로 밝혔다 아니 이거 괜히 지들 잘못 인정이 싫어가지고 허위사실 유파하고 막 그러는 거 아니에요? 갑자기 이게 무슨 얘기예요? 약물 보기가 공부이라는 저 전부 사실이에요 제가 한번 확인해 볼게요 아니였어 세만이 그래도 한번 아니야! 아마도",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "misunderstanding_hook",
+   "story_type": "secret_reveal_betrayal_drama",
+   "dialogue_tags": [
+    "misunderstanding_or_accusation",
+    "secret_lie_or_reveal",
+    "emotional_question_or_confrontation"
+   ],
+   "trope_tags": [],
+   "male_lead": [
+    "unknown"
+   ],
+   "setting": "medical",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "mixed"
+  }
+ },
+ {
+  "id": "7627054988161895698",
+  "url": "https://www.tiktok.com/@faye.jsu/video/7627054988161895698",
+  "author": "faye.jsu",
+  "desc": "❤ Love Me When I am Gone EP10 📌 Synopsis: Selene Hart, the secret daughter of a fallen Moon Pack Alpha, is taken in by the loyal Cole famil",
+  "rank": 32,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 46200.0,
+   "likes": 1378.0,
+   "saves": 240.0,
+   "shares": 23.0,
+   "comments": 20.0,
+   "er": 0.613,
+   "save_rate": 0.519,
+   "dur": 132.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "secret_identity_or_hidden_truth"
+   ],
+   "male_lead": [
+    "dangerous_forbidden"
+   ],
+   "setting": "fantasy_supernatural",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.4,
+  "tag_notes": "transcript 없음. 설명문 시놉시스(몰락한 알파의 숨겨진 딸) 기반.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7642929804072750344",
+  "url": "https://www.tiktok.com/@flickreels_dramatime/video/7642929804072750344",
+  "author": "flickreels_dramatime",
+  "desc": "📺【Love Wins】EP 03 💋 📲Click the button below or the link in bio to download the FlickReels app and watch the full drama now！ #flickreels #",
+  "rank": 33,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 51500.0,
+   "likes": 466.0,
+   "saves": 273.0,
+   "shares": 26.0,
+   "comments": 4.0,
+   "er": 0.588,
+   "save_rate": 0.53,
+   "dur": 129.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "male_lead": [
+    "unknown"
+   ],
+   "setting": "",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.2,
+  "tag_notes": "transcript 없음, 설명문이 앱 홍보뿐 — 근거 없음.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7475574910702734638",
+  "url": "https://www.tiktok.com/@user7128747999583/video/7475574910702734638",
+  "author": "user7128747999583",
+  "desc": "The billionaire CEO has a crush on me and signed an agreement with me  3#cdrama#drama#kdrama#dramatiktok#fyp",
+  "rank": 34,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 567500.0,
+   "likes": 34400.0,
+   "saves": 2538.0,
+   "shares": 349.0,
+   "comments": 262.0,
+   "er": 0.555,
+   "save_rate": 0.447,
+   "dur": 133.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "power_status_romance",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "contract_or_fake_relationship"
+   ],
+   "male_lead": [
+    "powerful_status",
+    "devoted_straightforward"
+   ],
+   "setting": "",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.4,
+  "tag_notes": "transcript 없음. 설명문('billionaire CEO has a crush, signed an agreement') 기반.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7650648291595635981",
+  "url": "https://www.tiktok.com/@reelshortapp/video/7650648291595635981",
+  "author": "reelshortapp",
+  "desc": "🎬 Taming My Bullies 3  Oh... You're jealous?! #ReelShort #TamingMyBullies3 #MustWatch #ShortDrama #Romance",
+  "rank": 35,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 185400.0,
+   "likes": 3317.0,
+   "saves": 846.0,
+   "shares": 107.0,
+   "comments": 40.0,
+   "er": 0.536,
+   "save_rate": 0.456,
+   "dur": 83.0,
+   "cut_count": 20.0,
+   "avg_cut": 3.967
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "네가 내 여자친구라고 말하지만, 내가 보는 건 네가 내 절친과 시시덕거리는 모습뿐이야. 엠마 파커, 우리 엄마 말이 맞았어. 넌 양다리 걸치는 금광 캐는 여자야. 그냥 부자 남자들만 쫓지. 너야말로 우리를 잊은 사람이야. 너야말로 모르는 여자와 도망친 사람이야. 그리고 네가 날 욕하고 내가 하지도 않은 일로 몰아붙였어. 어거스트는 나에게 친구였을 뿐이야. 힘든 시기를 지나도록 도와준 거야. 그게 뭐가 잘못됐어? 그냥 도와준 거라고? 내가 보기엔 너희 둘이 너무 가까워 보여. 친구 이상으로 보인다고. 아, 질투하는구나. 내가 왜 질투를 해? 질투가 아니라면 나와 어거스트를 신경 쓰지 않았겠지. 그리고 날 사랑하지 않는다면 질투하지도 않았겠지. 넌 아무 말도 못 하잖아. 왜냐하면 넌 한 번도...",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "ML",
+    "line": "네가 내 여자친구라고 말하지만, 내가 보는 건 네가 내 절친과 시시덕거리는 모습뿐이야. 엠마 파커, 우리 엄마 말이 맞았어. 넌 양다리 걸치는 금광 캐는 여자야. 그냥 부자 남자들만 쫓지."
+   },
+   {
+    "speaker": "FL",
+    "line": "너야말로 우리를 잊은 사람이야. 너야말로 모르는 여자와 도망친 사람이야. 그리고 네가 날 욕하고 내가 하지도 않은 일로 몰아붙였어. 어거스트는 나에게 친구였을 뿐이야. 힘든 시기를 지나도록 도와준 거야. 그게 뭐가 잘못됐어?"
+   },
+   {
+    "speaker": "ML",
+    "line": "그냥 도와준 거라고? 내가 보기엔 너희 둘이 너무 가까워 보여. 친구 이상으로 보인다고."
+   },
+   {
+    "speaker": "FL",
+    "line": "아, 질투하는구나."
+   },
+   {
+    "speaker": "ML",
+    "line": "내가 왜 질투를 해?"
+   },
+   {
+    "speaker": "FL",
+    "line": "질투가 아니라면 나와 어거스트를 신경 쓰지 않았겠지. 그리고 날 사랑하지 않는다면 질투하지도 않았겠지. 넌 아무 말도 못 하잖아. 왜냐하면 넌 한 번도…"
+   }
+  ],
+  "hook_desc": "남주가 '네가 내 절친과 시시덕거리는 모습뿐이야'라며 여주를 양다리 금광녀로 몰아세운다.",
+  "hook_desc_confidence": 0.75,
+  "tags": {
+   "catharsis_type": "devotion_thrill",
+   "trope_tags": [
+    "삼각관계",
+    "신데렐라(신분격차)",
+    "혐관"
+   ],
+   "hook_beat": [
+    "오해 발생"
+   ],
+   "cliffhanger_type": "감정 폭발 직후",
+   "character_setup": {
+    "villain": "연적",
+    "sub_male": true,
+    "fl_type": "당찬형"
+   },
+   "male_lead": [
+    "dominant_possessive"
+   ],
+   "setting": "school_campus",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.65,
+  "tag_notes": "양다리 오해로 다투다 '질투하는구나' 반전. 남주 질투 인정 직전 끊김. school.",
+  "tag_version": "v4.0",
+  "needs_review": false,
+  "legacy_tags": {
+   "hook_type": "jealousy_rival_hook",
+   "story_type": "power_status_romance",
+   "dialogue_tags": [
+    "love_confession_or_desire",
+    "jealousy_possession_or_rival",
+    "threat_danger_or_revenge",
+    "protective_claim_or_rescue",
+    "power_money_or_status",
+    "marriage_family_or_pregnancy",
+    "misunderstanding_or_accusation",
+    "emotional_question_or_confrontation"
+   ],
+   "trope_tags": [
+    "protective_male_or_partner",
+    "love_triangle_or_rival",
+    "class_gap_cinderella",
+    "danger_rescue_romance"
+   ],
+   "hook": "네가 내 여자친구라고 말하지만, 내가 보는 건 네가 내 절친과 시시덕거리는 모습뿐이야. 엠마 파커, 우리 엄마 말이 맞았어. 넌 양다리 걸치는 금광 캐는 여자야. 그냥 부자 남자들만 쫓지. 너야말로 우리를 잊은 사람이야. 너야말로 모르는 여자와 도망친 사람이야. 그리고 네가 날 욕하고 내가 하지도 않은 일로 몰아붙였어. ",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "jealousy_rival_hook",
+   "story_type": "jealousy_rival_drama",
+   "dialogue_tags": [
+    "jealousy_possession_or_rival",
+    "misunderstanding_or_accusation",
+    "emotional_question_or_confrontation",
+    "humiliation_status_drop_or_bullying"
+   ],
+   "trope_tags": [
+    "love_triangle_or_rival",
+    "class_gap_cinderella"
+   ],
+   "male_lead": [
+    "dominant_possessive"
+   ],
+   "setting": "school_campus",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7610199274336423188",
+  "url": "https://www.tiktok.com/@ai.frivolities/video/7610199274336423188",
+  "author": "ai.frivolities",
+  "desc": "EP 1 | The CEO’s Weakness: “Look at me when you speak!” #microdrama #billionaireromance #romancedrama #airomance #ceoromance ",
+  "rank": 36,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 63000.0,
+   "likes": 726.0,
+   "saves": 247.0,
+   "shares": 76.0,
+   "comments": 13.0,
+   "er": 0.533,
+   "save_rate": 0.392,
+   "dur": 15.0,
+   "cut_count": 6.0,
+   "avg_cut": 2.272
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "예산 차이, 웨스트 3, 3분기. 예산 차이, 3분기. 웨스트브리지. 어떻게 네가... 넌 겁날 때마다 항상 이러니까. 말할 때 나를 봐.",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "FL",
+    "line": "예산 차이, 웨스트… 3, 3분기. 예산 차이, 3분기. 웨스트브리지. 어떻게 네가…"
+   },
+   {
+    "speaker": "ML",
+    "line": "넌 겁날 때마다 항상 이러니까. 말할 때 나를 봐."
+   }
+  ],
+  "hook_desc": "발표 중 말을 더듬는 여주에게 CEO 남주가 '말할 때 나를 봐'라고 명령한다.",
+  "hook_desc_confidence": 0.7,
+  "tags": {
+   "catharsis_type": "devotion_thrill",
+   "trope_tags": [
+    "오피스로맨스",
+    "집착남"
+   ],
+   "hook_beat": [
+    "최후통첩·협박"
+   ],
+   "cliffhanger_type": "반전 대사 한 방",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": false,
+    "fl_type": "인내형"
+   },
+   "male_lead": [
+    "dominant_possessive",
+    "powerful_status"
+   ],
+   "setting": "office_workplace",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.6,
+  "tag_notes": "발표 더듬는 여주에 CEO '말할 때 나를 봐' 지배적 명령. 오피스 파워로맨스 시리즈 EP1.",
+  "tag_version": "v4.0",
+  "needs_review": false,
+  "legacy_tags": {
+   "hook_type": "emotional_question_hook",
+   "story_type": "emotion_reaction_driven",
+   "dialogue_tags": [
+    "emotional_question_or_confrontation"
+   ],
+   "trope_tags": [
+    "general_romance"
+   ],
+   "hook": "예산 차이, 웨스트 3, 3분기. 예산 차이, 3분기. 웨스트브리지. 어떻게 네가... 넌 겁날 때마다 항상 이러니까. 말할 때 나를 봐.",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "emotional_question_hook",
+   "story_type": "power_status_romance",
+   "dialogue_tags": [
+    "emotional_question_or_confrontation",
+    "power_money_or_status"
+   ],
+   "trope_tags": [
+    "boss_employee_or_power_romance"
+   ],
+   "male_lead": [
+    "dominant_possessive",
+    "powerful_status"
+   ],
+   "setting": "office_workplace",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7655032823597796622",
+  "url": "https://www.tiktok.com/@reelshortapp/video/7655032823597796622",
+  "author": "reelshortapp",
+  "desc": "📺 If Loving You is a Sin, then I'll Go to Hell #reelshort#vertical#couple#mustwatch#love",
+  "rank": 39,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 62900.0,
+   "likes": 1627.0,
+   "saves": 268.0,
+   "shares": 27.0,
+   "comments": 18.0,
+   "er": 0.498,
+   "save_rate": 0.426,
+   "dur": 46.0,
+   "cut_count": 6.0,
+   "avg_cut": 5.45
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "이 춤을 함께해도 될까요? 오늘 밤이 내 인생 최고의 밤인 것 같아요. 매일 밤 그렇게 말해 줬으면 해. 이 밤을 더 좋게 만들려면 내가 뭘 할 수 있을까? 솔직히 여기 너무 추워요. 그리고 배고파요. 전 늘 배고파요. 가서 재킷 가져와. 그리고 둘 다 먹을 것도 가져올 수 있어.",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "ML",
+    "line": "이 춤을 함께해도 될까요?"
+   },
+   {
+    "speaker": "FL",
+    "line": "오늘 밤이 내 인생 최고의 밤인 것 같아요."
+   },
+   {
+    "speaker": "ML",
+    "line": "매일 밤 그렇게 말해 줬으면 해. 이 밤을 더 좋게 만들려면 내가 뭘 할 수 있을까?"
+   },
+   {
+    "speaker": "FL",
+    "line": "솔직히 여기 너무 추워요. 그리고 배고파요. 전 늘 배고파요."
+   },
+   {
+    "speaker": "ML",
+    "line": "가서 재킷 가져다줄게. 둘 다 먹을 것도 가져오고."
+   }
+  ],
+  "hook_desc": "무도회에서 남주가 여주에게 '이 춤을 함께해도 될까요?'라고 청한다.",
+  "hook_desc_confidence": 0.7,
+  "tags": {
+   "catharsis_type": "forbidden_tension",
+   "trope_tags": [
+    "금단물"
+   ],
+   "hook_beat": [
+    "고백·유혹",
+    "첫만남·강렬한 조우"
+   ],
+   "cliffhanger_type": "끊김 아님(완결형)",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": false,
+    "fl_type": "불명"
+   },
+   "male_lead": [
+    "devoted_straightforward"
+   ],
+   "setting": "chaebol_highsociety",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.55,
+  "tag_notes": "무도회 춤 신청+챙겨줌. 제목 'sin'→금단 암시하나 script엔 달달함만. 상류사회.",
+  "tag_version": "v4.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "general_hook",
+   "story_type": "dialogue_conflict_driven",
+   "dialogue_tags": [
+    "choice_ultimatum_or_deadline",
+    "emotional_question_or_confrontation"
+   ],
+   "trope_tags": [
+    "general_romance"
+   ],
+   "hook": "이 춤을 함께해도 될까요? 오늘 밤이 내 인생 최고의 밤인 것 같아요. 매일 밤 그렇게 말해 줬으면 해. 이 밤을 더 좋게 만들려면 내가 뭘 할 수 있을까? 솔직히 여기 너무 추워요. 그리고 배고파요. 전 늘 배고파요. 가서 재킷 가져와. 그리고 둘 다 먹을 것도 가져올 수 있어.",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "confession_or_desire_hook",
+   "story_type": "emotion_reaction_driven",
+   "dialogue_tags": [
+    "love_confession_or_desire"
+   ],
+   "trope_tags": [
+    "forbidden_love"
+   ],
+   "male_lead": [
+    "devoted_straightforward"
+   ],
+   "setting": "chaebol_highsociety",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7616715247692369165",
+  "url": "https://www.tiktok.com/@dreameshort_romance/video/7616715247692369165",
+  "author": "dreameshort_romance",
+  "desc": "▶️🎬CEO's Kansas Sweetheart EP 7 Mommy? 🥹 #acting #NYCdrama #short #dreameshort #shortfilms #foryou #drama #miniseries #movie #love #film #",
+  "rank": 41,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 110900.0,
+   "likes": 1370.0,
+   "saves": 512.0,
+   "shares": 35.0,
+   "comments": 3.0,
+   "er": 0.496,
+   "save_rate": 0.462,
+   "dur": 47.0,
+   "cut_count": 19.0,
+   "avg_cut": 2.002
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "드디어 우리에게 보상이 돌아왔어. 더 이상 야간 근무도 없고, 바닥을 문지를 일도 없어. 괜찮아? 다친 데 없어?",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "FL",
+    "line": "드디어 우리에게 보상이 돌아왔어. 더 이상 야간 근무도 없고, 바닥을 문지를 일도 없어."
+   },
+   {
+    "speaker": "ML",
+    "line": "괜찮아? 다친 데 없어?"
+   }
+  ],
+  "hook_desc": "'더 이상 야간 근무도, 바닥 문지를 일도 없다'며 고생 끝을 자축하는 여주 가족의 대화로 시작한다.",
+  "hook_desc_confidence": 0.5,
+  "tags": {
+   "catharsis_type": "status_reversal",
+   "trope_tags": [
+    "신데렐라(신분격차)"
+   ],
+   "hook_beat": [
+    "결심선언"
+   ],
+   "cliffhanger_type": "끊김 아님(완결형)",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": false,
+    "fl_type": "인내형"
+   },
+   "male_lead": [
+    "protective_rescuer",
+    "powerful_status"
+   ],
+   "setting": "",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.45,
+  "tag_notes": "'야간근무/바닥청소 끝' 신분상승 자축+남주 보호. 대사 짧음. 신분격차 신데렐라 방향.",
+  "tag_version": "v4.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "general_hook",
+   "story_type": "general_romance_drama",
+   "dialogue_tags": [
+    "protective_claim_or_rescue"
+   ],
+   "trope_tags": [
+    "general_romance"
+   ],
+   "hook": "드디어 우리에게 보상이 돌아왔어. 더 이상 야간 근무도 없고, 바닥을 문지를 일도 없어. 괜찮아? 다친 데 없어?",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "humiliation_reversal_hook",
+   "story_type": "emotion_reaction_driven",
+   "dialogue_tags": [
+    "power_money_or_status",
+    "protective_claim_or_rescue"
+   ],
+   "trope_tags": [
+    "class_gap_cinderella"
+   ],
+   "male_lead": [
+    "protective_rescuer",
+    "powerful_status"
+   ],
+   "setting": "",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7625714028148575501",
+  "url": "https://www.tiktok.com/@reelshortapp/video/7625714028148575501",
+  "author": "reelshortapp",
+  "desc": "📺 Outplayed #reelshort#mustwatch#couple#fyp#love",
+  "rank": 42,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 109600.0,
+   "likes": 1964.0,
+   "saves": 337.0,
+   "shares": 173.0,
+   "comments": 19.0,
+   "er": 0.483,
+   "save_rate": 0.307,
+   "dur": 35.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "male_lead": [
+    "dangerous_forbidden",
+    "dominant_possessive"
+   ],
+   "setting": "",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.2,
+  "tag_notes": "transcript 없음, 설명문 제목뿐(Outplayed) — 근거 없음. male_lead는 legacy 유지.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7615912643504672021",
+  "url": "https://www.tiktok.com/@jinjuhyung_/video/7615912643504672021",
+  "author": "jinjuhyung_",
+  "desc": "Oh no… my husband is my boss?! 👀🔥 Now streaming on DramaBox. Go watch it and show some love ❤️🎬✨ #dramabox#ohnomyhusbandismyboss ",
+  "rank": 43,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 178600.0,
+   "likes": 3080.0,
+   "saves": 628.0,
+   "shares": 124.0,
+   "comments": 93.0,
+   "er": 0.473,
+   "save_rate": 0.352,
+   "dur": 31.0,
+   "cut_count": 3.0,
+   "avg_cut": 6.0
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "내가 네가 곁에 없는 삶을 살았다면 하루하루가 모두 텅 비었을 거야. 너무 길게 느껴져. 영원한 집이 이렇게 선명하게 보이는 것 같아. 이렇게 강한 감정을 느끼지 못했다면 사랑에 빠졌을지도 몰라.",
+  "transcript_form": "monologue",
+  "script": [
+   {
+    "speaker": "ML",
+    "line": "내가 네가 곁에 없는 삶을 살았다면 하루하루가 모두 텅 비었을 거야. 너무 길게 느껴져."
+   },
+   {
+    "speaker": "ML",
+    "line": "영원한 집이 이렇게 선명하게 보이는 것 같아."
+   },
+   {
+    "speaker": "ML",
+    "line": "이렇게 강한 감정을 느끼지 못했다면 사랑에 빠졌을지도 몰라."
+   }
+  ],
+  "hook_desc": "남주가 '네가 곁에 없었다면 하루하루가 텅 비었을 것'이라는 고백 보이스오버로 시작한다.",
+  "hook_desc_confidence": 0.6,
+  "tags": {
+   "catharsis_type": "devotion_thrill",
+   "trope_tags": [
+    "오피스로맨스",
+    "신분숨김(히든재벌·정체은닉)"
+   ],
+   "hook_beat": [
+    "고백·유혹"
+   ],
+   "cliffhanger_type": "끊김 아님(완결형)",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": false,
+    "fl_type": "불명"
+   },
+   "male_lead": [
+    "powerful_status",
+    "devoted_straightforward"
+   ],
+   "setting": "office_workplace",
+   "hook_modality": "dialogue",
+   "narration_form": "narration_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.5,
+  "tag_notes": "남주 보이스오버 고백 독백('네가 없으면 텅 빈다'). 제목=남편이 상사. monologue.",
+  "tag_version": "v4.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "confession_or_desire_hook",
+   "story_type": "emotion_reaction_driven",
+   "dialogue_tags": [
+    "love_confession_or_desire"
+   ],
+   "trope_tags": [
+    "boss_employee_or_power_romance",
+    "secret_identity_or_hidden_truth"
+   ],
+   "hook": "내가 네가 곁에 없는 삶을 살았다면 하루하루가 모두 텅 비었을 거야. 너무 길게 느껴져. 영원한 집이 이렇게 선명하게 보이는 것 같아. 이렇게 강한 감정을 느끼지 못했다면 사랑에 빠졌을지도 몰라.",
+   "tag_confidence": 0.65
+  },
+  "legacy_tags_v3": {
+   "hook_type": "confession_or_desire_hook",
+   "story_type": "emotion_reaction_driven",
+   "dialogue_tags": [
+    "love_confession_or_desire"
+   ],
+   "trope_tags": [
+    "boss_employee_or_power_romance",
+    "secret_identity_or_hidden_truth"
+   ],
+   "male_lead": [
+    "powerful_status",
+    "devoted_straightforward"
+   ],
+   "setting": "office_workplace",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "narration_only"
+  }
+ },
+ {
+  "id": "7655112270120340750",
+  "url": "https://www.tiktok.com/@reelshortapp/video/7655112270120340750",
+  "author": "reelshortapp",
+  "desc": "📺 Doctor Boss Is My Baby Daddy #reelshort#vertical#mustwatch#couple#love",
+  "rank": 44,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 187800.0,
+   "likes": 3265.0,
+   "saves": 589.0,
+   "shares": 267.0,
+   "comments": 20.0,
+   "er": 0.466,
+   "save_rate": 0.314,
+   "dur": 22.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "boss_employee_or_power_romance",
+    "secret_identity_or_hidden_truth"
+   ],
+   "male_lead": [
+    "powerful_status"
+   ],
+   "setting": "medical",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.35,
+  "tag_notes": "transcript 없음. 제목(Doctor Boss Is My Baby Daddy) 기반 — 시크릿 베이비 트로프는 사전에 없어 hidden_truth로 근사.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7654303053683690766",
+  "url": "https://www.tiktok.com/@reelshortapp/video/7654303053683690766",
+  "author": "reelshortapp",
+  "desc": "same brain! 📺 I Accidentally Sexted My Enemy #reelshort#mustwatch#couple#vertical",
+  "rank": 45,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 231900.0,
+   "likes": 5504.0,
+   "saves": 920.0,
+   "shares": 87.0,
+   "comments": 27.0,
+   "er": 0.446,
+   "save_rate": 0.397,
+   "dur": 13.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "enemies_to_lovers"
+   ],
+   "male_lead": [
+    "cold_to_warm"
+   ],
+   "setting": "",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.35,
+  "tag_notes": "transcript 없음. trope는 제목(I Accidentally Sexted My Enemy) 기반.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7487211151902756139",
+  "url": "https://www.tiktok.com/@user7128747999583/video/7487211151902756139",
+  "author": "user7128747999583",
+  "desc": "My Snake King Husband  2#cdrama #drama #kdrama #dramatiktok #fyp",
+  "rank": 48,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 1300000.0,
+   "likes": 52900.0,
+   "saves": 4692.0,
+   "shares": 511.0,
+   "comments": 413.0,
+   "er": 0.432,
+   "save_rate": 0.361,
+   "dur": 138.0,
+   "cut_count": 91.0,
+   "avg_cut": 1.517
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "fast_cut_tension_driven",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "male_lead": [
+    "dangerous_forbidden",
+    "powerful_status"
+   ],
+   "setting": "fantasy_supernatural",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.35,
+  "tag_notes": "transcript 없음. 컷 91개/평균 1.5초 → fast_cut. 제목(Snake King Husband) 기반 설정.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "general_hook",
+   "story_type": "fast_cut_tension_driven",
+   "dialogue_tags": [
+    "general_dialogue"
+   ],
+   "trope_tags": [
+    "general_romance"
+   ],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7481274834345856302",
+  "url": "https://www.tiktok.com/@user7128747999583/video/7481274834345856302",
+  "author": "user7128747999583",
+  "desc": "After the divorce, the husband finally discovered that I was the masked singer he had been desperately searching for. 3#cdrama #drama #kdram",
+  "rank": 49,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 861500.0,
+   "likes": 51500.0,
+   "saves": 2915.0,
+   "shares": 331.0,
+   "comments": 404.0,
+   "er": 0.424,
+   "save_rate": 0.338,
+   "dur": 119.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "secret_identity_or_hidden_truth",
+    "second_chance_or_regret"
+   ],
+   "male_lead": [
+    "devoted_straightforward"
+   ],
+   "setting": "",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.4,
+  "tag_notes": "transcript 없음. 설명문(이혼 후 전처가 찾아 헤매던 복면가수임을 알게 됨) 기반.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7648352935834832141",
+  "url": "https://www.tiktok.com/@zzhangty/video/7648352935834832141",
+  "author": "zzhangty",
+  "desc": "He thought he could still command me. Then I said one word. Kneel. Part 5? #werewolfromance #alphaking #moonqueen #fantasyromance #darkfanta",
+  "rank": 50,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 58400.0,
+   "likes": 508.0,
+   "saves": 231.0,
+   "shares": 9.0,
+   "comments": 6.0,
+   "er": 0.421,
+   "save_rate": 0.396,
+   "dur": 62.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "여주가 '무릎 꿇어(Kneel)' 한마디로 알파킹의 명령 구도를 뒤집는다(설명문 인용 기반).",
+  "hook_desc_confidence": 0.4,
+  "tags": {
+   "hook_type": "humiliation_reversal_hook",
+   "story_type": "power_status_romance",
+   "dialogue_tags": [
+    "power_money_or_status"
+   ],
+   "trope_tags": [
+    "enemies_to_lovers"
+   ],
+   "male_lead": [
+    "dominant_possessive",
+    "powerful_status"
+   ],
+   "setting": "fantasy_supernatural",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.4,
+  "tag_notes": "transcript 없음. 설명문 인용 대사('He thought he could still command me... Kneel') 기반 — 권력 역전 구도.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7656801271600516365",
+  "url": "https://www.tiktok.com/@reelshortapp/video/7656801271600516365",
+  "author": "reelshortapp",
+  "desc": "🎬 Don't Toy with My Heart, Mr. Billionaire #reelshort #vertical #shortdrama #comingsoon #romance",
+  "rank": 51,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 132100.0,
+   "likes": 2033.0,
+   "saves": 475.0,
+   "shares": 71.0,
+   "comments": 9.0,
+   "er": 0.42,
+   "save_rate": 0.36,
+   "dur": 34.0,
+   "cut_count": 13.0,
+   "avg_cut": 2.5
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "스털링 씨, 그건 너무 과해요. 우리는 그냥 비즈니스 파트너예요. 그냥 파트너라고? 그런데 왜 그렇게... 내가 확인해 볼게.",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "FL",
+    "line": "스털링 씨, 그건 너무 과해요. 우리는 그냥 비즈니스 파트너예요."
+   },
+   {
+    "speaker": "ML",
+    "line": "그냥 파트너라고? 그런데 왜 그렇게…"
+   },
+   {
+    "speaker": "UNK",
+    "line": "내가 확인해 볼게."
+   }
+  ],
+  "hook_desc": "여주가 '그건 너무 과해요, 우린 비즈니스 파트너일 뿐'이라며 재벌 남주의 과한 호의를 밀어낸다.",
+  "hook_desc_confidence": 0.65,
+  "tags": {
+   "catharsis_type": "devotion_thrill",
+   "trope_tags": [
+    "계약연애"
+   ],
+   "hook_beat": [
+    "고백·유혹"
+   ],
+   "cliffhanger_type": "미끼 질문(다음 상황 예고)",
+   "character_setup": {
+    "villain": "불명",
+    "sub_male": null,
+    "fl_type": "당찬형"
+   },
+   "male_lead": [
+    "powerful_status",
+    "dominant_possessive"
+   ],
+   "setting": "",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.45,
+  "tag_notes": "'비즈니스 파트너일 뿐' 밀어내고 남주 추궁. 대사 짧고 UNK 끼어듦. 재벌 계약관계 추정.",
+  "tag_version": "v4.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "emotional_question_hook",
+   "story_type": "dialogue_conflict_driven",
+   "dialogue_tags": [
+    "power_money_or_status",
+    "emotional_question_or_confrontation"
+   ],
+   "trope_tags": [
+    "general_romance"
+   ],
+   "hook": "스털링 씨, 그건 너무 과해요. 우리는 그냥 비즈니스 파트너예요. 그냥 파트너라고? 그런데 왜 그렇게... 내가 확인해 볼게.",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "power_or_money_hook",
+   "story_type": "power_status_romance",
+   "dialogue_tags": [
+    "power_money_or_status",
+    "emotional_question_or_confrontation"
+   ],
+   "trope_tags": [],
+   "male_lead": [
+    "powerful_status",
+    "dominant_possessive"
+   ],
+   "setting": "",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7324781540154576160",
+  "url": "https://www.tiktok.com/@doubao60/video/7324781540154576160",
+  "author": "doubao60",
+  "desc": "#revenge #shortplay #foryou #love #tiktokdrama #chinesedrama #shorttv #london ",
+  "rank": 52,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 181600.0,
+   "likes": 7330.0,
+   "saves": 659.0,
+   "shares": 32.0,
+   "comments": 70.0,
+   "er": 0.419,
+   "save_rate": 0.363,
+   "dur": 156.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "revenge_betrayal_or_payback"
+   ],
+   "male_lead": [
+    "unknown"
+   ],
+   "setting": "",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.25,
+  "tag_notes": "transcript 없음. trope는 해시태그(#revenge)뿐.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7652421463898672398",
+  "url": "https://www.tiktok.com/@reelshortapp/video/7652421463898672398",
+  "author": "reelshortapp",
+  "desc": "▶️ I Accidentally Sexted My Enemy #reelshort#moment#enemiestolovers#sweet#couple",
+  "rank": 53,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 354400.0,
+   "likes": 6095.0,
+   "saves": 1026.0,
+   "shares": 384.0,
+   "comments": 66.0,
+   "er": 0.416,
+   "save_rate": 0.29,
+   "dur": 31.0,
+   "cut_count": 9.0,
+   "avg_cut": 3.174
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "난 끝났어. 방금 너에게 큰 호의를 베풀었어. 고맙다는 뜻으로 나와 몰래 한잔하지 않을래? 착한 아이네.",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "UNK",
+    "line": "난 끝났어. 방금 너에게 큰 호의를 베풀었어."
+   },
+   {
+    "speaker": "UNK",
+    "line": "고맙다는 뜻으로 나와 몰래 한잔하지 않을래?"
+   },
+   {
+    "speaker": "UNK",
+    "line": "착한 아이네."
+   }
+  ],
+  "hook_desc": "한 사람이 '난 끝났어 — 방금 너에게 큰 호의를 베풀었어'라며 의미심장하게 말을 건다.",
+  "hook_desc_confidence": 0.35,
+  "tags": {
+   "catharsis_type": "humor_flutter",
+   "trope_tags": [
+    "혐관"
+   ],
+   "hook_beat": [
+    "고백·유혹"
+   ],
+   "cliffhanger_type": "미끼 질문(다음 상황 예고)",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": false,
+    "fl_type": "불명"
+   },
+   "male_lead": [
+    "cold_to_warm"
+   ],
+   "setting": "",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.4,
+  "tag_notes": "enemies 잘못 문자→'몰래 한잔' 제안. 전원 UNK라 화자 불명. 혐관 코믹 방향.",
+  "tag_version": "v4.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "marriage_family_hook",
+   "story_type": "marriage_family_drama",
+   "dialogue_tags": [
+    "marriage_family_or_pregnancy"
+   ],
+   "trope_tags": [
+    "marriage_contract_or_family_pressure"
+   ],
+   "hook": "난 끝났어. 방금 너에게 큰 호의를 베풀었어. 고맙다는 뜻으로 나와 몰래 한잔하지 않을래? 착한 아이네.",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [
+    "love_confession_or_desire"
+   ],
+   "trope_tags": [
+    "enemies_to_lovers"
+   ],
+   "male_lead": [
+    "cold_to_warm"
+   ],
+   "setting": "",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7635432540983102734",
+  "url": "https://www.tiktok.com/@reelshortapp/video/7635432540983102734",
+  "author": "reelshortapp",
+  "desc": "🎬 Married the Mafioso I Saved⁠ ⁠ TELL ME SHE'S LYING?!⁠ ⁠ #reelshort #mafia #shortdrama #mustwatch #marriedthemafiosoisaved",
+  "rank": 54,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 390500.0,
+   "likes": 14500.0,
+   "saves": 1393.0,
+   "shares": 150.0,
+   "comments": 57.0,
+   "er": 0.41,
+   "save_rate": 0.357,
+   "dur": 49.0,
+   "cut_count": 25.0,
+   "avg_cut": 1.899
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "모른 척하지 마. 내 약혼자가 네 아파트에서 살고 있어서 온 거야. 네가 설명할래, 아니면 내가 할까? 약혼자라니, 그건... 블레어, 여기 오지 말았어야 해. 잠깐, 알렉스, 네가 어떻게 내 약혼자를 안다는 거야? 난 너희 둘이 사랑하는 줄 알았는데. 이 멍청하고 가난한 여자한테 네가 이 도시의 마피아 보스라고 말 안 했어? 네가 액스 케인이라고? 잠깐, 알렉스, 저 여자가 거짓말한다고 말해. 아니, 아니야. 넌 액스 케인이 아니잖아. 한나, 잠깐만. 내가 설명할게. 맞아, 아니야?",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "SUP",
+    "line": "모른 척하지 마. 내 약혼자가 네 아파트에서 살고 있어서 온 거야. 네가 설명할래, 아니면 내가 할까?"
+   },
+   {
+    "speaker": "FL",
+    "line": "약혼자라니, 그건…"
+   },
+   {
+    "speaker": "ML",
+    "line": "블레어, 여기 오지 말았어야 해."
+   },
+   {
+    "speaker": "UNK",
+    "line": "잠깐, 알렉스, 네가 어떻게 내 약혼자를 안다는 거야? 난 너희 둘이 사랑하는 줄 알았는데."
+   },
+   {
+    "speaker": "SUP",
+    "line": "이 멍청하고 가난한 여자한테 네가 이 도시의 마피아 보스라고 말 안 했어?"
+   },
+   {
+    "speaker": "FL",
+    "line": "네가 액스 케인이라고? 잠깐, 알렉스, 저 여자가 거짓말한다고 말해. 아니, 아니야. 넌 액스 케인이 아니잖아."
+   },
+   {
+    "speaker": "ML",
+    "line": "한나, 잠깐만. 내가 설명할게."
+   },
+   {
+    "speaker": "FL",
+    "line": "맞아, 아니야?"
+   }
+  ],
+  "hook_desc": "여주의 집에 연적이 들이닥쳐 '내 약혼자가 네 아파트에 살고 있다'며 따진다.",
+  "hook_desc_confidence": 0.75,
+  "tags": {
+   "catharsis_type": "devotion_thrill",
+   "trope_tags": [
+    "삼각관계",
+    "신분숨김(히든재벌·정체은닉)",
+    "신데렐라(신분격차)"
+   ],
+   "hook_beat": [
+    "정체폭로",
+    "오해 발생"
+   ],
+   "cliffhanger_type": "정체 폭로 직전",
+   "character_setup": {
+    "villain": "연적",
+    "sub_male": false,
+    "fl_type": "인내형"
+   },
+   "male_lead": [
+    "dangerous_forbidden",
+    "powerful_status"
+   ],
+   "setting": "",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.7,
+  "tag_notes": "연적 난입+'마피아 보스' 정체 폭로 충격. script 풍부. cliff='거짓말이라고 말해' 폭로 직전.",
+  "tag_version": "v4.0",
+  "needs_review": false,
+  "legacy_tags": {
+   "hook_type": "confession_or_desire_hook",
+   "story_type": "power_status_romance",
+   "dialogue_tags": [
+    "love_confession_or_desire",
+    "jealousy_possession_or_rival",
+    "secret_lie_or_reveal",
+    "choice_ultimatum_or_deadline",
+    "power_money_or_status",
+    "marriage_family_or_pregnancy",
+    "misunderstanding_or_accusation",
+    "emotional_question_or_confrontation",
+    "humiliation_status_drop_or_bullying"
+   ],
+   "trope_tags": [
+    "love_triangle_or_rival",
+    "secret_identity_or_hidden_truth",
+    "revenge_betrayal_or_payback",
+    "forced_choice_or_ultimatum",
+    "marriage_contract_or_family_pressure",
+    "misunderstanding_to_reconciliation",
+    "class_gap_cinderella"
+   ],
+   "hook": "모른 척하지 마. 내 약혼자가 네 아파트에서 살고 있어서 온 거야. 네가 설명할래, 아니면 내가 할까? 약혼자라니, 그건... 블레어, 여기 오지 말았어야 해. 잠깐, 알렉스, 네가 어떻게 내 약혼자를 안다는 거야? 난 너희 둘이 사랑하는 줄 알았는데. 이 멍청하고 가난한 여자한테 네가 이 도시의 마피아 보스라고 말 안 ",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "jealousy_rival_hook",
+   "story_type": "secret_reveal_betrayal_drama",
+   "dialogue_tags": [
+    "jealousy_possession_or_rival",
+    "secret_lie_or_reveal",
+    "misunderstanding_or_accusation",
+    "humiliation_status_drop_or_bullying",
+    "emotional_question_or_confrontation"
+   ],
+   "trope_tags": [
+    "love_triangle_or_rival",
+    "secret_identity_or_hidden_truth",
+    "class_gap_cinderella"
+   ],
+   "male_lead": [
+    "dangerous_forbidden",
+    "powerful_status"
+   ],
+   "setting": "",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7473357374196157738",
+  "url": "https://www.tiktok.com/@user7128747999583/video/7473357374196157738",
+  "author": "user7128747999583",
+  "desc": "I am the antidote to the billionaire CEO 2#cdrama #drama #kdrama #dramatiktok #fyp",
+  "rank": 55,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 895400.0,
+   "likes": 60700.0,
+   "saves": 2824.0,
+   "shares": 538.0,
+   "comments": 296.0,
+   "er": 0.409,
+   "save_rate": 0.315,
+   "dur": 148.0,
+   "cut_count": 88.0,
+   "avg_cut": 1.618
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "fast_cut_tension_driven",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "male_lead": [
+    "powerful_status"
+   ],
+   "setting": "",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.35,
+  "tag_notes": "transcript 없음. 컷 88개/평균 1.6초 → fast_cut. 'antidote to the billionaire CEO' 콘셉트는 사전 trope에 없음.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "general_hook",
+   "story_type": "fast_cut_tension_driven",
+   "dialogue_tags": [
+    "general_dialogue"
+   ],
+   "trope_tags": [
+    "general_romance"
+   ],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7656976349420129557",
+  "url": "https://www.tiktok.com/@huijuian/video/7656976349420129557",
+  "author": "huijuian",
+  "desc": "pre release doctor on the edge episode 10, this is the third time they've been interrupted while trying to have some time alone together 😂,",
+  "rank": 56,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 51900.0,
+   "likes": 2249.0,
+   "saves": 138.0,
+   "shares": 37.0,
+   "comments": 35.0,
+   "er": 0.405,
+   "save_rate": 0.266,
+   "dur": 30.0,
+   "cut_count": 6.0,
+   "avg_cut": 3.911
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "이거 스테인 거예요? 저, 저, 저...",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "UNK",
+    "line": "이거 스테인 거예요? 저, 저, 저… (판독 불가)"
+   }
+  ],
+  "hook_desc": "단둘이 시간을 보내려던 커플이 세 번째로 방해받는 순간(설명문 기반 추정).",
+  "hook_desc_confidence": 0.3,
+  "tags": {
+   "catharsis_type": "humor_flutter",
+   "trope_tags": [],
+   "hook_beat": [],
+   "cliffhanger_type": "끊김 아님(완결형)",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": false,
+    "fl_type": "불명"
+   },
+   "male_lead": [
+    "devoted_straightforward"
+   ],
+   "setting": "medical",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.25,
+  "tag_notes": "script 판독불가 1줄뿐. hook_desc도 설명문 추정. 분류 근거 거의 없음 — 검색 제외 권장.",
+  "tag_version": "v4.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "general_hook",
+   "story_type": "emotion_reaction_driven",
+   "dialogue_tags": [
+    "general_dialogue"
+   ],
+   "trope_tags": [
+    "general_romance"
+   ],
+   "hook": "이거 스테인 거예요? 저, 저, 저...",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "",
+   "story_type": "emotion_reaction_driven",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "male_lead": [
+    "devoted_straightforward"
+   ],
+   "setting": "medical",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7656762507452894486",
+  "url": "https://www.tiktok.com/@itsgoneviral/video/7656762507452894486",
+  "author": "itsgoneviral",
+  "desc": "Getting revenge on my cheating husband 😡 Original scripted vertical drama by IGV 🎬 #igv #originaldrama #scripteddrama #verticaldrama #tikt",
+  "rank": 57,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 18800.0,
+   "likes": 356.0,
+   "saves": 51.0,
+   "shares": 5.0,
+   "comments": 19.0,
+   "er": 0.399,
+   "save_rate": 0.271,
+   "dur": 90.0,
+   "cut_count": 19.0,
+   "avg_cut": 4.541
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "다 봤어. 전부 봤어. 여기 카메라에 다 찍혔어. 꺼져. 방금 내 연인이 바람피우는 걸 발견했어. 그래서 직접 따지러 갈 거야. 지금 어디야? 너랑 얘기해야 해. 하지만 그의 반응은 그녀가 예상한 것과 달랐다. 너 잡혔어. 뭘 잡혔다는 건데? 카메라에 바람피우는 게 찍혔어. 무슨 바람? 아니, 그거 내려놓고 내 말 좀 들어. 또 싸우자는 거야? 너 잡혔다니까. 내가 뭘 잡혔다는 거야? 네 시간에 본 거잖아. 카메라에서 봤어. 네가 누군가와 키스하고 있었고 난 이제 충분히 참았어. 설명해 봐. 주전자 만지작거리지 말고 나를 봐. 10년 된 내 가장 친한 친구 얘기였어. 이제 여자 친구도 못 사귀어? 그건 다르지. 여자 친구를 껴안고 키스하고 다니지는 않잖아. 이상해. 떠나는 길이라 그냥 안아준 것뿐이야. 무슨 말인지 알아? 네 남자 친구 말하는 거지? 그래, 하지만 난 그에게 키스하거나 껴안고 그러지 않아. 난 아무 짓도 안 했어. 네가 미쳐 가는 거야. 그의 계획은 이제 그녀가 미친 사람처럼 보이게 만드는 것이다. 내가 미쳤다고 뒤집어씌우지 마. 안 참아. 이제 증거를 보여줄 차례다. 날 무시하려는 거야? 이걸 봐. 봤지? 이걸 어떻게 설명할 건데? 못 하지. 그러니까 그냥 집에서 나가. 네 물건 전부 집 밖으로 빼. 그냥 나가.",
+  "transcript_form": "mixed",
+  "script": [
+   {
+    "speaker": "FL",
+    "line": "다 봤어. 전부 봤어. 여기 카메라에 다 찍혔어."
+   },
+   {
+    "speaker": "UNK",
+    "line": "꺼져."
+   },
+   {
+    "speaker": "FL",
+    "line": "방금 내 연인이 바람피우는 걸 발견했어. 그래서 직접 따지러 갈 거야."
+   },
+   {
+    "speaker": "FL",
+    "line": "지금 어디야? 너랑 얘기해야 해."
+   },
+   {
+    "speaker": "NAR",
+    "line": "하지만 그의 반응은 그녀가 예상한 것과 달랐다."
+   },
+   {
+    "speaker": "FL",
+    "line": "너 잡혔어."
+   },
+   {
+    "speaker": "ML",
+    "line": "뭘 잡혔다는 건데?"
+   },
+   {
+    "speaker": "FL",
+    "line": "카메라에 바람피우는 게 찍혔어."
+   },
+   {
+    "speaker": "ML",
+    "line": "무슨 바람? 아니, 그거 내려놓고 내 말 좀 들어. 또 싸우자는 거야?"
+   },
+   {
+    "speaker": "FL",
+    "line": "너 잡혔다니까."
+   },
+   {
+    "speaker": "ML",
+    "line": "내가 뭘 잡혔다는 거야?"
+   },
+   {
+    "speaker": "FL",
+    "line": "카메라에서 봤어. 네가 누군가와 키스하고 있었고, 난 이제 충분히 참았어. 설명해 봐. 주전자 만지작거리지 말고 나를 봐."
+   },
+   {
+    "speaker": "ML",
+    "line": "10년 된 내 가장 친한 친구 얘기였어. 이제 여자 친구도 못 사귀어?"
+   },
+   {
+    "speaker": "FL",
+    "line": "그건 다르지. 여자 친구를 껴안고 키스하고 다니지는 않잖아. 이상해."
+   },
+   {
+    "speaker": "ML",
+    "line": "떠나는 길이라 그냥 안아준 것뿐이야. 난 아무 짓도 안 했어. 네가 미쳐 가는 거야."
+   },
+   {
+    "speaker": "NAR",
+    "line": "그의 계획은 이제 그녀가 미친 사람처럼 보이게 만드는 것이다."
+   },
+   {
+    "speaker": "FL",
+    "line": "내가 미쳤다고 뒤집어씌우지 마. 안 참아."
+   },
+   {
+    "speaker": "NAR",
+    "line": "이제 증거를 보여줄 차례다."
+   },
+   {
+    "speaker": "ML",
+    "line": "날 무시하려는 거야?"
+   },
+   {
+    "speaker": "FL",
+    "line": "이걸 봐. 봤지? 이걸 어떻게 설명할 건데? 못 하지. 그러니까 그냥 집에서 나가. 네 물건 전부 집 밖으로 빼. 그냥 나가."
+   }
+  ],
+  "hook_desc": "여주가 '다 봤어, 카메라에 다 찍혔어'라며 연인의 불륜 증거를 잡았다고 선언한다.",
+  "hook_desc_confidence": 0.8,
+  "tags": {
+   "catharsis_type": "revenge_payback",
+   "trope_tags": [
+    "복수극",
+    "배신"
+   ],
+   "hook_beat": [
+    "목격",
+    "결심선언"
+   ],
+   "cliffhanger_type": "결심·선언 직후",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": false,
+    "fl_type": "복수형"
+   },
+   "male_lead": [
+    "unknown"
+   ],
+   "setting": "everyday_neighborhood",
+   "hook_modality": "dialogue",
+   "narration_form": "mixed",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.75,
+  "tag_notes": "불륜 증거 잡고 정면 대질+가스라이팅 반박. 나레이션으로 남주 계략 명시. 복수 서사 명확.",
+  "tag_version": "v4.0",
+  "needs_review": false,
+  "legacy_tags": {
+   "hook_type": "status_quo_break_hook",
+   "story_type": "secret_reveal_betrayal_drama",
+   "dialogue_tags": [
+    "misunderstanding_or_accusation",
+    "secret_lie_or_reveal",
+    "emotional_question_or_confrontation",
+    "breakup_rejection_or_distance"
+   ],
+   "trope_tags": [
+    "revenge_betrayal_or_payback"
+   ],
+   "hook": "다 봤어. 전부 봤어. 여기 카메라에 다 찍혔어. 꺼져. 방금 내 연인이 바람피우는 걸 발견했어. 그래서 직접 따지러 갈 거야. 지금 어디야? 너랑 얘기해야 해. 하지만 그의 반응은 그녀가 예상한 것과 달랐다. 너 잡혔어. 뭘 잡혔다는 건데? 카메라에 바람피우는 게 찍혔어. 무슨 바람? 아니, 그거 내려놓고 내 말 좀 들",
+   "tag_confidence": 0.8
+  },
+  "legacy_tags_v3": {
+   "hook_type": "status_quo_break_hook",
+   "story_type": "secret_reveal_betrayal_drama",
+   "dialogue_tags": [
+    "secret_lie_or_reveal",
+    "misunderstanding_or_accusation",
+    "emotional_question_or_confrontation",
+    "breakup_rejection_or_distance",
+    "threat_danger_or_revenge"
+   ],
+   "trope_tags": [
+    "revenge_betrayal_or_payback"
+   ],
+   "male_lead": [
+    "unknown"
+   ],
+   "setting": "everyday_neighborhood",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "mixed"
+  }
+ },
+ {
+  "id": "7545141007512325383",
+  "url": "https://www.tiktok.com/@movies_n_novels_promoter/video/7545141007512325383",
+  "author": "movies_n_novels_promoter",
+  "desc": "The Gossip Trap✨ Watch more episodes on the link in my profile.  #MobiReels #romancedrama #ceoromance #cdrama #fyp #romance #trending #trend",
+  "rank": 60,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 257000.0,
+   "likes": 4450.0,
+   "saves": 813.0,
+   "shares": 108.0,
+   "comments": 63.0,
+   "er": 0.383,
+   "save_rate": 0.316,
+   "dur": 108.0,
+   "cut_count": 36.0,
+   "avg_cut": 2.667
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "[ASR 불명확] 내가 너무 적게 받는 건가? 여주인공이 누구인지 봐. 내일 너희가 아주 바쁘게 돈 벌게 해 줄게. 이 시간 때문에 천광 엔터테인먼트가 나한테 40만을 줬어. 거래 성사. 만나서 얘기하자. 더 자세한 내용을 알고 싶어. 만나는 건 안 돼. 대신 더 은밀한 소문을 하나 알려줄게. 유명한 탄가의 셋째 도련님, 탄녀천, 그녀는... 안 돼.",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "UNK",
+    "line": "내가 너무 적게 받는 건가?"
+   },
+   {
+    "speaker": "UNK",
+    "line": "여주인공이 누구인지 봐. 내일 너희가 아주 바쁘게 돈 벌게 해 줄게."
+   },
+   {
+    "speaker": "UNK",
+    "line": "이 시간 때문에 천광 엔터테인먼트가 나한테 40만을 줬어."
+   },
+   {
+    "speaker": "UNK",
+    "line": "거래 성사."
+   },
+   {
+    "speaker": "UNK",
+    "line": "만나서 얘기하자. 더 자세한 내용을 알고 싶어."
+   },
+   {
+    "speaker": "UNK",
+    "line": "만나는 건 안 돼. 대신 더 은밀한 소문을 하나 알려줄게. 유명한 탄가의 셋째 도련님, 탄녀천, 그녀는…"
+   },
+   {
+    "speaker": "UNK",
+    "line": "안 돼."
+   }
+  ],
+  "hook_desc": "가십 거래상이 '여주인공이 누군지 봐라, 내일 바쁘게 돈 벌게 해 주겠다'며 특종 거래를 예고한다.",
+  "hook_desc_confidence": 0.5,
+  "tags": {
+   "catharsis_type": "revenge_payback",
+   "trope_tags": [
+    "계략·모함",
+    "신분숨김(히든재벌·정체은닉)"
+   ],
+   "hook_beat": [
+    "최후통첩·협박"
+   ],
+   "cliffhanger_type": "미끼 질문(다음 상황 예고)",
+   "character_setup": {
+    "villain": "불명",
+    "sub_male": null,
+    "fl_type": "불명"
+   },
+   "male_lead": [
+    "unknown"
+   ],
+   "setting": "entertainment_idol",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.4,
+  "tag_notes": "가십 거래상 특종 거래 예고. 전원 UNK, 주인공 관계 불명. 모함/음모 도입부 추정.",
+  "tag_version": "v4.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "power_or_money_hook",
+   "story_type": "power_status_romance",
+   "dialogue_tags": [
+    "threat_danger_or_revenge",
+    "power_money_or_status",
+    "emotional_question_or_confrontation"
+   ],
+   "trope_tags": [
+    "forbidden_love",
+    "class_gap_cinderella"
+   ],
+   "hook": "[ASR 불명확] 내가 너무 적게 받는 건가? 여주인공이 누구인지 봐. 내일 너희가 아주 바쁘게 돈 벌게 해 줄게. 이 시간 때문에 천광 엔터테인먼트가 나한테 40만을 줬어. 거래 성사. 만나서 얘기하자. 더 자세한 내용을 알고 싶어. 만나는 건 안 돼. 대신 더 은밀한 소문을 하나 알려줄게. 유명한 탄가의 셋째 도련님,",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "power_or_money_hook",
+   "story_type": "secret_reveal_betrayal_drama",
+   "dialogue_tags": [
+    "power_money_or_status",
+    "secret_lie_or_reveal"
+   ],
+   "trope_tags": [
+    "secret_identity_or_hidden_truth"
+   ],
+   "male_lead": [
+    "unknown"
+   ],
+   "setting": "entertainment_idol",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7536193617170320695",
+  "url": "https://www.tiktok.com/@user7128747999583/video/7536193617170320695",
+  "author": "user7128747999583",
+  "desc": "The man was originally the company&#39;s top salesperson, but the CEO&#39;s wife asked him to give the title to her first love.  3#dramatikt",
+  "rank": 62,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 91500.0,
+   "likes": 2616.0,
+   "saves": 287.0,
+   "shares": 31.0,
+   "comments": 30.0,
+   "er": 0.38,
+   "save_rate": 0.314,
+   "dur": 131.0,
+   "cut_count": 116.0,
+   "avg_cut": 1.11
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "fast_cut_tension_driven",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "revenge_betrayal_or_payback"
+   ],
+   "male_lead": [
+    "unknown"
+   ],
+   "setting": "office_workplace",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.3,
+  "tag_notes": "transcript 없음. 남성 주인공 사이다물로 추정(top salesperson 부당 강등) — 로맨스 남주 축 판별 불가. 컷 116개/1.1초 → fast_cut.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "general_hook",
+   "story_type": "fast_cut_tension_driven",
+   "dialogue_tags": [
+    "general_dialogue"
+   ],
+   "trope_tags": [
+    "general_romance"
+   ],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7536065354485812493",
+  "url": "https://www.tiktok.com/@user7128747999583/video/7536065354485812493",
+  "author": "user7128747999583",
+  "desc": "The man was originally the company&#39;s top salesperson, but the CEO&#39;s wife asked him to give the title to her first love.  2#dramatikt",
+  "rank": 63,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 118100.0,
+   "likes": 2893.0,
+   "saves": 405.0,
+   "shares": 16.0,
+   "comments": 25.0,
+   "er": 0.378,
+   "save_rate": 0.343,
+   "dur": 100.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "revenge_betrayal_or_payback"
+   ],
+   "male_lead": [
+    "unknown"
+   ],
+   "setting": "office_workplace",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.3,
+  "tag_notes": "transcript 없음. 41번과 동일 시리즈 파트 2.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7622987685992385805",
+  "url": "https://www.tiktok.com/@shortmaxapp/video/7622987685992385805",
+  "author": "shortmaxapp",
+  "desc": "📺Ditched My Cheater Husband For His Billionaire Brother📺EP08 Only on the ShortMax app 🎁【uko288】Claim your bonus! Simply enter the code in",
+  "rank": 64,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 39500.0,
+   "likes": 413.0,
+   "saves": 82.0,
+   "shares": 57.0,
+   "comments": 6.0,
+   "er": 0.367,
+   "save_rate": 0.208,
+   "dur": 116.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "revenge_betrayal_or_payback",
+    "love_triangle_or_rival"
+   ],
+   "male_lead": [
+    "powerful_status"
+   ],
+   "setting": "",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.4,
+  "tag_notes": "transcript 없음. 제목(Ditched My Cheater Husband For His Billionaire Brother) 기반.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7634125856201362702",
+  "url": "https://www.tiktok.com/@shortmaxapp/video/7634125856201362702",
+  "author": "shortmaxapp",
+  "desc": "📺My Lazy Ex-husband is the Supreme Mage2.0📺EP10 Only on the ShortMax app 🎁【lgn877】Claim your bonus! Simply enter the code in the ShortMax",
+  "rank": 65,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 52100.0,
+   "likes": 742.0,
+   "saves": 166.0,
+   "shares": 15.0,
+   "comments": 9.0,
+   "er": 0.365,
+   "save_rate": 0.319,
+   "dur": 122.0,
+   "cut_count": 48.0,
+   "avg_cut": 2.544
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "secret_identity_or_hidden_truth",
+    "second_chance_or_regret"
+   ],
+   "male_lead": [
+    "powerful_status"
+   ],
+   "setting": "fantasy_supernatural",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.4,
+  "tag_notes": "transcript 없음. 제목(My Lazy Ex-husband is the Supreme Mage) 기반 — 숨겨진 실력자+전남편.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "general_hook",
+   "story_type": "emotion_reaction_driven",
+   "dialogue_tags": [
+    "general_dialogue"
+   ],
+   "trope_tags": [
+    "general_romance"
+   ],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7652410132625640718",
+  "url": "https://www.tiktok.com/@reelshortapp/video/7652410132625640718",
+  "author": "reelshortapp",
+  "desc": "📺 Ms. CEO's Baby Daddy Is the Merchant of Death #reelshort #mustwatch #sweetmoment",
+  "rank": 66,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 64300.0,
+   "likes": 898.0,
+   "saves": 193.0,
+   "shares": 30.0,
+   "comments": 7.0,
+   "er": 0.358,
+   "save_rate": 0.3,
+   "dur": 17.0,
+   "cut_count": 7.0,
+   "avg_cut": 2.091
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "그게 왜 어려워? 아, 이 돼지야. 엄마, 아빠, 뭐 하는 거예요? 서머, 얘야, 엄마는 그냥, 어... 정말 역겨워.",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "SUP",
+    "line": "그게 왜 어려워? 아, 이 돼지야."
+   },
+   {
+    "speaker": "FL",
+    "line": "엄마, 아빠, 뭐 하는 거예요?"
+   },
+   {
+    "speaker": "SUP",
+    "line": "서머, 얘야, 엄마는 그냥, 어…"
+   },
+   {
+    "speaker": "FL",
+    "line": "정말 역겨워."
+   }
+  ],
+  "hook_desc": "부모의 낯뜨거운 장난을 목격한 여주(서머)가 '뭐 하는 거예요?'라며 기겁한다.",
+  "hook_desc_confidence": 0.45,
+  "tags": {
+   "catharsis_type": "humor_flutter",
+   "trope_tags": [
+    "임신·출산"
+   ],
+   "hook_beat": [
+    "목격"
+   ],
+   "cliffhanger_type": "끊김 아님(완결형)",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": false,
+    "fl_type": "당찬형"
+   },
+   "male_lead": [
+    "dangerous_forbidden",
+    "powerful_status"
+   ],
+   "setting": "",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.4,
+  "tag_notes": "부모 낯뜨거운 장난 목격 '역겨워' 개그. 제목=CEO baby daddy. 코믹 가족 장면.",
+  "tag_version": "v4.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "emotional_question_hook",
+   "story_type": "emotion_reaction_driven",
+   "dialogue_tags": [
+    "marriage_family_or_pregnancy",
+    "emotional_question_or_confrontation"
+   ],
+   "trope_tags": [
+    "general_romance"
+   ],
+   "hook": "그게 왜 어려워? 아, 이 돼지야. 엄마, 아빠, 뭐 하는 거예요? 서머, 얘야, 엄마는 그냥, 어... 정말 역겨워.",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "",
+   "story_type": "emotion_reaction_driven",
+   "dialogue_tags": [
+    "emotional_question_or_confrontation"
+   ],
+   "trope_tags": [],
+   "male_lead": [
+    "dangerous_forbidden",
+    "powerful_status"
+   ],
+   "setting": "",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7612319166497950994",
+  "url": "https://www.tiktok.com/@shortdrama_29/video/7612319166497950994",
+  "author": "shortdrama_29",
+  "desc": "peluk terus😂 #jinjiayu #zhangjiuzhi #shortdramachinese #shortdramaromance #freereels ",
+  "rank": 67,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 990300.0,
+   "likes": 15500.0,
+   "saves": 2904.0,
+   "shares": 405.0,
+   "comments": 224.0,
+   "er": 0.357,
+   "save_rate": 0.293,
+   "dur": 53.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "male_lead": [
+    "devoted_straightforward"
+   ],
+   "setting": "",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.25,
+  "tag_notes": "transcript 없음. 설명문('peluk terus'=바로 안아버림)만으로 축 확정 불가. male_lead는 legacy 유지.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7653244565159218452",
+  "url": "https://www.tiktok.com/@myshortdramas/video/7653244565159218452",
+  "author": "myshortdramas",
+  "desc": "Episode 31  Divorced, I married the godfather #myshortdramas #divorcedimarriedthegodfather #mafia #trending ",
+  "rank": 68,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 212300.0,
+   "likes": 2402.0,
+   "saves": 682.0,
+   "shares": 57.0,
+   "comments": 13.0,
+   "er": 0.354,
+   "save_rate": 0.321,
+   "dur": 109.0,
+   "cut_count": 13.0,
+   "avg_cut": 7.295
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "너에게 진짜 결혼식을 빚졌어. 그럴 필요 없어. 돈의 아내는 그 영예를 영원히 지녀야 해. 이 도시의 모든 사람이 노라 베넷이 내 아내라는 걸 알았으면 해. 그리고 내가 그녀의 남편이라는 것도. 네가 그 문을 통과해 들어온 밤에 모든 것을 네 발아래 바치지 못한 게 유일한 후회야. 나는 그의 어깨에 기대 웃었다. 내가 그 문을 통과한 밤, 우리는 서로 알지도 못했잖아요. 어떻게 그럴 수 있었겠어요? 노라, 그 문간에서 널 본 그 밤, 나는 이미 널 원하고 있었어. 우리의 결혼식은 뉴욕에서 10년 만에 열린 어떤 행사보다도 컸다. 오래된 명문가, 신흥 부자, 상원의원, 추기경, 시장까지. 우리는 사흘 연속 1면에 실렸다. 내가 루카를 꾸짖자 집사는 환하게 웃었다. 카스텔리노 부인, 돈은 평생 조용히 살아왔습니다. 이렇게 시끄러워진 건 처음입니다. 이번 한 번만 봐주세요. 나는 그냥 넘어갔다. 결혼식 밤, 낯선 번호로 전화가 왔다. 내가 미간을 찌푸리자 루카의 긴 팔이 뻗어 와 전화를 끊었다. 그의 손가락이 내 허리를 꽉 잡았다. 카스텔리노 부인, 나만 보세요. 그가 내 머리카락 한 가닥을 손가락에 감으며 조금 어색하게 헛기침했다. 노라, 비밀 하나 말하고 싶어. 나는 졸린 소리를 냈다. 레오는 내 아들이 아니야. 내 누나의 아들이야. 그는 조용히 끊어 말했다. 그의 부모는 그가 13살 때 죽었고, 그와 누나는 제국에서 어두운 시기를 겪었다. 어느 날 누나는 결혼해 레오를 낳았지만, 3년 전 누나와 남편이 총격으로 죽으며 행복은 갑자기 끝났다. 루카는 그 집안을 모두 제거했다. 그리고 아무도 레오를 빼앗아 가지 못하도록 조용히 자신의 출생증명서에 레오를 올렸다.",
+  "transcript_form": "mixed",
+  "script": [
+   {
+    "speaker": "ML",
+    "line": "너에게 진짜 결혼식을 빚졌어."
+   },
+   {
+    "speaker": "FL",
+    "line": "그럴 필요 없어."
+   },
+   {
+    "speaker": "ML",
+    "line": "돈의 아내는 그 영예를 영원히 지녀야 해. 이 도시의 모든 사람이 노라 베넷이 내 아내라는 걸 알았으면 해. 그리고 내가 그녀의 남편이라는 것도. 네가 그 문을 통과해 들어온 밤에 모든 것을 네 발아래 바치지 못한 게 유일한 후회야."
+   },
+   {
+    "speaker": "NAR",
+    "line": "나는 그의 어깨에 기대 웃었다."
+   },
+   {
+    "speaker": "FL",
+    "line": "내가 그 문을 통과한 밤, 우리는 서로 알지도 못했잖아요. 어떻게 그럴 수 있었겠어요?"
+   },
+   {
+    "speaker": "ML",
+    "line": "노라, 그 문간에서 널 본 그 밤, 나는 이미 널 원하고 있었어."
+   },
+   {
+    "speaker": "NAR",
+    "line": "우리의 결혼식은 뉴욕에서 10년 만에 열린 어떤 행사보다도 컸다. 오래된 명문가, 신흥 부자, 상원의원, 추기경, 시장까지. 우리는 사흘 연속 1면에 실렸다."
+   },
+   {
+    "speaker": "SUP",
+    "line": "카스텔리노 부인, 돈은 평생 조용히 살아왔습니다. 이렇게 시끄러워진 건 처음입니다. 이번 한 번만 봐주세요."
+   },
+   {
+    "speaker": "NAR",
+    "line": "나는 그냥 넘어갔다. 결혼식 밤, 낯선 번호로 전화가 왔다. 내가 미간을 찌푸리자 루카의 긴 팔이 뻗어 와 전화를 끊었다. 그의 손가락이 내 허리를 꽉 잡았다."
+   },
+   {
+    "speaker": "ML",
+    "line": "카스텔리노 부인, 나만 보세요."
+   },
+   {
+    "speaker": "NAR",
+    "line": "그가 내 머리카락 한 가닥을 손가락에 감으며 조금 어색하게 헛기침했다."
+   },
+   {
+    "speaker": "ML",
+    "line": "노라, 비밀 하나 말하고 싶어. 레오는 내 아들이 아니야. 내 누나의 아들이야."
+   },
+   {
+    "speaker": "NAR",
+    "line": "그의 부모는 그가 13살 때 죽었고, 그와 누나는 제국에서 어두운 시기를 겪었다. 어느 날 누나는 결혼해 레오를 낳았지만, 3년 전 누나와 남편이 총격으로 죽으며 행복은 갑자기 끝났다. 루카는 그 집안을 모두 제거했다. 그리고 아무도 레오를 빼앗아 가지 못하도록 조용히 자신의 출생증명서에 레오를 올렸다."
+   }
+  ],
+  "hook_desc": "마피아 남주가 여주에게 '너에게 진짜 결혼식을 빚졌어'라고 선언한다.",
+  "hook_desc_confidence": 0.75,
+  "tags": {
+   "catharsis_type": "devotion_thrill",
+   "trope_tags": [
+    "계약연애",
+    "집착남",
+    "신분숨김(히든재벌·정체은닉)",
+    "임신·출산"
+   ],
+   "hook_beat": [
+    "고백·유혹"
+   ],
+   "cliffhanger_type": "끊김 아님(완결형)",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": false,
+    "fl_type": "인내형"
+   },
+   "male_lead": [
+    "dangerous_forbidden",
+    "devoted_straightforward"
+   ],
+   "setting": "chaebol_highsociety",
+   "hook_modality": "dialogue",
+   "narration_form": "mixed",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.7,
+  "tag_notes": "마피아 남주 '진짜 결혼식 빚졌다'+독점욕 고백+출생비밀 폭로. 나레이션 풍부. 집착헌신.",
+  "tag_version": "v4.0",
+  "needs_review": false,
+  "legacy_tags": {
+   "hook_type": "power_or_money_hook",
+   "story_type": "power_status_romance",
+   "dialogue_tags": [
+    "secret_lie_or_reveal",
+    "threat_danger_or_revenge",
+    "power_money_or_status",
+    "marriage_family_or_pregnancy",
+    "emotional_question_or_confrontation",
+    "apology_regret_or_sacrifice"
+   ],
+   "trope_tags": [
+    "secret_identity_or_hidden_truth",
+    "marriage_contract_or_family_pressure",
+    "class_gap_cinderella"
+   ],
+   "hook": "너에게 진짜 결혼식을 빚졌어. 그럴 필요 없어. 돈의 아내는 그 영예를 영원히 지녀야 해. 이 도시의 모든 사람이 노라 베넷이 내 아내라는 걸 알았으면 해. 그리고 내가 그녀의 남편이라는 것도. 네가 그 문을 통과해 들어온 밤에 모든 것을 네 발아래 바치지 못한 게 유일한 후회야. 나는 그의 어깨에 기대 웃었다. 내가 그",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "marriage_family_hook",
+   "story_type": "marriage_family_drama",
+   "dialogue_tags": [
+    "love_confession_or_desire",
+    "marriage_family_or_pregnancy",
+    "secret_lie_or_reveal",
+    "power_money_or_status"
+   ],
+   "trope_tags": [
+    "contract_or_fake_relationship",
+    "secret_identity_or_hidden_truth",
+    "obsessive_devotion"
+   ],
+   "male_lead": [
+    "dangerous_forbidden",
+    "devoted_straightforward"
+   ],
+   "setting": "chaebol_highsociety",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "mixed"
+  }
+ },
+ {
+  "id": "7565394066645454102",
+  "url": "https://www.tiktok.com/@zxgiv94138/video/7565394066645454102",
+  "author": "zxgiv94138",
+  "desc": "Moonlight Love（Dubbed） (15) 🌟 Continue the story here 👉🏻 📲 Download the \"FlickReels\" app, 🔍 search for \"fgrd31\", and watch the full ser",
+  "rank": 69,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 59500.0,
+   "likes": 1414.0,
+   "saves": 145.0,
+   "shares": 29.0,
+   "comments": 33.0,
+   "er": 0.348,
+   "save_rate": 0.244,
+   "dur": 95.0,
+   "cut_count": 2.0,
+   "avg_cut": 41.3
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "무슨 뜻이죠? 책임감 때문이라고요? 의사로서 제 의무입니다. 완전한 회복은 어렵더라도 도울 수는 있어요. 발작은 덜 자주 일어날 것이고, 일어나더라도 더 짧게 끝날 겁니다. 걱정하지 마세요. 오늘 밤은 편히 잘 수 있을 거예요. 당신은요? 저는 제 방에 가서 쉬겠습니다. 큰 폭풍이 오고 있어요. 혼자 있으면 안전하지 않습니다. 당신이 잠들 때까지 여기 있을게요. 이선 포드. 전생에 나는 당신의 사랑을 저버렸어. 이번 생에는 보답할게. 왜 또 우는 거지? 나 때문인가? 두 사람은 막 결혼했고, 우리는 아침 내내 기다리고 있어. 이 일이 알려지면 사람들이 우리를 비웃을 거야.",
+  "transcript_form": "mixed",
+  "script": [
+   {
+    "speaker": "FL",
+    "line": "무슨 뜻이죠? 책임감 때문이라고요?"
+   },
+   {
+    "speaker": "ML",
+    "line": "의사로서 제 의무입니다. 완전한 회복은 어렵더라도 도울 수는 있어요. 발작은 덜 자주 일어날 것이고, 일어나더라도 더 짧게 끝날 겁니다. 걱정하지 마세요. 오늘 밤은 편히 잘 수 있을 거예요."
+   },
+   {
+    "speaker": "FL",
+    "line": "당신은요?"
+   },
+   {
+    "speaker": "ML",
+    "line": "저는 제 방에 가서 쉬겠습니다. 큰 폭풍이 오고 있어요. 혼자 있으면 안전하지 않습니다. 당신이 잠들 때까지 여기 있을게요."
+   },
+   {
+    "speaker": "NAR",
+    "line": "이선 포드. 전생에 나는 당신의 사랑을 저버렸어. 이번 생에는 보답할게."
+   },
+   {
+    "speaker": "ML",
+    "line": "왜 또 우는 거지? 나 때문인가?"
+   },
+   {
+    "speaker": "SUP",
+    "line": "두 사람은 막 결혼했고, 우리는 아침 내내 기다리고 있어. 이 일이 알려지면 사람들이 우리를 비웃을 거야."
+   }
+  ],
+  "hook_desc": "여주가 '책임감 때문이냐'고 따져 묻자 의사 남주가 '의사로서의 의무'라며 곁을 지키겠다고 답한다.",
+  "hook_desc_confidence": 0.65,
+  "tags": {
+   "catharsis_type": "salvation",
+   "trope_tags": [
+    "회귀·환생",
+    "시한부·질병",
+    "선결혼후연애"
+   ],
+   "hook_beat": [
+    "위기·구출"
+   ],
+   "cliffhanger_type": "감정 폭발 직후",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": true,
+    "fl_type": "인내형"
+   },
+   "male_lead": [
+    "protective_rescuer",
+    "devoted_straightforward"
+   ],
+   "setting": "",
+   "hook_modality": "dialogue",
+   "narration_form": "mixed",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.6,
+  "tag_notes": "의사 남주 밤새 곁 지킴+치료. 나레이션 '전생에 저버린 사랑 이번 생에 보답'=회귀. 구원/치유.",
+  "tag_version": "v4.0",
+  "needs_review": false,
+  "legacy_tags": {
+   "hook_type": "general_hook",
+   "story_type": "marriage_family_drama",
+   "dialogue_tags": [
+    "love_confession_or_desire",
+    "marriage_family_or_pregnancy",
+    "misunderstanding_or_accusation",
+    "emotional_question_or_confrontation",
+    "humiliation_status_drop_or_bullying"
+   ],
+   "trope_tags": [
+    "marriage_contract_or_family_pressure"
+   ],
+   "hook": "무슨 뜻이죠? 책임감 때문이라고요? 의사로서 제 의무입니다. 완전한 회복은 어렵더라도 도울 수는 있어요. 발작은 덜 자주 일어날 것이고, 일어나더라도 더 짧게 끝날 겁니다. 걱정하지 마세요. 오늘 밤은 편히 잘 수 있을 거예요. 당신은요? 저는 제 방에 가서 쉬겠습니다. 큰 폭풍이 오고 있어요. 혼자 있으면 안전하지 않습",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "emotional_question_hook",
+   "story_type": "emotion_reaction_driven",
+   "dialogue_tags": [
+    "emotional_question_or_confrontation",
+    "protective_claim_or_rescue",
+    "apology_regret_or_sacrifice",
+    "marriage_family_or_pregnancy"
+   ],
+   "trope_tags": [
+    "second_chance_or_regret",
+    "healing_or_comfort"
+   ],
+   "male_lead": [
+    "protective_rescuer",
+    "devoted_straightforward"
+   ],
+   "setting": "",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "mixed"
+  }
+ },
+ {
+  "id": "7487831632221703470",
+  "url": "https://www.tiktok.com/@user7128747999583/video/7487831632221703470",
+  "author": "user7128747999583",
+  "desc": "My Snake King Husband 3#cdrama #drama #kdrama #dramatiktok #fyp",
+  "rank": 70,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 1300000.0,
+   "likes": 54100.0,
+   "saves": 3733.0,
+   "shares": 303.0,
+   "comments": 451.0,
+   "er": 0.345,
+   "save_rate": 0.287,
+   "dur": 107.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "male_lead": [
+    "dangerous_forbidden",
+    "powerful_status"
+   ],
+   "setting": "fantasy_supernatural",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.3,
+  "tag_notes": "transcript 없음. 30번(Snake King Husband)과 동일 시리즈 파트 3.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7584687613659958542",
+  "url": "https://www.tiktok.com/@goodshort_video/video/7584687613659958542",
+  "author": "goodshort_video",
+  "desc": "🔥 That doctor was his wife #goodshort #shorts #drama #romance #regret #hiddenidentity",
+  "rank": 72,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 166100.0,
+   "likes": 3055.0,
+   "saves": 466.0,
+   "shares": 52.0,
+   "comments": 32.0,
+   "er": 0.331,
+   "save_rate": 0.281,
+   "dur": 122.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "secret_identity_or_hidden_truth",
+    "second_chance_or_regret"
+   ],
+   "male_lead": [
+    "unknown"
+   ],
+   "setting": "medical",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.4,
+  "tag_notes": "transcript 없음. 설명문('That doctor was his wife' #regret #hiddenidentity) 기반.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7612034128392834324",
+  "url": "https://www.tiktok.com/@ai.frivolities/video/7612034128392834324",
+  "author": "ai.frivolities",
+  "desc": "EP 7 | The CEO’s Weakness “Come my to office now. Alone.” #microdrama #billionaireromance #romancedrama #airomance #ceoromance ",
+  "rank": 73,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 27800.0,
+   "likes": 534.0,
+   "saves": 48.0,
+   "shares": 20.0,
+   "comments": 23.0,
+   "er": 0.327,
+   "save_rate": 0.173,
+   "dur": 14.0,
+   "cut_count": 4.0,
+   "avg_cut": 2.942
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "나였어. 내가 커피를 쏟았어. 정말 미안해. 웨스트브리지 파일 전체를 잃어버렸어. 넌 그 계정에서 빠져. 지금 내 사무실로 와. 혼자.",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "FL",
+    "line": "나였어. 내가 커피를 쏟았어. 정말 미안해. 웨스트브리지 파일 전체를 잃어버렸어."
+   },
+   {
+    "speaker": "ML",
+    "line": "넌 그 계정에서 빠져. 지금 내 사무실로 와. 혼자."
+   }
+  ],
+  "hook_desc": "여주가 '나였어, 내가 커피를 쏟아 파일을 날렸어'라고 자백하자 CEO가 '내 사무실로 와, 혼자'라고 명령한다.",
+  "hook_desc_confidence": 0.7,
+  "tags": {
+   "catharsis_type": "devotion_thrill",
+   "trope_tags": [
+    "오피스로맨스",
+    "집착남"
+   ],
+   "hook_beat": [
+    "최후통첩·협박"
+   ],
+   "cliffhanger_type": "결심·선언 직후",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": false,
+    "fl_type": "인내형"
+   },
+   "male_lead": [
+    "dominant_possessive",
+    "powerful_status"
+   ],
+   "setting": "office_workplace",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.6,
+  "tag_notes": "여주 실수 자백→CEO '내 사무실로 와 혼자' 명령. 지배적 오피스로맨스 시리즈.",
+  "tag_version": "v4.0",
+  "needs_review": false,
+  "legacy_tags": {
+   "hook_type": "emotional_question_hook",
+   "story_type": "emotion_reaction_driven",
+   "dialogue_tags": [
+    "emotional_question_or_confrontation",
+    "apology_regret_or_sacrifice"
+   ],
+   "trope_tags": [
+    "general_romance"
+   ],
+   "hook": "나였어. 내가 커피를 쏟았어. 정말 미안해. 웨스트브리지 파일 전체를 잃어버렸어. 넌 그 계정에서 빠져. 지금 내 사무실로 와. 혼자.",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "",
+   "story_type": "power_status_romance",
+   "dialogue_tags": [
+    "apology_regret_or_sacrifice",
+    "power_money_or_status"
+   ],
+   "trope_tags": [
+    "boss_employee_or_power_romance"
+   ],
+   "male_lead": [
+    "dominant_possessive",
+    "powerful_status"
+   ],
+   "setting": "office_workplace",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7652781438839934222",
+  "url": "https://www.tiktok.com/@reelshortapp/video/7652781438839934222",
+  "author": "reelshortapp",
+  "desc": "📺 The Hockey Captain That Hates Me #reelshort #moment #mustwatch #enemiestolover #couple",
+  "rank": 74,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 501700.0,
+   "likes": 8854.0,
+   "saves": 894.0,
+   "shares": 656.0,
+   "comments": 67.0,
+   "er": 0.322,
+   "save_rate": 0.178,
+   "dur": 22.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "enemies_to_lovers"
+   ],
+   "male_lead": [
+    "cold_to_warm"
+   ],
+   "setting": "school_campus",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.35,
+  "tag_notes": "transcript 없음. 제목(The Hockey Captain That Hates Me) 기반 — 캠퍼스 스포츠물 추정.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7623913145849122069",
+  "url": "https://www.tiktok.com/@ai.frivolities/video/7623913145849122069",
+  "author": "ai.frivolities",
+  "desc": "EP 39 | The CEO’s Weakness “Policy is clear. One of you leaves.” #microdrama #billionaireromance #airomance #romancedrama #ceoromance ",
+  "rank": 75,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 23600.0,
+   "likes": 387.0,
+   "saves": 55.0,
+   "shares": 9.0,
+   "comments": 12.0,
+   "er": 0.322,
+   "save_rate": 0.233,
+   "dur": 13.0,
+   "cut_count": 4.0,
+   "avg_cut": 3.15
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "사내 연애를 공개하겠다는 거야? 응. 내 책임이야. 그녀를 벌하지 마. 규정은 명확해. 둘 중 하나는 떠나야 해. 그럼 내가 떠날게.",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "SUP",
+    "line": "사내 연애를 공개하겠다는 거야?"
+   },
+   {
+    "speaker": "ML",
+    "line": "응. 내 책임이야. 그녀를 벌하지 마."
+   },
+   {
+    "speaker": "SUP",
+    "line": "규정은 명확해. 둘 중 하나는 떠나야 해."
+   },
+   {
+    "speaker": "ML",
+    "line": "그럼 내가 떠날게."
+   }
+  ],
+  "hook_desc": "'사내 연애를 공개하겠다는 거야?'라는 추궁으로 비밀 연애가 공론화된다.",
+  "hook_desc_confidence": 0.7,
+  "tags": {
+   "catharsis_type": "salvation",
+   "trope_tags": [
+    "오피스로맨스",
+    "희생·놓아주기",
+    "금단물"
+   ],
+   "hook_beat": [
+    "최후통첩·협박",
+    "결심선언"
+   ],
+   "cliffhanger_type": "결심·선언 직후",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": false,
+    "fl_type": "불명"
+   },
+   "male_lead": [
+    "protective_rescuer",
+    "devoted_straightforward"
+   ],
+   "setting": "office_workplace",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.65,
+  "tag_notes": "사내연애 공개+'그럼 내가 떠날게' 남주 자기희생. noble idiot/희생 명확. 오피스.",
+  "tag_version": "v4.0",
+  "needs_review": false,
+  "legacy_tags": {
+   "hook_type": "breakup_or_sacrifice_hook",
+   "story_type": "danger_protection_drama",
+   "dialogue_tags": [
+    "breakup_rejection_or_distance",
+    "threat_danger_or_revenge",
+    "choice_ultimatum_or_deadline",
+    "misunderstanding_or_accusation",
+    "apology_regret_or_sacrifice"
+   ],
+   "trope_tags": [
+    "breakup_sacrifice_or_noble_idiot",
+    "forced_choice_or_ultimatum"
+   ],
+   "hook": "사내 연애를 공개하겠다는 거야? 응. 내 책임이야. 그녀를 벌하지 마. 규정은 명확해. 둘 중 하나는 떠나야 해. 그럼 내가 떠날게.",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "status_quo_break_hook",
+   "story_type": "dialogue_conflict_driven",
+   "dialogue_tags": [
+    "choice_ultimatum_or_deadline",
+    "apology_regret_or_sacrifice",
+    "protective_claim_or_rescue",
+    "secret_lie_or_reveal"
+   ],
+   "trope_tags": [
+    "breakup_sacrifice_or_noble_idiot",
+    "forced_choice_or_ultimatum",
+    "boss_employee_or_power_romance"
+   ],
+   "male_lead": [
+    "protective_rescuer",
+    "devoted_straightforward"
+   ],
+   "setting": "office_workplace",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7643871694003686670",
+  "url": "https://www.tiktok.com/@reeldrama76/video/7643871694003686670",
+  "author": "reeldrama76",
+  "desc": "“I Kissed My Ex’s Billionaire Brother” | EP03  Did Adrian plan everything? @ReelDrama #dramatiktok #VerticalDrama #BillionaireRomance #AIDra",
+  "rank": 76,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 177400.0,
+   "likes": 967.0,
+   "saves": 458.0,
+   "shares": 101.0,
+   "comments": 8.0,
+   "er": 0.32,
+   "save_rate": 0.258,
+   "dur": 96.0,
+   "cut_count": 29.0,
+   "avg_cut": 3.249
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "쇼는 끝났어요. 이제 그만 만져요. 그걸 쇼라고 부르나? 나는 메이슨을 망신시켜야 했고, 당신은 마침 적절한 자리에 있었어요. 내가요? 그게 무슨 뜻이죠? 드레스가 풀리고 있어요. 그럼 풀리게 둬. 네 전 남자친구는 아래층에서 카메라에 둘러싸여 있어. 네가 무너졌다고 생각하게 할래, 아니면 완전히 다른 일에 빠져 있다고 생각하게 할래? 200명 앞에서 낯선 여자에게 키스당한 남자치고는 참 침착하네요. 당신은 나한테 낯선 사람이 아니야. 방금 뭐라고 했죠? 당신이 무도회장을 가로질러 오기 전부터 난 당신이 누군지 정확히 알고 있었어. 그럼 왜 내가 키스하게 뒀어요? 네가 예의를 멈추면 어디까지 갈지 알고 싶었으니까. 그래서요? 내가 충분히 재미있었나요? 위험할 정도로.",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "FL",
+    "line": "쇼는 끝났어요. 이제 그만 만져요."
+   },
+   {
+    "speaker": "ML",
+    "line": "그걸 쇼라고 부르나?"
+   },
+   {
+    "speaker": "FL",
+    "line": "나는 메이슨을 망신시켜야 했고, 당신은 마침 적절한 자리에 있었어요."
+   },
+   {
+    "speaker": "UNK",
+    "line": "내가요? 그게 무슨 뜻이죠?"
+   },
+   {
+    "speaker": "ML",
+    "line": "드레스가 풀리고 있어."
+   },
+   {
+    "speaker": "FL",
+    "line": "그럼 풀리게 둬."
+   },
+   {
+    "speaker": "ML",
+    "line": "네 전 남자친구는 아래층에서 카메라에 둘러싸여 있어. 네가 무너졌다고 생각하게 할래, 아니면 완전히 다른 일에 빠져 있다고 생각하게 할래?"
+   },
+   {
+    "speaker": "FL",
+    "line": "200명 앞에서 낯선 여자에게 키스당한 남자치고는 참 침착하네요."
+   },
+   {
+    "speaker": "ML",
+    "line": "당신은 나한테 낯선 사람이 아니야."
+   },
+   {
+    "speaker": "FL",
+    "line": "방금 뭐라고 했죠?"
+   },
+   {
+    "speaker": "ML",
+    "line": "당신이 무도회장을 가로질러 오기 전부터 난 당신이 누군지 정확히 알고 있었어."
+   },
+   {
+    "speaker": "FL",
+    "line": "그럼 왜 내가 키스하게 뒀어요?"
+   },
+   {
+    "speaker": "ML",
+    "line": "네가 예의를 멈추면 어디까지 갈지 알고 싶었으니까."
+   },
+   {
+    "speaker": "FL",
+    "line": "그래서요? 내가 충분히 재미있었나요?"
+   },
+   {
+    "speaker": "ML",
+    "line": "위험할 정도로."
+   }
+  ],
+  "hook_desc": "전남친을 망신 주려 낯선 남자에게 기습 키스한 여주가 '쇼는 끝났어요, 그만 만져요'라며 밀어낸다.",
+  "hook_desc_confidence": 0.75,
+  "tags": {
+   "catharsis_type": "revenge_payback",
+   "trope_tags": [
+    "복수극",
+    "삼각관계",
+    "신분숨김(히든재벌·정체은닉)"
+   ],
+   "hook_beat": [
+    "고백·유혹",
+    "반전(입장 역전)"
+   ],
+   "cliffhanger_type": "반전 대사 한 방",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": true,
+    "fl_type": "복수형"
+   },
+   "male_lead": [
+    "powerful_status",
+    "dominant_possessive"
+   ],
+   "setting": "chaebol_highsociety",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.7,
+  "tag_notes": "전남친 망신용 기습키스→남주 '난 네가 누군지 알고 있었어' 반전. script 풍부. 복수+삼각.",
+  "tag_version": "v4.0",
+  "needs_review": false,
+  "legacy_tags": {
+   "hook_type": "ultimatum_hook",
+   "story_type": "power_status_romance",
+   "dialogue_tags": [
+    "love_confession_or_desire",
+    "jealousy_possession_or_rival",
+    "secret_lie_or_reveal",
+    "threat_danger_or_revenge",
+    "choice_ultimatum_or_deadline",
+    "power_money_or_status",
+    "emotional_question_or_confrontation",
+    "humiliation_status_drop_or_bullying"
+   ],
+   "trope_tags": [
+    "boss_employee_or_power_romance",
+    "love_triangle_or_rival",
+    "secret_identity_or_hidden_truth",
+    "forced_choice_or_ultimatum",
+    "danger_rescue_romance"
+   ],
+   "hook": "쇼는 끝났어요. 이제 그만 만져요. 그걸 쇼라고 부르나? 나는 메이슨을 망신시켜야 했고, 당신은 마침 적절한 자리에 있었어요. 내가요? 그게 무슨 뜻이죠? 드레스가 풀리고 있어요. 그럼 풀리게 둬. 네 전 남자친구는 아래층에서 카메라에 둘러싸여 있어. 네가 무너졌다고 생각하게 할래, 아니면 완전히 다른 일에 빠져 있다고 ",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "emotional_question_hook",
+   "story_type": "dialogue_conflict_driven",
+   "dialogue_tags": [
+    "emotional_question_or_confrontation",
+    "love_confession_or_desire",
+    "secret_lie_or_reveal"
+   ],
+   "trope_tags": [
+    "revenge_betrayal_or_payback",
+    "love_triangle_or_rival",
+    "secret_identity_or_hidden_truth"
+   ],
+   "male_lead": [
+    "powerful_status",
+    "dominant_possessive"
+   ],
+   "setting": "chaebol_highsociety",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7616121894068063508",
+  "url": "https://www.tiktok.com/@ai.frivolities/video/7616121894068063508",
+  "author": "ai.frivolities",
+  "desc": "EP 18 | The CEO’s Weakness  “You’re scared. Of me? Or of wanting me?” #microdrama #billionaireromance #romancedrama #airomance #ceoromance ",
+  "rank": 77,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 25200.0,
+   "likes": 544.0,
+   "saves": 56.0,
+   "shares": 15.0,
+   "comments": 9.0,
+   "er": 0.317,
+   "save_rate": 0.222,
+   "dur": 14.0,
+   "cut_count": 4.0,
+   "avg_cut": 2.225
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "펜 내려놔. 오늘 송금하지 않으면 그 여자가 날 망칠 거야. 너 떨고 있어. 난 괜찮아. 너는 내가 무서운 거야, 아니면 나를 원하게 되는 게 무서운 거야.",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "ML",
+    "line": "펜 내려놔."
+   },
+   {
+    "speaker": "FL",
+    "line": "오늘 송금하지 않으면 그 여자가 날 망칠 거야."
+   },
+   {
+    "speaker": "ML",
+    "line": "너 떨고 있어."
+   },
+   {
+    "speaker": "FL",
+    "line": "난 괜찮아."
+   },
+   {
+    "speaker": "ML",
+    "line": "너는 내가 무서운 거야, 아니면 나를 원하게 되는 게 무서운 거야?"
+   }
+  ],
+  "hook_desc": "협박당해 송금하려는 여주의 펜을 남주가 '펜 내려놔' 한마디로 멈춰 세운다.",
+  "hook_desc_confidence": 0.7,
+  "tags": {
+   "catharsis_type": "devotion_thrill",
+   "trope_tags": [
+    "오피스로맨스",
+    "집착남"
+   ],
+   "hook_beat": [
+    "위기·구출",
+    "고백·유혹"
+   ],
+   "cliffhanger_type": "반전 대사 한 방",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": false,
+    "fl_type": "인내형"
+   },
+   "male_lead": [
+    "dominant_possessive",
+    "powerful_status"
+   ],
+   "setting": "office_workplace",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.65,
+  "tag_notes": "협박 송금 펜 멈춰세움+'나를 원하는 게 무섭냐' 도발. 보호+긴장. 오피스.",
+  "tag_version": "v4.0",
+  "needs_review": false,
+  "legacy_tags": {
+   "hook_type": "threat_or_protection_hook",
+   "story_type": "power_status_romance",
+   "dialogue_tags": [
+    "jealousy_possession_or_rival",
+    "threat_danger_or_revenge",
+    "choice_ultimatum_or_deadline",
+    "protective_claim_or_rescue",
+    "power_money_or_status"
+   ],
+   "trope_tags": [
+    "love_triangle_or_rival",
+    "revenge_betrayal_or_payback",
+    "forced_choice_or_ultimatum",
+    "class_gap_cinderella"
+   ],
+   "hook": "펜 내려놔. 오늘 송금하지 않으면 그 여자가 날 망칠 거야. 너 떨고 있어. 난 괜찮아. 너는 내가 무서운 거야, 아니면 나를 원하게 되는 게 무서운 거야.",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "threat_or_protection_hook",
+   "story_type": "power_status_romance",
+   "dialogue_tags": [
+    "threat_danger_or_revenge",
+    "emotional_question_or_confrontation",
+    "love_confession_or_desire",
+    "power_money_or_status"
+   ],
+   "trope_tags": [
+    "boss_employee_or_power_romance",
+    "forced_choice_or_ultimatum"
+   ],
+   "male_lead": [
+    "dominant_possessive",
+    "powerful_status"
+   ],
+   "setting": "office_workplace",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7579541494562917646",
+  "url": "https://www.tiktok.com/@forbiddenreels1/video/7579541494562917646",
+  "author": "forbiddenreels1",
+  "desc": "Laken Whitlock's Battle: The CEO Meets His Match",
+  "rank": 79,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 513200.0,
+   "likes": 14500.0,
+   "saves": 1264.0,
+   "shares": 251.0,
+   "comments": 93.0,
+   "er": 0.313,
+   "save_rate": 0.246,
+   "dur": 82.0,
+   "cut_count": 10.0,
+   "avg_cut": 7.967
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "그녀가 다시 여기서 일한다고? 그래서 날 여기 데려온 거야? 가서 그녀를 데려와. 주문하셨나요? 몇 분 뒤에 다시 올게요. 알렉스, 여기서 뭐 해? 제이스가 양육권을 완전히 얻은 걸 축하하자고 데려왔어. 축하해. 그래, 음... 네가 없었다면 해내지 못했을 거야. 알렉스, 나 사과하고 싶어. 정말 큰 실수를 했어. 고마워. 고마워요. 저 지금 휴식 시간 좀 가질게요.",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "ML",
+    "line": "그녀가 다시 여기서 일한다고? 그래서 날 여기 데려온 거야?"
+   },
+   {
+    "speaker": "UNK",
+    "line": "가서 그녀를 데려와."
+   },
+   {
+    "speaker": "FL",
+    "line": "주문하셨나요? 몇 분 뒤에 다시 올게요."
+   },
+   {
+    "speaker": "ML",
+    "line": "알렉스, 여기서 뭐 해?"
+   },
+   {
+    "speaker": "SUP",
+    "line": "제이스가 양육권을 완전히 얻은 걸 축하하자고 데려왔어."
+   },
+   {
+    "speaker": "FL",
+    "line": "축하해."
+   },
+   {
+    "speaker": "ML",
+    "line": "그래, 음… 네가 없었다면 해내지 못했을 거야. 알렉스, 나 사과하고 싶어. 정말 큰 실수를 했어."
+   },
+   {
+    "speaker": "FL",
+    "line": "고마워요. 저 지금 휴식 시간 좀 가질게요."
+   }
+  ],
+  "hook_desc": "자신이 아는 여자가 일하는 식당에 온 남주가 '그녀가 다시 여기서 일한다고?'라며 동요한다.",
+  "hook_desc_confidence": 0.5,
+  "tags": {
+   "catharsis_type": "regret_grovel",
+   "trope_tags": [
+    "재회물",
+    "후회남",
+    "신데렐라(신분격차)"
+   ],
+   "hook_beat": [
+    "재회"
+   ],
+   "cliffhanger_type": "감정 폭발 직후",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": true,
+    "fl_type": "당찬형"
+   },
+   "male_lead": [
+    "powerful_status"
+   ],
+   "setting": "",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.65,
+  "tag_notes": "식당서 여주 재회+'큰 실수했어 사과할게' 남주 후회. 양육권/과거사. 재회 후회물.",
+  "tag_version": "v4.0",
+  "needs_review": false,
+  "legacy_tags": {
+   "hook_type": "emotional_question_hook",
+   "story_type": "general_romance_drama",
+   "dialogue_tags": [
+    "marriage_family_or_pregnancy",
+    "emotional_question_or_confrontation"
+   ],
+   "trope_tags": [
+    "general_romance"
+   ],
+   "hook": "그녀가 다시 여기서 일한다고? 그래서 날 여기 데려온 거야? 가서 그녀를 데려와. 주문하셨나요? 몇 분 뒤에 다시 올게요. 알렉스, 여기서 뭐 해? 제이스가 양육권을 완전히 얻은 걸 축하하자고 데려왔어. 축하해. 그래, 음... 네가 없었다면 해내지 못했을 거야. 알렉스, 나 사과하고 싶어. 정말 큰 실수를 했어. 고마워",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "emotional_question_hook",
+   "story_type": "emotion_reaction_driven",
+   "dialogue_tags": [
+    "apology_regret_or_sacrifice",
+    "emotional_question_or_confrontation",
+    "marriage_family_or_pregnancy"
+   ],
+   "trope_tags": [
+    "second_chance_or_regret"
+   ],
+   "male_lead": [
+    "powerful_status"
+   ],
+   "setting": "",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7582274816766463253",
+  "url": "https://www.tiktok.com/@olivetvmedia/video/7582274816766463253",
+  "author": "olivetvmedia",
+  "desc": "Six Years Later, She Walks Into His Mansion #goodshort #goodshortmustseelist #drama #SecretBaby #WrongGirlDrama #BillionaireTwist",
+  "rank": 80,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 2300000.0,
+   "likes": 48000.0,
+   "saves": 6471.0,
+   "shares": 481.0,
+   "comments": 251.0,
+   "er": 0.313,
+   "save_rate": 0.281,
+   "dur": 74.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "second_chance_or_regret",
+    "secret_identity_or_hidden_truth"
+   ],
+   "male_lead": [
+    "powerful_status"
+   ],
+   "setting": "",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.4,
+  "tag_notes": "transcript 없음. 설명문(6년 후 재회 #SecretBaby) 기반 — 시크릿 베이비는 사전에 없어 hidden_truth로 근사.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7631562084970515734",
+  "url": "https://www.tiktok.com/@trizzyeazy/video/7631562084970515734",
+  "author": "trizzyeazy",
+  "desc": "What daddy’s wants daddy’s get.  Go watch Leo in « too wild to love » available on @DramaBox - Stream Drama Shorts @Kalos TV and Minishorts ",
+  "rank": 81,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 23200.0,
+   "likes": 163.0,
+   "saves": 63.0,
+   "shares": 5.0,
+   "comments": 4.0,
+   "er": 0.31,
+   "save_rate": 0.272,
+   "dur": 20.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "obsessive_devotion"
+   ],
+   "male_lead": [
+    "dominant_possessive",
+    "dangerous_forbidden"
+   ],
+   "setting": "",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.3,
+  "tag_notes": "transcript 없음. 설명문('What daddy's wants daddy's get', too wild to love) 기반 추정.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7654357061702077710",
+  "url": "https://www.tiktok.com/@reelshortapp/video/7654357061702077710",
+  "author": "reelshortapp",
+  "desc": "📺 Bound to the Rebel Wolf #reelshort#vertical#couple#mustwatch#werewolfromance",
+  "rank": 83,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 102000.0,
+   "likes": 887.0,
+   "saves": 252.0,
+   "shares": 52.0,
+   "comments": 12.0,
+   "er": 0.31,
+   "save_rate": 0.247,
+   "dur": 18.0,
+   "cut_count": 2.0,
+   "avg_cut": 1.0
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "잠을 자야 한다는 건 알지만 머릿속 목소리가 계속 가라고 해. 잠을 자야 한다는 건 알지만 머릿속 목소리가 계속 가라고 해.",
+  "transcript_form": "monologue",
+  "script": [
+   {
+    "speaker": "NAR",
+    "line": "잠을 자야 한다는 건 알지만, 머릿속 목소리가 계속 가라고 해."
+   }
+  ],
+  "hook_desc": "여주가 '머릿속 목소리가 계속 가라고 한다'는 독백과 함께 이끌리듯 움직인다.",
+  "hook_desc_confidence": 0.5,
+  "tags": {
+   "catharsis_type": "forbidden_tension",
+   "trope_tags": [
+    "능력·판타지",
+    "금단물"
+   ],
+   "hook_beat": [],
+   "cliffhanger_type": "미끼 질문(다음 상황 예고)",
+   "character_setup": {
+    "villain": "불명",
+    "sub_male": null,
+    "fl_type": "불명"
+   },
+   "male_lead": [
+    "dangerous_forbidden"
+   ],
+   "setting": "fantasy_supernatural",
+   "hook_modality": "dialogue",
+   "narration_form": "narration_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.3,
+  "tag_notes": "독백 '머릿속 목소리가 가라고 한다' 1줄. 늑대인간 운명적 이끌림 암시. 저신뢰. monologue.",
+  "tag_version": "v4.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "general_hook",
+   "story_type": "emotion_reaction_driven",
+   "dialogue_tags": [
+    "general_dialogue"
+   ],
+   "trope_tags": [
+    "general_romance"
+   ],
+   "hook": "잠을 자야 한다는 건 알지만 머릿속 목소리가 계속 가라고 해. 잠을 자야 한다는 건 알지만 머릿속 목소리가 계속 가라고 해.",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "male_lead": [
+    "dangerous_forbidden"
+   ],
+   "setting": "fantasy_supernatural",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "narration_only"
+  }
+ },
+ {
+  "id": "7532851456664276238",
+  "url": "https://www.tiktok.com/@user7128747999583/video/7532851456664276238",
+  "author": "user7128747999583",
+  "desc": "A rich man married a rural woman, but it was just for a game.  2  #dramatiktok #dramakorea #dramachina #shortfilm #chinadrama",
+  "rank": 84,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 759000.0,
+   "likes": 40600.0,
+   "saves": 2035.0,
+   "shares": 130.0,
+   "comments": 167.0,
+   "er": 0.307,
+   "save_rate": 0.268,
+   "dur": 125.0,
+   "cut_count": 97.0,
+   "avg_cut": 1.277
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "contract_or_fake_relationship",
+    "class_gap_cinderella"
+   ],
+   "male_lead": [
+    "powerful_status",
+    "cold_to_warm"
+   ],
+   "setting": "",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.45,
+  "tag_notes": "transcript 없음. 설명문('rich man married rural woman, just for a game') 기반 — 가짜 결혼+신분 격차.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "general_hook",
+   "story_type": "emotion_reaction_driven",
+   "dialogue_tags": [
+    "general_dialogue"
+   ],
+   "trope_tags": [
+    "general_romance"
+   ],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7651919847521013012",
+  "url": "https://www.tiktok.com/@flickreels_official/video/7651919847521013012",
+  "author": "flickreels_official",
+  "desc": "What lingers in heart will eventually echo.🥹Has the billionaire’s first love returned? When Love Returns — Releases June 17,  only on 【Flic",
+  "rank": 85,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 18300.0,
+   "likes": 190.0,
+   "saves": 47.0,
+   "shares": 6.0,
+   "comments": 2.0,
+   "er": 0.301,
+   "save_rate": 0.257,
+   "dur": 36.0,
+   "cut_count": 3.0,
+   "avg_cut": 6.333
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "두 분 주문 도와드릴까요? 타코 두 개, 하나는 양파 빼고요. 타코 두 개, 하나는 양파 빼고요. 타코 두 개, 하나는 양파 빼고요. 내가 피클을 싫어한다고 아무에게도 말한 적 없는데. 어떻게 알았어? 너는 늘 카페테리아에서 피클을 골라냈잖아. 세상에서 내가 피클을 싫어한다는 걸 아는 사람은 단 한 명뿐이야. 너 도대체 누구야?",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "SUP",
+    "line": "두 분, 주문 도와드릴까요?"
+   },
+   {
+    "speaker": "FL",
+    "line": "타코 두 개, 하나는 양파 빼고요."
+   },
+   {
+    "speaker": "ML",
+    "line": "내가 피클을 싫어한다고 아무에게도 말한 적 없는데. 어떻게 알았어?"
+   },
+   {
+    "speaker": "FL",
+    "line": "너는 늘 카페테리아에서 피클을 골라냈잖아."
+   },
+   {
+    "speaker": "ML",
+    "line": "세상에서 내가 피클을 싫어한다는 걸 아는 사람은 단 한 명뿐이야. 너 도대체 누구야?"
+   }
+  ],
+  "hook_desc": "여주가 남주 몫의 타코를 그의 식성대로(양파·피클 빼고) 대신 주문해 준다.",
+  "hook_desc_confidence": 0.65,
+  "tags": {
+   "catharsis_type": "regret_grovel",
+   "trope_tags": [
+    "재회물",
+    "신분숨김(히든재벌·정체은닉)"
+   ],
+   "hook_beat": [
+    "재회",
+    "정체폭로"
+   ],
+   "cliffhanger_type": "미끼 질문(다음 상황 예고)",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": true,
+    "fl_type": "불명"
+   },
+   "male_lead": [
+    "powerful_status",
+    "devoted_straightforward"
+   ],
+   "setting": "everyday_neighborhood",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.65,
+  "tag_notes": "남주 식성 기억해 대신 주문→'그걸 아는 건 한 명뿐, 너 누구야' 정체 추궁. 첫사랑 재회.",
+  "tag_version": "v4.0",
+  "needs_review": false,
+  "legacy_tags": {
+   "hook_type": "emotional_question_hook",
+   "story_type": "jealousy_rival_drama",
+   "dialogue_tags": [
+    "jealousy_possession_or_rival",
+    "emotional_question_or_confrontation"
+   ],
+   "trope_tags": [
+    "love_triangle_or_rival"
+   ],
+   "hook": "두 분 주문 도와드릴까요? 타코 두 개, 하나는 양파 빼고요. 타코 두 개, 하나는 양파 빼고요. 타코 두 개, 하나는 양파 빼고요. 내가 피클을 싫어한다고 아무에게도 말한 적 없는데. 어떻게 알았어? 너는 늘 카페테리아에서 피클을 골라냈잖아. 세상에서 내가 피클을 싫어한다는 걸 아는 사람은 단 한 명뿐이야. 너 도대체 ",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "identity_reveal_hook",
+   "story_type": "secret_reveal_betrayal_drama",
+   "dialogue_tags": [
+    "secret_lie_or_reveal",
+    "emotional_question_or_confrontation"
+   ],
+   "trope_tags": [
+    "second_chance_or_regret",
+    "secret_identity_or_hidden_truth"
+   ],
+   "male_lead": [
+    "powerful_status",
+    "devoted_straightforward"
+   ],
+   "setting": "everyday_neighborhood",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7657195947071474964",
+  "url": "https://www.tiktok.com/@huijuian/video/7657195947071474964",
+  "author": "huijuian",
+  "desc": "doctor on the edge episode 10, yuk hari holding onto jiui tightly who is trapped in guilt, yuk hari stood by jiui's side until the very end ",
+  "rank": 86,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 15400.0,
+   "likes": 656.0,
+   "saves": 34.0,
+   "shares": 6.0,
+   "comments": 6.0,
+   "er": 0.299,
+   "save_rate": 0.221,
+   "dur": 42.0,
+   "cut_count": 10.0,
+   "avg_cut": 3.907
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "오늘 하루 종일 알아봤는데요. 새로 공산해기장 스무 곳 중에서 지금 조명이 제대로 작동하고 있는 해기장은 딱 세 군대 뿐이래요. 그러니까 제가 지금 말하고 싶은 건 그 사건은 선생님 때문에 아니라는 거예요. 그러니까 선생님도 아셔야 돼요. 이건 선생님 잘못이 아니라고. 지금 그것 때문에 계속 다른 사람을 갔던 거야? 나 때문에? 그러니까 선생님 훔치 마요. 선생님이 자꾸 스무위까지 제가 가지 못하잖아요. 선생님 옆에.",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "FL",
+    "line": "오늘 하루 종일 알아봤는데요. 새로 공사한 헬기장 스무 곳 중에서 지금 조명이 제대로 작동하고 있는 헬기장은 딱 세 군데뿐이래요."
+   },
+   {
+    "speaker": "FL",
+    "line": "그러니까 제가 지금 말하고 싶은 건, 그 사건은 선생님 때문이 아니라는 거예요. 그러니까 선생님도 아셔야 돼요. 이건 선생님 잘못이 아니라고."
+   },
+   {
+    "speaker": "ML",
+    "line": "지금 그것 때문에 계속 다른 사람을 (밀어냈던) 거야? 나 때문에?"
+   },
+   {
+    "speaker": "FL",
+    "line": "그러니까 선생님, 움츠리지 마요. 선생님이 자꾸 숨으니까 제가 가지 못하잖아요. 선생님 옆에."
+   }
+  ],
+  "hook_desc": "여주가 하루 종일 조사한 헬기장 조명 자료를 들이밀며 '그 사건은 선생님 잘못이 아니'라고 남주의 죄책감을 깨려 한다.",
+  "hook_desc_confidence": 0.6,
+  "tags": {
+   "catharsis_type": "salvation",
+   "trope_tags": [
+    "시한부·질병"
+   ],
+   "hook_beat": [
+    "위기·구출"
+   ],
+   "cliffhanger_type": "감정 폭발 직후",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": false,
+    "fl_type": "당찬형"
+   },
+   "male_lead": [
+    "unknown"
+   ],
+   "setting": "medical",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.65,
+  "tag_notes": "여주가 조사자료로 남주 죄책감 반박+'움츠리지 마'. 치유/구원 명확. medical.",
+  "tag_version": "v4.0",
+  "needs_review": false,
+  "legacy_tags": {
+   "hook_type": "general_hook",
+   "story_type": "emotion_reaction_driven",
+   "dialogue_tags": [
+    "misunderstanding_or_accusation"
+   ],
+   "trope_tags": [
+    "general_romance"
+   ],
+   "hook": "오늘 하루 종일 알아봤는데요. 새로 공산해기장 스무 곳 중에서 지금 조명이 제대로 작동하고 있는 해기장은 딱 세 군대 뿐이래요. 그러니까 제가 지금 말하고 싶은 건 그 사건은 선생님 때문에 아니라는 거예요. 그러니까 선생님도 아셔야 돼요. 이건 선생님 잘못이 아니라고. 지금 그것 때문에 계속 다른 사람을 갔던 거야? 나 ",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "emotional_question_hook",
+   "story_type": "emotion_reaction_driven",
+   "dialogue_tags": [
+    "emotional_question_or_confrontation",
+    "misunderstanding_or_accusation",
+    "apology_regret_or_sacrifice"
+   ],
+   "trope_tags": [
+    "healing_or_comfort"
+   ],
+   "male_lead": [
+    "unknown"
+   ],
+   "setting": "medical",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7656762652118584598",
+  "url": "https://www.tiktok.com/@itsgoneviral/video/7656762652118584598",
+  "author": "itsgoneviral",
+  "desc": "Bombshell will reading cost his wife everything 😳 Original scripted vertical drama by IGV 🎬 #igv #originaldrama #scripteddrama #verticaldr",
+  "rank": 87,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 163800.0,
+   "likes": 4788.0,
+   "saves": 415.0,
+   "shares": 45.0,
+   "comments": 28.0,
+   "er": 0.298,
+   "save_rate": 0.253,
+   "dur": 91.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "secret_reveal_betrayal_drama",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "marriage_contract_or_family_pressure"
+   ],
+   "male_lead": [
+    "unknown"
+   ],
+   "setting": "",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.35,
+  "tag_notes": "transcript 없음. 설명문('Bombshell will reading cost his wife everything') 기반 — 유산 공개 반전.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7405538662022155537",
+  "url": "https://www.tiktok.com/@romanceminidrama/video/7405538662022155537",
+  "author": "romanceminidrama",
+  "desc": "Sometimes, falling for someone just doesn’t make sense After I Buy Sperm From A Billionaire #drama #shortdrama #love #romance #couple #coupl",
+  "rank": 89,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 174500.0,
+   "likes": 1240.0,
+   "saves": 446.0,
+   "shares": 21.0,
+   "comments": 18.0,
+   "er": 0.278,
+   "save_rate": 0.256,
+   "dur": 32.0,
+   "cut_count": 13.0,
+   "avg_cut": 2.105
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "안녕하세요, 제 이름은 레이슨입니다. 메이슨. 메이슨은 어디 있죠? 첫째, 기분 나쁘게 듣지 마세요. 제가 당신을 사랑하게 되면 어떻게 되죠? 둘째, 모든 비용은 나눠 냅니다. 그렇게 원한다면요. 레이슨이 보여줄게! 이년아! 멈춰!",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "ML",
+    "line": "안녕하세요, 제 이름은 레이슨입니다."
+   },
+   {
+    "speaker": "FL",
+    "line": "메이슨. 메이슨은 어디 있죠?"
+   },
+   {
+    "speaker": "FL",
+    "line": "첫째, 기분 나쁘게 듣지 마세요. 제가 당신을 사랑하게 되면 어떻게 되죠? 둘째, 모든 비용은 나눠 냅니다."
+   },
+   {
+    "speaker": "ML",
+    "line": "그렇게 원한다면요."
+   },
+   {
+    "speaker": "UNK",
+    "line": "레이슨이 보여줄게! 이년아! 멈춰! (판독 불가)"
+   }
+  ],
+  "hook_desc": "정자 구매 계약 상견례에서 남녀가 첫 대면하고, 여주가 '당신을 사랑하게 되면 어떻게 되죠?'라며 계약 조건을 따진다.",
+  "hook_desc_confidence": 0.55,
+  "tags": {
+   "catharsis_type": "humor_flutter",
+   "trope_tags": [
+    "계약연애"
+   ],
+   "hook_beat": [
+    "첫만남·강렬한 조우"
+   ],
+   "cliffhanger_type": "반전 대사 한 방",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": false,
+    "fl_type": "당찬형"
+   },
+   "male_lead": [
+    "powerful_status"
+   ],
+   "setting": "",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.6,
+  "tag_notes": "정자구매 계약 첫 대면+'사랑하게 되면?' 조건 따짐. 계약관계 코믹 도입. UNK 난입 있음.",
+  "tag_version": "v4.0",
+  "needs_review": false,
+  "legacy_tags": {
+   "hook_type": "confession_or_desire_hook",
+   "story_type": "general_romance_drama",
+   "dialogue_tags": [
+    "love_confession_or_desire",
+    "emotional_question_or_confrontation"
+   ],
+   "trope_tags": [
+    "general_romance"
+   ],
+   "hook": "안녕하세요, 제 이름은 레이슨입니다. 메이슨. 메이슨은 어디 있죠? 첫째, 기분 나쁘게 듣지 마세요. 제가 당신을 사랑하게 되면 어떻게 되죠? 둘째, 모든 비용은 나눠 냅니다. 그렇게 원한다면요. 레이슨이 보여줄게! 이년아! 멈춰!",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "first_encounter_hook",
+   "story_type": "dialogue_conflict_driven",
+   "dialogue_tags": [
+    "love_confession_or_desire",
+    "power_money_or_status",
+    "marriage_family_or_pregnancy"
+   ],
+   "trope_tags": [
+    "contract_or_fake_relationship"
+   ],
+   "male_lead": [
+    "powerful_status"
+   ],
+   "setting": "",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7548287851012623630",
+  "url": "https://www.tiktok.com/@flextvstreamdrama/video/7548287851012623630",
+  "author": "flextvstreamdrama",
+  "desc": "Why are you sitting in the CEO's chair? 😍Click to watch the full content of \"Surrender to My Dangerous Boss\" 🎬FULL：https://www.flextv.cc/s",
+  "rank": 90,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 44700.0,
+   "likes": 638.0,
+   "saves": 67.0,
+   "shares": 21.0,
+   "comments": 36.0,
+   "er": 0.277,
+   "save_rate": 0.15,
+   "dur": 49.0,
+   "cut_count": 26.0,
+   "avg_cut": 1.842
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "아주 영리하네요. 윌슨 양, 왜 CEO 의자에 앉아 있죠? 저는 그냥, 음, 파일을 정리하고 있었어요. 알겠어요. 다음에 헤이버브룩 씨를 보시면 일정에 대해 논의해야 한다고 전해 주세요. 네, 알겠습니다. 전해드릴게요. 클라라, 안색이 안 좋아요. 괜찮아요? 괜찮아요. 그냥 일하러 돌아가셔도 돼요. 긴장할 때 귀엽네요. 이제 일어나요. 다음번에는 우리 비밀을 지킬 더 안전한 방법을 찾아야겠네요.",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "ML",
+    "line": "아주 영리하네요. 윌슨 양, 왜 CEO 의자에 앉아 있죠?"
+   },
+   {
+    "speaker": "FL",
+    "line": "저는 그냥, 음, 파일을 정리하고 있었어요."
+   },
+   {
+    "speaker": "ML",
+    "line": "알겠어요. 다음에 헤이버브룩 씨를 보시면 일정에 대해 논의해야 한다고 전해 주세요."
+   },
+   {
+    "speaker": "FL",
+    "line": "네, 알겠습니다. 전해드릴게요."
+   },
+   {
+    "speaker": "SUP",
+    "line": "클라라, 안색이 안 좋아요. 괜찮아요?"
+   },
+   {
+    "speaker": "FL",
+    "line": "괜찮아요. 그냥 일하러 돌아가셔도 돼요."
+   },
+   {
+    "speaker": "ML",
+    "line": "긴장할 때 귀엽네요. 이제 일어나요. 다음번에는 우리 비밀을 지킬 더 안전한 방법을 찾아야겠네요."
+   }
+  ],
+  "hook_desc": "CEO 의자에 앉아 있다 들킨 여주에게 정체 모를 남자가 '왜 CEO 의자에 앉아 있죠?'라고 묻는다.",
+  "hook_desc_confidence": 0.75,
+  "tags": {
+   "catharsis_type": "devotion_thrill",
+   "trope_tags": [
+    "오피스로맨스",
+    "신분숨김(히든재벌·정체은닉)"
+   ],
+   "hook_beat": [
+    "오해 발생",
+    "고백·유혹"
+   ],
+   "cliffhanger_type": "미끼 질문(다음 상황 예고)",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": false,
+    "fl_type": "당찬형"
+   },
+   "male_lead": [
+    "powerful_status",
+    "dominant_possessive"
+   ],
+   "setting": "office_workplace",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.6,
+  "tag_notes": "CEO 의자 들킴+'긴장할 때 귀엽다/비밀 지킬 방법 찾자'. 정체숨김 오피스 긴장.",
+  "tag_version": "v4.0",
+  "needs_review": false,
+  "legacy_tags": {
+   "hook_type": "emotional_question_hook",
+   "story_type": "secret_reveal_betrayal_drama",
+   "dialogue_tags": [
+    "secret_lie_or_reveal",
+    "protective_claim_or_rescue",
+    "emotional_question_or_confrontation"
+   ],
+   "trope_tags": [
+    "secret_identity_or_hidden_truth"
+   ],
+   "hook": "아주 영리하네요. 윌슨 양, 왜 CEO 의자에 앉아 있죠? 저는 그냥, 음, 파일을 정리하고 있었어요. 알겠어요. 다음에 헤이버브룩 씨를 보시면 일정에 대해 논의해야 한다고 전해 주세요. 네, 알겠습니다. 전해드릴게요. 클라라, 안색이 안 좋아요. 괜찮아요? 괜찮아요. 그냥 일하러 돌아가셔도 돼요. 긴장할 때 귀엽네요. ",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "emotional_question_hook",
+   "story_type": "power_status_romance",
+   "dialogue_tags": [
+    "emotional_question_or_confrontation",
+    "secret_lie_or_reveal",
+    "love_confession_or_desire"
+   ],
+   "trope_tags": [
+    "boss_employee_or_power_romance",
+    "secret_identity_or_hidden_truth"
+   ],
+   "male_lead": [
+    "powerful_status",
+    "dominant_possessive"
+   ],
+   "setting": "office_workplace",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7579542066586193166",
+  "url": "https://www.tiktok.com/@forbiddenreels1/video/7579542066586193166",
+  "author": "forbiddenreels1",
+  "desc": "Ex-Wife Turns Ally: Laken's Greatest Test?",
+  "rank": 91,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 38000.0,
+   "likes": 543.0,
+   "saves": 58.0,
+   "shares": 20.0,
+   "comments": 27.0,
+   "er": 0.276,
+   "save_rate": 0.153,
+   "dur": 82.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "second_chance_or_regret"
+   ],
+   "male_lead": [
+    "powerful_status"
+   ],
+   "setting": "",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.3,
+  "tag_notes": "transcript 없음. 설명문(Ex-Wife Turns Ally) 기반 추정. 56번과 동일 시리즈.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7617971730228858132",
+  "url": "https://www.tiktok.com/@ai.frivolities/video/7617971730228858132",
+  "author": "ai.frivolities",
+  "desc": "EP 23 | The CEO’s Weakness “This is work.” #microdrama #billionaireromance #airomance #romancedrama #ceoromance ",
+  "rank": 92,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 18300.0,
+   "likes": 354.0,
+   "saves": 32.0,
+   "shares": 6.0,
+   "comments": 11.0,
+   "er": 0.268,
+   "save_rate": 0.175,
+   "dur": 15.0,
+   "cut_count": 4.0,
+   "avg_cut": 2.925
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "우리 사이에 뭔가 있다고 생각했어. 무슨 일이야? 이건 일이야. 처음부터 늘 일이었어. 전에도 그렇게 말했는데, 네가 계속... 너 피곤해. 집에 가.",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "FL",
+    "line": "우리 사이에 뭔가 있다고 생각했어. 무슨 일이야?"
+   },
+   {
+    "speaker": "ML",
+    "line": "이건 일이야. 처음부터 늘 일이었어."
+   },
+   {
+    "speaker": "FL",
+    "line": "전에도 그렇게 말했는데, 네가 계속…"
+   },
+   {
+    "speaker": "ML",
+    "line": "너 피곤해. 집에 가."
+   }
+  ],
+  "hook_desc": "여주가 '우리 사이에 뭔가 있다고 생각했어'라며 관계의 실체를 추궁한다.",
+  "hook_desc_confidence": 0.7,
+  "tags": {
+   "catharsis_type": "forbidden_tension",
+   "trope_tags": [
+    "오피스로맨스"
+   ],
+   "hook_beat": [
+    "고백·유혹"
+   ],
+   "cliffhanger_type": "감정 폭발 직후",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": false,
+    "fl_type": "인내형"
+   },
+   "male_lead": [
+    "cold_to_warm",
+    "powerful_status"
+   ],
+   "setting": "office_workplace",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.6,
+  "tag_notes": "'우리 사이 뭔가 있잖아'→'이건 일이야' 냉정한 선긋기. 밀당 긴장. 오피스.",
+  "tag_version": "v4.0",
+  "needs_review": false,
+  "legacy_tags": {
+   "hook_type": "general_hook",
+   "story_type": "emotion_reaction_driven",
+   "dialogue_tags": [
+    "general_dialogue"
+   ],
+   "trope_tags": [
+    "general_romance"
+   ],
+   "hook": "우리 사이에 뭔가 있다고 생각했어. 무슨 일이야? 이건 일이야. 처음부터 늘 일이었어. 전에도 그렇게 말했는데, 네가 계속... 너 피곤해. 집에 가.",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "emotional_question_hook",
+   "story_type": "dialogue_conflict_driven",
+   "dialogue_tags": [
+    "emotional_question_or_confrontation",
+    "breakup_rejection_or_distance"
+   ],
+   "trope_tags": [
+    "boss_employee_or_power_romance"
+   ],
+   "male_lead": [
+    "cold_to_warm",
+    "powerful_status"
+   ],
+   "setting": "office_workplace",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7644033381134634247",
+  "url": "https://www.tiktok.com/@flickreels_official/video/7644033381134634247",
+  "author": "flickreels_official",
+  "desc": "Love guard? Wingman AND nanny ☝🏻 Best-value 'family servant' — display only, not for sale 🚫@FlickReels-Drama Time #mycoldboss #flickreels ",
+  "rank": 93,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 14000.0,
+   "likes": 143.0,
+   "saves": 36.0,
+   "shares": 1.0,
+   "comments": 0.0,
+   "er": 0.264,
+   "save_rate": 0.257,
+   "dur": 28.0,
+   "cut_count": 5.0,
+   "avg_cut": 4.533
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "[ASR 불명확] 좋아, 누구를 믿을 건데? 그가 네 여동생에게 준 거라고 했잖아. 저우샤오어우, 너 정말 그렇게 생각하는 건 아니지? 언니, 형부, 나는 정말 너희를 축복했던 걸 후회해.",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "UNK",
+    "line": "좋아, 누구를 믿을 건데?"
+   },
+   {
+    "speaker": "UNK",
+    "line": "그가 네 여동생에게 준 거라고 했잖아."
+   },
+   {
+    "speaker": "UNK",
+    "line": "저우샤오어우, 너 정말 그렇게 생각하는 건 아니지?"
+   },
+   {
+    "speaker": "FL",
+    "line": "언니, 형부, 나는 정말 너희를 축복했던 걸 후회해."
+   }
+  ],
+  "hook_desc": "'누구를 믿을 건데'라는 추궁과 함께 가족(자매) 간 진실 공방이 벌어진다.",
+  "hook_desc_confidence": 0.35,
+  "tags": {
+   "catharsis_type": "revenge_payback",
+   "trope_tags": [
+    "삼각관계",
+    "배신"
+   ],
+   "hook_beat": [
+    "오해 발생"
+   ],
+   "cliffhanger_type": "감정 폭발 직후",
+   "character_setup": {
+    "villain": "이복자매",
+    "sub_male": null,
+    "fl_type": "불명"
+   },
+   "male_lead": [
+    "unknown"
+   ],
+   "setting": "",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.4,
+  "tag_notes": "자매/형부 간 진실공방 '누구를 믿을 건데'. 전원 UNK 다수. 배신/모함 방향 추정.",
+  "tag_version": "v4.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "emotional_question_hook",
+   "story_type": "dialogue_conflict_driven",
+   "dialogue_tags": [
+    "emotional_question_or_confrontation",
+    "apology_regret_or_sacrifice"
+   ],
+   "trope_tags": [
+    "general_romance"
+   ],
+   "hook": "[ASR 불명확] 좋아, 누구를 믿을 건데? 그가 네 여동생에게 준 거라고 했잖아. 저우샤오어우, 너 정말 그렇게 생각하는 건 아니지? 언니, 형부, 나는 정말 너희를 축복했던 걸 후회해.",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "misunderstanding_hook",
+   "story_type": "secret_reveal_betrayal_drama",
+   "dialogue_tags": [
+    "misunderstanding_or_accusation",
+    "emotional_question_or_confrontation",
+    "apology_regret_or_sacrifice"
+   ],
+   "trope_tags": [
+    "love_triangle_or_rival"
+   ],
+   "male_lead": [
+    "unknown"
+   ],
+   "setting": "",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7653221096438631694",
+  "url": "https://www.tiktok.com/@reelshortdramastories/video/7653221096438631694",
+  "author": "reelshortdramastories",
+  "desc": "Watch the top chart drama at: https://reelslink.com/cps/Yu3cIU or Search 1406468 on ReelShort for the full episodes. Episode 12: Elara grows",
+  "rank": 94,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 23900.0,
+   "likes": 138.0,
+   "saves": 56.0,
+   "shares": 5.0,
+   "comments": 2.0,
+   "er": 0.264,
+   "save_rate": 0.234,
+   "dur": 129.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "male_lead": [
+    "unknown"
+   ],
+   "setting": "",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.2,
+  "tag_notes": "transcript 없음, 설명문이 앱 링크·에피소드 번호뿐 — 근거 없음.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7625768871911279904",
+  "url": "https://www.tiktok.com/@catlynx23/video/7625768871911279904",
+  "author": "catlynx23",
+  "desc": "My Boyfriend Is a Werewolf! 🐺🩷 | Part 2 #werewolf #romance #lovestory #dramaserie #fry ",
+  "rank": 95,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 1100000.0,
+   "likes": 24700.0,
+   "saves": 2242.0,
+   "shares": 495.0,
+   "comments": 134.0,
+   "er": 0.261,
+   "save_rate": 0.204,
+   "dur": 83.0,
+   "cut_count": 21.0,
+   "avg_cut": 3.889
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "무슨 말을 하는 거야, 그리고 왜 내 몸이 빨갛게 빛나는 거야? 문 걸은 희귀해. 늑대인간에게 타고난 짝이지. 유대가 형성되면 영혼이 연결돼. 변신을 통제하게 해 주고, 고통을 없애고, 더 강하게 만들어. 하지만 이건 나빠, 정말 나빠. 그래도 너한테 좋은 점은 네 힘을 더 잘 통제하게 된다는 거야. 나한테는 좋지만 너한테는 나쁜 거네. 지금 이 도시의 모든 늑대인간이 널 느낄 수 있어. 그리고 모두 널 원할 거야. 문 본드는 널 어디로든 데려갈 수 있으니까.",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "FL",
+    "line": "무슨 말을 하는 거야? 그리고 왜 내 몸이 빨갛게 빛나는 거야?"
+   },
+   {
+    "speaker": "ML",
+    "line": "문 본드는 희귀해. 늑대인간에게 타고난 짝이지. 유대가 형성되면 영혼이 연결돼. 변신을 통제하게 해 주고, 고통을 없애고, 더 강하게 만들어."
+   },
+   {
+    "speaker": "FL",
+    "line": "하지만 이건 나빠, 정말 나빠."
+   },
+   {
+    "speaker": "ML",
+    "line": "그래도 너한테 좋은 점은 네 힘을 더 잘 통제하게 된다는 거야."
+   },
+   {
+    "speaker": "FL",
+    "line": "나한테는 좋지만 너한테는 나쁜 거네."
+   },
+   {
+    "speaker": "ML",
+    "line": "지금 이 도시의 모든 늑대인간이 널 느낄 수 있어. 그리고 모두 널 원할 거야. 문 본드는 널 어디로든 데려갈 수 있으니까."
+   }
+  ],
+  "hook_desc": "여주가 '왜 내 몸이 빨갛게 빛나는 거야?'라며 급변한 자기 몸에 경악한다.",
+  "hook_desc_confidence": 0.65,
+  "tags": {
+   "catharsis_type": "forbidden_tension",
+   "trope_tags": [
+    "능력·판타지",
+    "금단물"
+   ],
+   "hook_beat": [
+    "정체폭로",
+    "위기·구출"
+   ],
+   "cliffhanger_type": "정체 폭로 직전",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": false,
+    "fl_type": "능력숨김형"
+   },
+   "male_lead": [
+    "dangerous_forbidden"
+   ],
+   "setting": "fantasy_supernatural",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.65,
+  "tag_notes": "'왜 몸이 빛나' 각성→문본드/운명의 짝 설명. 모든 늑대가 원하는 위험. 판타지 금단.",
+  "tag_version": "v4.0",
+  "needs_review": false,
+  "legacy_tags": {
+   "hook_type": "emotional_question_hook",
+   "story_type": "secret_reveal_betrayal_drama",
+   "dialogue_tags": [
+    "threat_danger_or_revenge",
+    "emotional_question_or_confrontation"
+   ],
+   "trope_tags": [
+    "revenge_betrayal_or_payback"
+   ],
+   "hook": "무슨 말을 하는 거야, 그리고 왜 내 몸이 빨갛게 빛나는 거야? 문 걸은 희귀해. 늑대인간에게 타고난 짝이지. 유대가 형성되면 영혼이 연결돼. 변신을 통제하게 해 주고, 고통을 없애고, 더 강하게 만들어. 하지만 이건 나빠, 정말 나빠. 그래도 너한테 좋은 점은 네 힘을 더 잘 통제하게 된다는 거야. 나한테는 좋지만 너한",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "identity_reveal_hook",
+   "story_type": "danger_protection_drama",
+   "dialogue_tags": [
+    "emotional_question_or_confrontation",
+    "secret_lie_or_reveal",
+    "threat_danger_or_revenge"
+   ],
+   "trope_tags": [
+    "secret_identity_or_hidden_truth",
+    "danger_rescue_romance",
+    "forbidden_love"
+   ],
+   "male_lead": [
+    "dangerous_forbidden"
+   ],
+   "setting": "fantasy_supernatural",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7614643691378035988",
+  "url": "https://www.tiktok.com/@ai.frivolities/video/7614643691378035988",
+  "author": "ai.frivolities",
+  "desc": "EP 14 | The CEO’s Weakness “We can’t” #microdrama #billionaireromance #romancedrama #airomance #ceoromance ",
+  "rank": 96,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 23900.0,
+   "likes": 351.0,
+   "saves": 48.0,
+   "shares": 7.0,
+   "comments": 6.0,
+   "er": 0.255,
+   "save_rate": 0.201,
+   "dur": 15.0,
+   "cut_count": 3.0,
+   "avg_cut": 3.989
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "너 정말 대단했어. 난 내가 당황할 줄 알았는데, 넌 그러지 않았어. 방 분위기를 장악했어. 우리는 못 해.",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "FL",
+    "line": "너 정말 대단했어. 난 내가 당황할 줄 알았는데, 넌 그러지 않았어. 방 분위기를 장악했어."
+   },
+   {
+    "speaker": "ML",
+    "line": "우리는 못 해."
+   }
+  ],
+  "hook_desc": "회의 직후 여주가 남주를 한껏 칭찬하며 다가가지만 '우리는 못 해'라는 선긋기가 돌아온다.",
+  "hook_desc_confidence": 0.6,
+  "tags": {
+   "catharsis_type": "forbidden_tension",
+   "trope_tags": [
+    "오피스로맨스",
+    "금단물"
+   ],
+   "hook_beat": [
+    "고백·유혹"
+   ],
+   "cliffhanger_type": "반전 대사 한 방",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": false,
+    "fl_type": "인내형"
+   },
+   "male_lead": [
+    "cold_to_warm",
+    "powerful_status"
+   ],
+   "setting": "office_workplace",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.55,
+  "tag_notes": "여주 칭찬 다가감→'우리는 못 해' 선긋기. 금지된 오피스로맨스 긴장.",
+  "tag_version": "v4.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "emotional_question_hook",
+   "story_type": "dialogue_conflict_driven",
+   "dialogue_tags": [
+    "emotional_question_or_confrontation"
+   ],
+   "trope_tags": [
+    "general_romance"
+   ],
+   "hook": "너 정말 대단했어. 난 내가 당황할 줄 알았는데, 넌 그러지 않았어. 방 분위기를 장악했어. 우리는 못 해.",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "confession_or_desire_hook",
+   "story_type": "emotion_reaction_driven",
+   "dialogue_tags": [
+    "love_confession_or_desire",
+    "breakup_rejection_or_distance"
+   ],
+   "trope_tags": [
+    "boss_employee_or_power_romance",
+    "forbidden_love"
+   ],
+   "male_lead": [
+    "cold_to_warm",
+    "powerful_status"
+   ],
+   "setting": "office_workplace",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7532758258436623617",
+  "url": "https://www.tiktok.com/@dramalove16888/video/7532758258436623617",
+  "author": "dramalove16888",
+  "desc": "Fate's Sweet Embrace 3 #fyu #SecretIdentity #Romance #FlickReels #Billionaire #CEO #TimeTravel",
+  "rank": 97,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 25800.0,
+   "likes": 288.0,
+   "saves": 51.0,
+   "shares": 10.0,
+   "comments": 4.0,
+   "er": 0.252,
+   "save_rate": 0.198,
+   "dur": 74.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "",
+  "hook_desc_confidence": 0.0,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "secret_identity_or_hidden_truth"
+   ],
+   "male_lead": [
+    "powerful_status"
+   ],
+   "setting": "fantasy_supernatural",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.35,
+  "tag_notes": "transcript 없음. 해시태그(#SecretIdentity #TimeTravel) 기반.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7555351680720686350",
+  "url": "https://www.tiktok.com/@goodshort_billionaire/video/7555351680720686350",
+  "author": "goodshort_billionaire",
+  "desc": "Love makes you trip… and fall. Literally. 💞 📺Watch more on GoodShort App  【Blood and Bones of the Disowned Daughter】  #goodshort #Bloodand",
+  "rank": 98,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 478100.0,
+   "likes": 7085.0,
+   "saves": 1016.0,
+   "shares": 82.0,
+   "comments": 87.0,
+   "er": 0.248,
+   "save_rate": 0.213,
+   "dur": 36.0,
+   "cut_count": null,
+   "avg_cut": null
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "",
+  "transcript_form": "none",
+  "script": [],
+  "hook_desc": "여주가 발을 헛디뎌 넘어지며 벌어지는 코믹 러브 모먼트(설명문 기반 추정).",
+  "hook_desc_confidence": 0.3,
+  "tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [
+    "marriage_contract_or_family_pressure"
+   ],
+   "male_lead": [
+    "unknown"
+   ],
+   "setting": "",
+   "hook_modality": "",
+   "visual_hook": "",
+   "narration_form": ""
+  },
+  "tag_confidence": 0.3,
+  "tag_notes": "transcript 없음. trope는 시리즈 제목(Disowned Daughter=의절당한 딸) 기반 추정.",
+  "tag_version": "v3.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "",
+   "story_type": "",
+   "dialogue_tags": [],
+   "trope_tags": [],
+   "hook": "",
+   "tag_confidence": null
+  }
+ },
+ {
+  "id": "7652966782126263566",
+  "url": "https://www.tiktok.com/@reelshortapp/video/7652966782126263566",
+  "author": "reelshortapp",
+  "desc": "🎬 Rose in Chains #reelshort #roseinchains #mustwatch #romance #fyp",
+  "rank": 99,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 112200.0,
+   "likes": 1506.0,
+   "saves": 198.0,
+   "shares": 67.0,
+   "comments": 13.0,
+   "er": 0.248,
+   "save_rate": 0.176,
+   "dur": 69.0,
+   "cut_count": 9.0,
+   "avg_cut": 7.518
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "너 훔쳐보고 있었잖아. 모르는 척하지 마. 정말 멋져 보여. 그런데, 네가 그 드레스를 고를 줄 알았어. 나를 다 파악한 척하지 마.",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "FL",
+    "line": "너 훔쳐보고 있었잖아. 모르는 척하지 마."
+   },
+   {
+    "speaker": "ML",
+    "line": "정말 멋져 보여. 그런데, 네가 그 드레스를 고를 줄 알았어."
+   },
+   {
+    "speaker": "FL",
+    "line": "나를 다 파악한 척하지 마."
+   }
+  ],
+  "hook_desc": "여주가 '너 훔쳐보고 있었잖아'라며 자신을 지켜보던 남주를 정면으로 지적한다.",
+  "hook_desc_confidence": 0.6,
+  "tags": {
+   "catharsis_type": "devotion_thrill",
+   "trope_tags": [
+    "집착남"
+   ],
+   "hook_beat": [
+    "고백·유혹"
+   ],
+   "cliffhanger_type": "반전 대사 한 방",
+   "character_setup": {
+    "villain": "없음",
+    "sub_male": false,
+    "fl_type": "당찬형"
+   },
+   "male_lead": [
+    "dominant_possessive"
+   ],
+   "setting": "",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.55,
+  "tag_notes": "'너 훔쳐보고 있었잖아'→남주 '네가 그 드레스 고를 줄 알았어' 집착 암시. 제목 chains.",
+  "tag_version": "v4.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "emotional_question_hook",
+   "story_type": "emotion_reaction_driven",
+   "dialogue_tags": [
+    "emotional_question_or_confrontation"
+   ],
+   "trope_tags": [
+    "general_romance"
+   ],
+   "hook": "너 훔쳐보고 있었잖아. 모르는 척하지 마. 정말 멋져 보여. 그런데, 네가 그 드레스를 고를 줄 알았어. 나를 다 파악한 척하지 마.",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "emotional_question_hook",
+   "story_type": "dialogue_conflict_driven",
+   "dialogue_tags": [
+    "emotional_question_or_confrontation",
+    "love_confession_or_desire"
+   ],
+   "trope_tags": [
+    "obsessive_devotion"
+   ],
+   "male_lead": [
+    "dominant_possessive"
+   ],
+   "setting": "",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ },
+ {
+  "id": "7577762821618797855",
+  "url": "https://www.tiktok.com/@flextv_english/video/7577762821618797855",
+  "author": "flextv_english",
+  "desc": "❤️‍🔥You're what？ -🔎“Tears After 'I Do'” 🎞Click the link to watch the FULL EPISODE now!!! 🔗https://www.flextv.cc/s4/bRxKL3MmWD 🎀 Subscri",
+  "rank": 100,
+  "crawl_date": "2026-07-01",
+  "metrics": {
+   "views": 22200.0,
+   "likes": 270.0,
+   "saves": 52.0,
+   "shares": 1.0,
+   "comments": 2.0,
+   "er": 0.248,
+   "save_rate": 0.234,
+   "dur": 38.0,
+   "cut_count": 24.0,
+   "avg_cut": 1.524
+  },
+  "content_type": "drama_clip",
+  "transcript_raw": "나한테 추파를 던져 놓고 결혼했다고? 나는... 뭐였다고? 나중에? 아니면... 정말 나를 사랑하게 된 거야? 폭시, 널 정부로 만들지는 않을 거야. 뭐 하는 거야? 난 아직 그 여자와 함께 있어.",
+  "transcript_form": "dialogue",
+  "script": [
+   {
+    "speaker": "FL",
+    "line": "나한테 추파를 던져 놓고 결혼했다고? 나는… 뭐였다고?"
+   },
+   {
+    "speaker": "UNK",
+    "line": "나중에? 아니면… 정말 나를 사랑하게 된 거야?"
+   },
+   {
+    "speaker": "ML",
+    "line": "폭시, 널 정부로 만들지는 않을 거야."
+   },
+   {
+    "speaker": "FL",
+    "line": "뭐 하는 거야?"
+   },
+   {
+    "speaker": "ML",
+    "line": "난 아직 그 여자와 함께 있어."
+   }
+  ],
+  "hook_desc": "여주가 '나한테 추파를 던져 놓고 결혼했다고?'라며 남주의 기만을 정면으로 따진다.",
+  "hook_desc_confidence": 0.6,
+  "tags": {
+   "catharsis_type": "forbidden_tension",
+   "trope_tags": [
+    "삼각관계",
+    "금단물",
+    "배신"
+   ],
+   "hook_beat": [
+    "오해 발생",
+    "최후통첩·협박"
+   ],
+   "cliffhanger_type": "반전 대사 한 방",
+   "character_setup": {
+    "villain": "연적",
+    "sub_male": false,
+    "fl_type": "당찬형"
+   },
+   "male_lead": [
+    "dangerous_forbidden"
+   ],
+   "setting": "",
+   "hook_modality": "dialogue",
+   "narration_form": "dialogue_only",
+   "trope_candidates": []
+  },
+  "tag_confidence": 0.55,
+  "tag_notes": "'추파 던지고 결혼했다고?' 기만 추궁→'널 정부로 안 만들어/아직 그 여자와 있어'. 삼각 긴장.",
+  "tag_version": "v4.0",
+  "needs_review": true,
+  "legacy_tags": {
+   "hook_type": "confession_or_desire_hook",
+   "story_type": "jealousy_rival_drama",
+   "dialogue_tags": [
+    "love_confession_or_desire",
+    "jealousy_possession_or_rival",
+    "choice_ultimatum_or_deadline",
+    "marriage_family_or_pregnancy",
+    "emotional_question_or_confrontation"
+   ],
+   "trope_tags": [
+    "love_triangle_or_rival",
+    "forced_choice_or_ultimatum",
+    "marriage_contract_or_family_pressure"
+   ],
+   "hook": "나한테 추파를 던져 놓고 결혼했다고? 나는... 뭐였다고? 나중에? 아니면... 정말 나를 사랑하게 된 거야? 폭시, 널 정부로 만들지는 않을 거야. 뭐 하는 거야? 난 아직 그 여자와 함께 있어.",
+   "tag_confidence": null
+  },
+  "legacy_tags_v3": {
+   "hook_type": "emotional_question_hook",
+   "story_type": "jealousy_rival_drama",
+   "dialogue_tags": [
+    "emotional_question_or_confrontation",
+    "love_confession_or_desire",
+    "marriage_family_or_pregnancy",
+    "jealousy_possession_or_rival"
+   ],
+   "trope_tags": [
+    "love_triangle_or_rival",
+    "forbidden_love"
+   ],
+   "male_lead": [
+    "dangerous_forbidden"
+   ],
+   "setting": "",
+   "hook_modality": "dialogue",
+   "visual_hook": "",
+   "narration_form": "dialogue_only"
+  }
+ }
+]
