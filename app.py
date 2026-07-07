@@ -63,7 +63,10 @@ _HELP = (
 
 
 def _clean(text: str) -> str:
-    return MENTION_RE.sub("", text or "").strip()
+    # 슬랙은 사용자가 친 < > & 를 HTML 엔티티로 보냄 → 되돌려야 <작품> 패턴이 잡힘
+    text = MENTION_RE.sub("", text or "")
+    text = text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+    return text.strip()
 
 
 def _reply(channel: str, thread_ts: str, text: str) -> None:
