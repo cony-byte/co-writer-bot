@@ -722,9 +722,10 @@ def _do_trend(channel: str, thread_ts: str, rest: str) -> None:
     _post_chunks(channel, thread_ts, answer, replace_ts=ph)
 
 
-def _files_text(event: dict) -> str:
-    """메시지에 붙은 스니펫/텍스트 파일 내용을 봇 토큰으로 내려받아 합친다."""
-    out = []
+def _files_text(event: dict) -> tuple[str, int]:
+    """메시지에 붙은 스니펫/텍스트 파일 내용을 봇 토큰으로 내려받아 합친다.
+    반환: (내용, blocked) — blocked>0이면 권한 부족으로 로그인 HTML만 받은 것."""
+    out, blocked = [], 0
     for f in event.get("files") or []:
         url = f.get("url_private_download") or f.get("url_private")
         if not url:
@@ -733,10 +734,17 @@ def _files_text(event: dict) -> str:
             req = urllib.request.Request(
                 url, headers={"Authorization": f"Bearer {config.SLACK_BOT_TOKEN}"})
             with urllib.request.urlopen(req, timeout=20) as r:
-                out.append(r.read().decode("utf-8", "replace"))
+                body = r.read().decode("utf-8", "replace")
         except Exception:
             log.exception("첨부 파일 다운로드 실패")
-    return "\n".join(out).strip()
+            blocked += 1
+            continue
+        if body.lstrip()[:200].lower().find("<!doctype html") >= 0 or body.lstrip().lower().startswith("<html"):
+            log.warning("첨부 다운로드가 로그인 HTML 반환 — files:read 권한 필요")
+            blocked += 1
+            continue
+        out.append(body)
+    return "\n".join(out).strip(), blocked
 
 
 def _handle(event: dict) -> None:
@@ -755,7 +763,12 @@ def _handle(event: dict) -> None:
         return
     cmd, rest = m.group(1).strip(), m.group(2)
     # 스니펫/파일 첨부가 있으면 그 내용을 명령 뒤에 이어붙임 (긴 대본·노션 문서용)
-    ft = _files_text(event)
+    ft, blocked = _files_text(event)
+    if blocked and not ft:   # 권한 부족으로 파일을 못 읽음
+        _reply(channel, thread_ts,
+               "⚠️ 첨부 파일을 못 읽었어요 — Slack 앱에 *files:read* 권한이 필요해요.\n"
+               "설정(OAuth & Permissions)에서 권한 추가 후 재설치하거나, 스니펫 대신 **채팅에 직접 붙여넣어** 주세요.")
+        return
     rest_f = (rest + "\n" + ft) if ft else rest
 
     if cmd in CMD_RELOAD:
