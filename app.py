@@ -179,18 +179,20 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
         if sub and sub not in subs_list:
             _reply(channel, thread_ts, f"⚠️ `{sub}` 는 {top} 소분류가 아니에요. 가능한 소분류: {subs}")
             return
-        if not sub:  # 소분류 미지정 → 내용을 '소분류: 값' 블록으로 여러 개 저장
+        verb = "저장" if mode == "create" else "수정"
+        icon = "✅" if mode == "create" else "✏️"
+        if not sub:  # 소분류 미지정 → 내용을 '소분류: 값' 블록으로 여러 개 일괄 저장/수정
             pairs, unknown = _parse_fields(content, subs_list)
             if pairs:
                 saved = []
                 for k, v in pairs:
                     r = sheet.upsert(work, top, mid, k, v)
                     if isinstance(r, dict) and r.get("error"):
-                        _reply(channel, thread_ts, f"⚠️ {k} 저장 실패: {r['error']}")
+                        _reply(channel, thread_ts, f"⚠️ {k} {verb} 실패: {r['error']}")
                         return
                     saved.append(k)
                 sheet.invalidate(work)
-                msg = f"✅ *{work}* / {top} / {mid} — {', '.join(saved)} 저장했어요."
+                msg = f"{icon} *{work}* / {top} / {mid} — {', '.join(saved)} {verb}했어요."
                 if unknown:
                     msg += f"\n(모르는 소분류라 건너뜀: {', '.join(unknown)} · 가능: {subs})"
                 _reply(channel, thread_ts, msg)
