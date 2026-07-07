@@ -146,11 +146,7 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
                f"`{path_line}` 는 모르는 종류예요. 로그라인·키워드·타겟층·핵심정서·인물/<이름>·줄거리·회차분배·개요/<N화>·대본/<N화>")
         return
     top, mid, sub = triple
-    if not content:
-        cmd = "입력" if mode == "create" else "수정"
-        _reply(channel, thread_ts, f"내용을 다음 줄에 써주세요.\n예:\n```\n[{cmd}] <{work}> {path_line}\n(내용)\n```")
-        return
-
+    # 내용이 없어도 분류(경로)만 유효하면 빈 칸으로 저장 (나중에 채우기)
     label = " / ".join(x for x in [top, mid, sub] if x)
     exists = sheet.exists(work, top, mid, sub)  # None이면 확인 불가 → 그냥 진행
     if mode == "create" and exists is True:
