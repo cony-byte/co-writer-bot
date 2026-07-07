@@ -42,6 +42,7 @@ CMD_GEN = {"생성", "generate", "gen"}
 CMD_CONVERT = {"변환", "포맷", "대본변환"}
 CMD_TREND = {"트렌드", "trend"}
 CMD_IDEA = {"아이디어", "아이디어 제시", "아이디어제시", "제안", "idea"}
+CMD_FEEDBACK = {"피드백", "feedback", "평가", "리뷰", "review"}
 CMD_STOP = {"멈춰", "멈춤", "중지", "정지", "스톱", "그만", "stop", "cancel"}
 _CANCEL: set[str] = set()   # 취소 요청된 thread_ts (생성 결과를 버림)
 CMD_REFRESH = {"새로고침", "refresh"}
@@ -65,6 +66,7 @@ _HELP = (
     "[변환] (줄글 초안 붙여넣기)\n"
     "[트렌드] 요즘 뭐가 유행?          ← 쉬운 요약\n"
     "[아이디어] <날혐남> 서아 힘든 거 어떻게 보여주지?  ← 구체적 상황 제안\n"
+    "[피드백] <날혐남> (대본 붙여넣기)  ← 재미+개연성 점검\n"
     "```\n"
     "• `[입력]` 새로 저장 / `[수정]` 기존 고침 / `[생성]` 초안 / `[아이디어]` 상황제안 / `[변환]` 촬영대본 / `[트렌드]` 조회 / `[멈춰]` 중지\n"
     "• 이름만: 로그라인·키워드·타겟층·핵심정서·줄거리·금지사항·진행상태 (뒤에 바로 내용)\n"
@@ -497,6 +499,44 @@ def _do_idea(channel: str, thread_ts: str, rest: str) -> None:
     _post_chunks(channel, thread_ts, answer or "(빈 응답)", replace_ts=ph)
 
 
+def _do_feedback(channel: str, thread_ts: str, rest: str) -> None:
+    """[피드백] — 대본을 넣으면 ①시청자 재미 ②개연성 오류 두 가지만 평가."""
+    q = rest.strip()
+    work, bible = None, None
+    wm = SUB_RE.match(q)
+    if wm:
+        work = wm.group(1).strip()
+        q = wm.group(2).strip()
+        sheet = reference.sheet()
+        if sheet:
+            try:
+                bible = sheet.get(work)
+            except Exception:
+                log.exception("feedback bible load failed")
+    draft = q
+    if len(draft) < 30:  # 대본 미첨부 → 스레드 직전 봇 대본/초안
+        prior = [m["content"] for m in _thread_messages(channel, thread_ts) if m["role"] == "assistant"]
+        draft = prior[-1] if prior else ""
+    if len(draft) < 30:
+        _reply(channel, thread_ts,
+               "형식: `[피드백] <작품> (대본 붙여넣기)` — 대본을 주면 재미·개연성을 봐드려요.")
+        return
+    em = re.search(r"(\d+)\s*화", draft[:200])   # 대본 앞부분에 회차가 있으면 그 흐름 앵커
+    target = int(em.group(1)) if em else None
+    system = prompts.feedback_system(bible, target_episode=target)
+    _CANCEL.discard(thread_ts)
+    ph = _thinking(channel, thread_ts, "대본 보는 중이에요…")
+    try:
+        answer = generator.complete(system, f"[평가할 대본]\n{draft}").strip()
+    except Exception:
+        log.exception("feedback failed")
+        _post_chunks(channel, thread_ts, "피드백 생성 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
+        return
+    if _cancelled(channel, thread_ts, ph):
+        return
+    _post_chunks(channel, thread_ts, answer or "(빈 응답)", replace_ts=ph)
+
+
 def _do_trend(channel: str, thread_ts: str, rest: str) -> None:
     """[트렌드] — 측정 데이터를 근거로, 쉬운 말 요약 + (작품 지정 시) 맞춤 아이디어 제안."""
     trend = reference.load_trend()
@@ -567,6 +607,8 @@ def _handle(event: dict) -> None:
         _do_trend(channel, thread_ts, rest)
     elif cmd in CMD_IDEA:
         _do_idea(channel, thread_ts, rest)
+    elif cmd in CMD_FEEDBACK:
+        _do_feedback(channel, thread_ts, rest)
     elif cmd in CMD_STOP:
         _do_stop(channel, thread_ts)
     elif cmd in CMD_INPUT:
