@@ -507,7 +507,7 @@ _FUN_WEIGHTS = [25, 15, 20, 10, 5, 25]
 
 def _verify_fun_score(text: str) -> str:
     """LLM이 매긴 6개 항목 점수를 코드로 재계산해 종합점수를 맨 위에 붙인다(산수 오류 방지)."""
-    scores = re.findall(r"점수\s*(\d+)\s*/\s*10", text)
+    scores = re.findall(r"(\d+)\s*/\s*10", text)   # '[8/10]' 또는 '점수 8/10' 모두
     if len(scores) < 6:
         return text
     s = [int(x) for x in scores[:6]]
