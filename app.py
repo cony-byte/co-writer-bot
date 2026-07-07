@@ -50,17 +50,20 @@ _HELP = (
     "[입력] <날혐남> 로그라인\n"
     "정략결혼한 여주가 남편을 살리고 도망친다\n"
     "\n"
-    "[입력] <날혐남> 인물 / 강태혁 / 핵심대사\n"
-    "\"알아들었으면 나가.\"\n"
+    "[입력] <날혐남> 인물 / 강태혁      ← 소분류 여러 개 한 번에\n"
+    "성별: 남\n"
+    "나이: 32\n"
+    "핵심대사: 알아들었으면 나가.\n"
     "\n"
     "[생성] <날혐남> 대본 / 24화     ← 24화 개요+바이블 참고해 생성\n"
     "[변환] (줄글 초안 붙여넣기)\n"
     "[트렌드] 엔딩\n"
     "```\n"
     "• `[입력]` 새로 저장 / `[수정]` 기존 고침 / `[생성]` 생성+저장 / `[변환]` 촬영대본 / `[트렌드]` 조회\n"
-    "• 이름만: 로그라인·키워드·타겟층·핵심정서·줄거리·금지사항·진행상태\n"
-    "• 경로: 인물 / <이름> / <성별·나이·포지션·설정·핵심대사·설명>\n"
-    "        회차분배 / <막> / <구간·화수·핵심사건> · 개요 / <N화> · 대본 / <N화>"
+    "• 이름만: 로그라인·키워드·타겟층·핵심정서·줄거리·금지사항·진행상태 (뒤에 바로 내용)\n"
+    "• 인물/회차분배: 소분류 하나 `인물/강태혁/성별 남` 또는 여러 개를 줄마다 `소분류: 값`\n"
+    "  인물 소분류 = 성별·나이·포지션·설정·핵심대사·설명 / 회차분배 = 구간·화수·핵심사건\n"
+    "• 개요 / <N화> · 대본 / <N화>"
 )
 
 
@@ -124,6 +127,23 @@ def _post_code(channel: str, thread_ts: str, text: str) -> None:
 
 # ---------------- 명령별 처리 ----------------
 
+def _parse_fields(content: str, subs: list[str]) -> tuple[list[tuple[str, str]], list[str]]:
+    """여러 줄 '소분류: 값' 블록 → [(소분류, 값)], [모르는 키]. 구분자는 ':' '=' 또는 공백."""
+    pairs, unknown = [], []
+    for raw in content.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        m = re.match(r"^(\S+?)\s*[:=]\s*(.*)$", line)   # '성별: 남' / '성별=남'
+        if m:
+            k, v = m.group(1).strip(), m.group(2).strip()
+        else:
+            bits = line.split(None, 1)                  # '성별 남'
+            k, v = bits[0].strip(), (bits[1].strip() if len(bits) > 1 else "")
+        (pairs.append((k, v)) if k in subs else unknown.append(k))
+    return pairs, unknown
+
+
 def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
     """[입력](신규) / [수정](기존) — <작품> 경로 + 다음 줄 내용 → 시트 저장.
     mode='create': 이미 있으면 거부 / mode='update': 없으면 거부."""
@@ -148,20 +168,46 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
                f"`{path_line}` 는 모르는 종류예요. 로그라인·키워드·타겟층·핵심정서·인물/<이름>·줄거리·회차분배·개요/<N화>·대본/<N화>")
         return
     top, mid, sub = triple
-    # 여러 열을 갖는 표(인물·회차분배)는 어느 칸에 넣을지 알아야 함 → 소분류 필수
+    # 여러 열을 갖는 표(인물·회차분배): 소분류 없이 여러 항목을 한 번에 받는다
     if top in TABLE_SUBS:
-        subs = " · ".join(TABLE_SUBS[top])
+        subs_list = TABLE_SUBS[top]
+        subs = " · ".join(subs_list)
         key = "이름" if top == "등장인물" else "막"
         if not mid:
-            _reply(channel, thread_ts, f"⚠️ {top}은 `{top}/<{key}>/<소분류>` 형식이 필요해요. 소분류: {subs}")
+            _reply(channel, thread_ts, f"⚠️ {top}은 `{top}/<{key}>/…` 형식이 필요해요. 소분류: {subs}")
             return
-        if content and not sub:
-            eg = TABLE_SUBS[top][0]
-            _reply(channel, thread_ts,
-                   f"⚠️ *{mid}* 의 어느 항목인지 소분류를 지정해 주세요. 예: `{top}/{mid}/{eg} …`\n소분류: {subs}")
-            return
-        if sub and sub not in TABLE_SUBS[top]:
+        if sub and sub not in subs_list:
             _reply(channel, thread_ts, f"⚠️ `{sub}` 는 {top} 소분류가 아니에요. 가능한 소분류: {subs}")
+            return
+        if not sub:  # 소분류 미지정 → 내용을 '소분류: 값' 블록으로 여러 개 저장
+            pairs, unknown = _parse_fields(content, subs_list)
+            if pairs:
+                saved = []
+                for k, v in pairs:
+                    r = sheet.upsert(work, top, mid, k, v)
+                    if isinstance(r, dict) and r.get("error"):
+                        _reply(channel, thread_ts, f"⚠️ {k} 저장 실패: {r['error']}")
+                        return
+                    saved.append(k)
+                sheet.invalidate(work)
+                msg = f"✅ *{work}* / {top} / {mid} — {', '.join(saved)} 저장했어요."
+                if unknown:
+                    msg += f"\n(모르는 소분류라 건너뜀: {', '.join(unknown)} · 가능: {subs})"
+                _reply(channel, thread_ts, msg)
+                return
+            if content:  # 내용은 있는데 'X: 값' 형식이 아님
+                eg = subs_list[0]
+                _reply(channel, thread_ts,
+                       f"⚠️ 여러 항목은 줄마다 `소분류: 값` 으로 써 주세요. 예:\n"
+                       f"`{eg}: …`  ·  또는 하나만 `{top}/{mid}/{eg} 값`\n소분류: {subs}")
+                return
+            # 내용도 없음 → 행(이름/막)만 등록
+            r = sheet.upsert(work, top, mid, "", "")
+            if isinstance(r, dict) and r.get("error"):
+                _reply(channel, thread_ts, f"⚠️ 등록 실패: {r['error']}")
+                return
+            sheet.invalidate(work)
+            _reply(channel, thread_ts, f"✅ *{work}* / {top} / {mid} 등록했어요. (소분류는 나중에 채우기)")
             return
     # 내용이 없어도 분류(경로)만 유효하면 빈 칸으로 저장 (나중에 채우기)
     label = " / ".join(x for x in [top, mid, sub] if x)

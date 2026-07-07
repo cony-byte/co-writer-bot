@@ -133,17 +133,35 @@ function _writeSingle(sh, label, content) {
   sh.getRange(row, 2).setValue(content || "");
 }
 
-function _writeTableCell(sh, T, rowKey, colName, content) {
-  var grid = _grid(sh);
-  var titleRow = _findRowByA(grid, T.title);
-  if (titleRow < 0) {          // 표 골격이 없으면 시트 끝에 만든다
+function _ensureTable(sh, T) {   // 표 골격(제목+헤더)이 없으면 만들고 titleRow 반환
+  var titleRow = _findRowByA(_grid(sh), T.title);
+  if (titleRow < 0) {
     var end = sh.getLastRow() + 2;
     sh.getRange(end, 1).setValue(T.title).setFontWeight("bold").setBackground("#e8eaed");
     var header = [T.key].concat(T.cols);
     sh.getRange(end + 1, 1, 1, header.length).setValues([header]).setFontWeight("bold");
-    grid = _grid(sh);
-    titleRow = _findRowByA(grid, T.title);
+    titleRow = end;
   }
+  return titleRow;
+}
+
+/** 행(이름/막)만 등록 — 이미 있으면 그대로 둠(기존 값 보존). */
+function _ensureRow(sh, T, rowKey) {
+  var titleRow = _ensureTable(sh, T);
+  var grid = _grid(sh);
+  var range = _tableDataRange(grid, titleRow);
+  for (var r = range[0]; r <= range[1]; r++)
+    if (String(grid[r - 1][0]).trim() === String(rowKey).trim()) return { exists: true };
+  var insertAfter = (range[1] >= range[0]) ? range[1] : titleRow + 1;
+  sh.insertRowsAfter(insertAfter, 1);
+  sh.getRange(insertAfter + 1, 1).setValue(rowKey);
+  return { created: true };
+}
+
+function _writeTableCell(sh, T, rowKey, colName, content) {
+  _ensureTable(sh, T);
+  var grid = _grid(sh);
+  var titleRow = _findRowByA(grid, T.title);
   var headerRow = titleRow + 1;
   var header = grid[headerRow - 1];
   var colIdx = -1;
@@ -238,9 +256,14 @@ function doPost(e) {
 
   var T = _tableByTitle(top);
   if (T) {
+    if (!mid) return _json({ error: "행 키가 필요합니다: " + top });
     var colName = (T.cols.length === 1) ? T.cols[0] : sub;  // 개요·대본은 항상 '내용'
-    if (!mid) return _json({ error: "행 키(중분류)가 필요합니다: " + top });
-    if (!colName) return _json({ error: "소분류가 필요합니다: " + top });
+    if (!colName) {                                          // 소분류 없음
+      if (content) return _json({ error: "소분류가 필요합니다: " + top });
+      var er = _ensureRow(sh, T, mid);                       // 내용 없으면 행만 등록
+      er.ok = true; er.kind = "row";
+      return _json(er);
+    }
     var res = _writeTableCell(sh, T, mid, colName, content);
     res.ok = !res.error; res.kind = "table";
     return _json(res);
