@@ -160,8 +160,17 @@ def _parse_records(content: str, subs: list[str],
     return records, unknown
 
 
+_BULLET_RE = re.compile(r"^([ \t]*)[•◦▪●‣·∙・]\s+", re.M)      # 슬랙 글머리 → 마크다운 '- '
+_HWA_HEAD_RE = re.compile(r"^\s*(\d+)\s*화(?:[\s:.\-–—·]+(.*))?$")  # 'N화' 또는 'N화 제목' 줄
+
+
+def _md_bullets(text: str) -> str:
+    """슬랙 글머리 기호(●·•·▪…)를 마크다운 '- '로 치환. 번호목록·기존 '-'는 그대로."""
+    return _BULLET_RE.sub(r"\1- ", text or "")
+
+
 def _parse_outline_records(content: str, seed: str | None = None) -> list[tuple[str, str]]:
-    """개요/대본: 'N화' 단독 줄을 헤더로, 그 아래 줄글 전체를 그 화의 내용으로.
+    """개요/대본: 'N화'(뒤에 제목 붙어도 됨) 줄을 헤더로, 그 아래 줄글 전체를 그 화 내용으로.
     seed(경로에 화 지정)가 있으면 첫 헤더 전 내용은 그 화에 붙는다. → [(N화, 내용)]"""
     records: list[list] = []
     cur = None
@@ -169,9 +178,12 @@ def _parse_outline_records(content: str, seed: str | None = None) -> list[tuple[
         cur = [seed, []]
         records.append(cur)
     for raw in content.splitlines():
-        m = re.match(r"^\s*(\d+)\s*화\s*$", raw)          # 'N화' 단독 줄 = 헤더
+        m = _HWA_HEAD_RE.match(raw.strip())
         if m:
             cur = [f"{m.group(1)}화", []]
+            title = (m.group(2) or "").strip()
+            if title:
+                cur[1].append(title)                      # 제목은 내용 첫 줄로 보존
             records.append(cur)
             continue
         if cur is None:
@@ -200,13 +212,15 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
     first = after[0].strip() if after else ""
     path_line, inline = split_command(first)        # 한 줄에 붙여쓴 내용도 인식
     next_lines = "\n".join(after[1:]).strip()        # 다음 줄들도 내용
-    content = inline if inline else next_lines       # 인라인 우선, 없으면 다음 줄
+    content = "\n".join(x for x in (inline, next_lines) if x)  # 인라인 + 다음 줄 모두 (유실 방지)
     triple = parse_path(path_line)
     if not triple:
         _reply(channel, thread_ts,
                f"`{path_line}` 는 모르는 종류예요. 로그라인·키워드·타겟층·핵심정서·인물/<이름>·줄거리·회차분배·개요/<N화>·대본/<N화>")
         return
     top, mid, sub = triple
+    if top in ("개요", "대본"):
+        content = _md_bullets(content)               # 글머리 기호 → 마크다운 '-'
     # 여러 열을 갖는 표(인물·회차분배): 소분류 하나 직접 지정이 아니면 레코드 블록으로 처리
     if top in TABLE_SUBS:
         subs_list = TABLE_SUBS[top]
