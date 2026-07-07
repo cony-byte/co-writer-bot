@@ -20,6 +20,7 @@
 import json
 import logging
 import re
+import urllib.request
 
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
@@ -721,6 +722,23 @@ def _do_trend(channel: str, thread_ts: str, rest: str) -> None:
     _post_chunks(channel, thread_ts, answer, replace_ts=ph)
 
 
+def _files_text(event: dict) -> str:
+    """메시지에 붙은 스니펫/텍스트 파일 내용을 봇 토큰으로 내려받아 합친다."""
+    out = []
+    for f in event.get("files") or []:
+        url = f.get("url_private_download") or f.get("url_private")
+        if not url:
+            continue
+        try:
+            req = urllib.request.Request(
+                url, headers={"Authorization": f"Bearer {config.SLACK_BOT_TOKEN}"})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                out.append(r.read().decode("utf-8", "replace"))
+        except Exception:
+            log.exception("첨부 파일 다운로드 실패")
+    return "\n".join(out).strip()
+
+
 def _handle(event: dict) -> None:
     channel = event["channel"]
     thread_ts = event.get("thread_ts") or event["ts"]
@@ -736,6 +754,9 @@ def _handle(event: dict) -> None:
             _reply(channel, thread_ts, _HELP)
         return
     cmd, rest = m.group(1).strip(), m.group(2)
+    # 스니펫/파일 첨부가 있으면 그 내용을 명령 뒤에 이어붙임 (긴 대본·노션 문서용)
+    ft = _files_text(event)
+    rest_f = (rest + "\n" + ft) if ft else rest
 
     if cmd in CMD_RELOAD:
         reference.reload()
@@ -746,19 +767,19 @@ def _handle(event: dict) -> None:
             sheet.invalidate()
         _reply(channel, thread_ts, "시트 바이블 캐시를 비웠어요. 다음 요청부터 최신으로 읽어옵니다.")
     elif cmd in CMD_CONVERT:
-        _do_convert(channel, thread_ts, rest)
+        _do_convert(channel, thread_ts, rest_f)
     elif cmd in CMD_TREND:
         _do_trend(channel, thread_ts, rest)
     elif cmd in CMD_SYNC:
-        _do_sync(channel, thread_ts, rest)
+        _do_sync(channel, thread_ts, rest_f)
     elif cmd in CMD_IDEA:
         _do_idea(channel, thread_ts, rest)
     elif cmd in CMD_FEEDBACK:
-        _do_feedback(channel, thread_ts, rest, mode="both")
+        _do_feedback(channel, thread_ts, rest_f, mode="both")
     elif cmd in CMD_FB_FUN:
-        _do_feedback(channel, thread_ts, rest, mode="fun")
+        _do_feedback(channel, thread_ts, rest_f, mode="fun")
     elif cmd in CMD_FB_LOGIC:
-        _do_feedback(channel, thread_ts, rest, mode="logic")
+        _do_feedback(channel, thread_ts, rest_f, mode="logic")
     elif cmd in CMD_STOP:
         _do_stop(channel, thread_ts)
     elif cmd in CMD_INPUT:
