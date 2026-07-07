@@ -377,6 +377,38 @@ def _do_convert(channel: str, thread_ts: str, rest: str) -> None:
         _reply(channel, thread_ts, "변환 중 오류가 났어요 (초안 구조를 못 읽었을 수 있어요). 다시 시도해 주세요.")
 
 
+def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
+    """스레드 후속 피드백 → 이전 초안을 그 지시대로 수정해 전체본 재출력 (저장은 안 함)."""
+    messages = _thread_messages(channel, thread_ts)
+    if not messages:
+        _reply(channel, thread_ts, _HELP)
+        return
+    # 스레드에서 작품·회차 추론 (초안 생성 때 쓴 <작품>·N화). 바이블을 계속 근거로.
+    joined = "\n".join(m["content"] for m in messages)
+    wm = re.search(r"<\s*([^>]+?)\s*>", joined)
+    work = wm.group(1).strip() if wm else None
+    em = re.search(r"(\d+)\s*화", joined)
+    target = int(em.group(1)) if em else None
+
+    bible = None
+    if work:
+        sheet = reference.sheet()
+        if sheet:
+            try:
+                bible = sheet.get(work)
+            except Exception:
+                log.exception("revise bible load failed")  # 못 읽어도 진행
+    try:
+        answer = generator.generate(messages, feedback, bible=bible, target_episode=target)
+    except Exception:
+        log.exception("revise failed")
+        _reply(channel, thread_ts, "수정 중 오류가 났어요. 잠시 후 다시 시도해 주세요.")
+        return
+    if work:
+        answer += f"\n\n_📝 초안입니다. 확정은 `[입력]`/`[수정]` 으로._"
+    _post_chunks(channel, thread_ts, answer)
+
+
 def _do_trend(channel: str, thread_ts: str, rest: str) -> None:
     trend = reference.load_trend()
     if trend is None:
@@ -396,7 +428,12 @@ def _handle(event: dict) -> None:
 
     m = CMD_RE.match(query)
     if not m:
-        _reply(channel, thread_ts, _HELP)
+        # 스레드 안의 후속 메시지(명령 없음) → 이전 초안 수정 지시로 처리
+        in_thread = bool(event.get("thread_ts")) and event.get("thread_ts") != event.get("ts")
+        if in_thread and query.strip():
+            _do_revise(channel, thread_ts, query)
+        else:
+            _reply(channel, thread_ts, _HELP)
         return
     cmd, rest = m.group(1).strip(), m.group(2)
 
