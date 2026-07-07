@@ -501,16 +501,16 @@ def _do_idea(channel: str, thread_ts: str, rest: str) -> None:
     _post_chunks(channel, thread_ts, answer or "(빈 응답)", replace_ts=ph)
 
 
-# [재미] 항목 가중치 (①훅 ②전개 ③감정 ④대사 ⑤장면 ⑥엔딩 순)
-_FUN_WEIGHTS = [25, 15, 20, 10, 5, 25]
+# [재미] 항목 가중치 (①훅 ②전개 ③감정 ④장면 ⑤엔딩 순)
+_FUN_WEIGHTS = [25, 20, 20, 10, 25]
 
 
 def _verify_fun_score(text: str) -> str:
     """LLM이 매긴 6개 항목 점수를 코드로 재계산해 종합점수를 맨 위에 붙인다(산수 오류 방지)."""
     scores = re.findall(r"(\d+)\s*/\s*10", text)   # '[8/10]' 또는 '점수 8/10' 모두
-    if len(scores) < 6:
+    if len(scores) < 5:
         return text
-    s = [int(x) for x in scores[:6]]
+    s = [int(x) for x in scores[:5]]
     total = sum(a * b for a, b in zip(s, _FUN_WEIGHTS)) / 10
     # 실무자 핵심 질문: "시청자가 봤을 때 재밌을까?" → 한눈 판정
     fun = ("🔥 재밌음" if total >= 75 else
@@ -520,7 +520,7 @@ def _verify_fun_score(text: str) -> str:
                "이것만 고치면 됨" if total >= 70 else
                "약점 2개 이상 수술 필요" if total >= 50 else "구조부터 다시")
     banner = (f"*{fun}*  ·  종합 {total:.0f}/100 — {verdict}\n"
-              f"_(훅{s[0]}·전개{s[1]}·감정{s[2]}·대사{s[3]}·장면{s[4]}·엔딩{s[5]})_\n\n")
+              f"_(훅{s[0]}·전개{s[1]}·감정{s[2]}·장면{s[3]}·엔딩{s[4]})_\n\n")
     return banner + text
 
 
