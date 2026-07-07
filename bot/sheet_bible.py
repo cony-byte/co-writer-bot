@@ -31,7 +31,11 @@ FIXED = {
     "정서": ("타겟층/핵심정서", "핵심정서"),
 }
 # SINGLE: 대분류 단일 (중/소 없음)
-SINGLE = {"줄거리": "줄거리"}
+SINGLE = {
+    "줄거리": "줄거리",
+    "금지사항": "금지사항", "금지": "금지사항",
+    "진행상태": "진행상태", "진행": "진행상태", "현재화": "진행상태", "현재": "진행상태",
+}
 # PATHED: 대분류 + 경로(중/소는 동적)
 PATHED = {
     "인물": "등장인물", "등장인물": "등장인물",
@@ -100,6 +104,8 @@ class SheetBible:
         """탭 행(대/중/소/내용) → 계층 bible dict. 인물은 소분류를 카드로 조립."""
         b = {
             "title": work,
+            "status_raw": "", "current_episode": None,  # 진행상태 — 시점 판단 근거
+            "forbidden": "",     # 금지사항 (줄글)
             "logline": "", "keyword": "",
             "target": "", "emotion": "",
             "plot": "",
@@ -120,6 +126,12 @@ class SheetBible:
                     b["target"] = content
                 elif mid == "핵심정서":
                     b["emotion"] = content
+            elif top == "진행상태":
+                b["status_raw"] = content
+                m = re.search(r"\d+", content or "")
+                b["current_episode"] = int(m.group()) if m else None
+            elif top == "금지사항":
+                b["forbidden"] = content
             elif top == "줄거리":
                 b["plot"] = content
             elif top == "회차분배":
