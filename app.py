@@ -384,6 +384,10 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
         except Exception:
             log.exception("sheet bible load failed")  # 못 읽어도 생성은 계속
 
+    # 회차 안 적었으면 진행상태의 '타입별 진행 화' 사용 (예: 생성 개요 → 개요 진행 화)
+    if target is None and bible:
+        target = (bible.get("progress") or {}).get(top)
+
     messages = _thread_messages(channel, thread_ts)
     if not messages:
         return

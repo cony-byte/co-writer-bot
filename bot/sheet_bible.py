@@ -173,6 +173,20 @@ class SheetBible:
         status = s.get("진행상태", "") or ""
         m = re.search(r"\d+", status)
 
+        # 타입별 진행 화 파싱: "3화 개요 작업 중, 2화 대본" → {개요:3, 대본:2, 회차분배:...}
+        progress = {}
+        for chunk in re.split(r"[,\n;·]", status):
+            me = re.search(r"(\d+)\s*화", chunk)
+            if not me:
+                continue
+            ep = int(me.group(1))
+            if "개요" in chunk:
+                progress["개요"] = ep
+            if "대본" in chunk:
+                progress["대본"] = ep
+            if "회차" in chunk or "분배" in chunk:
+                progress["회차분배"] = ep
+
         def _rows_to_map(rows, key, keep):
             """[{key:.., col:..}] → {키: {col: 값}} (빈 값·키 없는 행 제외)"""
             out = {}
@@ -187,6 +201,7 @@ class SheetBible:
             "title": work,
             "status_raw": status,
             "current_episode": int(m.group()) if m else None,
+            "progress": progress,   # {개요:3, 대본:2, 회차분배:..} 타입별 진행 화
             "forbidden": s.get("금지사항", ""),
             "logline": s.get("로그라인", ""),
             "keyword": s.get("키워드", ""),
