@@ -97,65 +97,68 @@ class SheetBible:
         return self._post({"work": work, "top": top, "mid": mid, "sub": sub, "content": content})
 
     def exists(self, work: str, top: str, mid: str = "", sub: str = "") -> bool | None:
-        """해당 (대,중,소) 칸이 이미 있는지. 확인 불가(장애)면 None."""
+        """해당 칸에 값이 이미 있는지. 확인 불가(장애)면 None. (레이아웃은 Apps Script가 관리,
+        여기선 구조화 JSON에서 값 유무만 확인)"""
         try:
-            rows = self._get(work=work).get("rows", [])
+            d = self._get(work=work)
         except Exception:
             return None
-        return any(r.get("top") == top and (r.get("mid") or "") == mid
-                   and (r.get("sub") or "") == sub for r in rows)
+        single = d.get("single", {})
+        if top in ("진행상태", "금지사항", "줄거리"):
+            return bool(single.get(top))
+        if top in ("로그라인/키워드", "타겟층/핵심정서"):
+            return bool(single.get(mid))          # mid = 로그라인/키워드/타겟층/핵심정서
+        if top == "등장인물":
+            r = next((x for x in d.get("등장인물", []) if x.get("이름") == mid), None)
+            return bool(r and r.get(sub))
+        if top == "회차분배":
+            r = next((x for x in d.get("회차분배", []) if x.get("막") == mid), None)
+            return bool(r and r.get(sub))
+        if top in ("개요", "대본"):
+            r = next((x for x in d.get(top, []) if x.get("화") == mid), None)
+            return bool(r and r.get("내용"))
+        return None
 
     # ---------------- 읽기·조립 ----------------
     def list_works(self) -> list[str]:
         return self._get().get("works", [])
 
-    def _assemble(self, work: str, rows: list[dict]) -> dict:
-        """탭 행(대/중/소/내용) → 계층 bible dict. 인물은 소분류를 카드로 조립."""
+    def _assemble(self, work: str, data: dict) -> dict:
+        """구조화 JSON(Apps Script가 표 레이아웃을 파싱해 반환) → bible dict.
+        data = {single:{...}, 등장인물:[{이름,성별,...}], 회차분배:[{막,구간,화수,핵심사건}],
+                개요:[{화,내용}], 대본:[{화,내용}]}"""
+        s = data.get("single", {}) or {}
+        status = s.get("진행상태", "") or ""
+        m = re.search(r"\d+", status)
+
+        def _rows_to_map(rows, key, keep):
+            """[{key:.., col:..}] → {키: {col: 값}} (빈 값·키 없는 행 제외)"""
+            out = {}
+            for r in rows or []:
+                name = (r.get(key) or "").strip()
+                if not name:
+                    continue
+                out[name] = {k: r[k] for k in keep if r.get(k)}
+            return out
+
         b = {
             "title": work,
-            "status_raw": "", "current_episode": None,  # 진행상태 — 시점 판단 근거
-            "forbidden": "",     # 금지사항 (줄글)
-            "logline": "", "keyword": "",
-            "target": "", "emotion": "",
-            "plot": "",
-            "episode_plan": {},  # {구간(막): {소분류(화수·핵심사건): 내용}}
-            "characters": {},    # {이름: {소분류: 내용}}
-            "outlines": {},      # {회차: 내용}
-            "scripts": {},       # {회차: 내용}
+            "status_raw": status,
+            "current_episode": int(m.group()) if m else None,
+            "forbidden": s.get("금지사항", ""),
+            "logline": s.get("로그라인", ""),
+            "keyword": s.get("키워드", ""),
+            "target": s.get("타겟층", ""),
+            "emotion": s.get("핵심정서", ""),
+            "plot": s.get("줄거리", ""),
+            "characters": _rows_to_map(data.get("등장인물"), "이름", CHAR_SUBS),
+            "episode_plan": _rows_to_map(data.get("회차분배"), "막", ["구간", "화수", "핵심사건"]),
+            "outlines": {(r.get("화") or "").strip(): r.get("내용", "")
+                         for r in (data.get("개요") or []) if (r.get("화") or "").strip()},
+            "scripts": {(r.get("화") or "").strip(): r.get("내용", "")
+                        for r in (data.get("대본") or []) if (r.get("화") or "").strip()},
+            "last_synced": datetime.now(timezone.utc).isoformat(),
         }
-        for r in rows:
-            top, mid, sub, content = r.get("top", ""), r.get("mid", ""), r.get("sub", ""), r.get("content", "")
-            if top == "로그라인/키워드":
-                if mid == "로그라인":
-                    b["logline"] = content
-                elif mid == "키워드":
-                    b["keyword"] = content
-            elif top == "타겟층/핵심정서":
-                if mid == "타겟층":
-                    b["target"] = content
-                elif mid == "핵심정서":
-                    b["emotion"] = content
-            elif top == "진행상태":
-                b["status_raw"] = content
-                m = re.search(r"\d+", content or "")
-                b["current_episode"] = int(m.group()) if m else None
-            elif top == "금지사항":
-                b["forbidden"] = content
-            elif top == "줄거리":
-                b["plot"] = content
-            elif top == "회차분배":
-                if mid:
-                    b["episode_plan"].setdefault(mid, {})[sub or "내용"] = content
-            elif top == "등장인물":
-                if mid:
-                    b["characters"].setdefault(mid, {})[sub or "설명"] = content
-            elif top == "개요":
-                if mid:
-                    b["outlines"][mid] = content
-            elif top == "대본":
-                if mid:
-                    b["scripts"][mid] = content
-        b["last_synced"] = datetime.now(timezone.utc).isoformat()
         return b
 
     # ---------------- 캐싱 ----------------
@@ -165,8 +168,8 @@ class SheetBible:
         if not force and cached and (now - cached[0]) < self._ttl:
             return cached[1]
         try:
-            rows = self._get(work=work).get("rows", [])
-            bible = self._assemble(work, rows)
+            data = self._get(work=work)
+            bible = self._assemble(work, data)
             self._cache[work] = (now, bible)
             return bible
         except Exception as e:
