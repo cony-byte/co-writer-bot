@@ -160,6 +160,29 @@ def _parse_records(content: str, subs: list[str],
     return records, unknown
 
 
+def _parse_outline_records(content: str, seed: str | None = None) -> list[tuple[str, str]]:
+    """개요/대본: 'N화' 단독 줄을 헤더로, 그 아래 줄글 전체를 그 화의 내용으로.
+    seed(경로에 화 지정)가 있으면 첫 헤더 전 내용은 그 화에 붙는다. → [(N화, 내용)]"""
+    records: list[list] = []
+    cur = None
+    if seed:
+        cur = [seed, []]
+        records.append(cur)
+    for raw in content.splitlines():
+        m = re.match(r"^\s*(\d+)\s*화\s*$", raw)          # 'N화' 단독 줄 = 헤더
+        if m:
+            cur = [f"{m.group(1)}화", []]
+            records.append(cur)
+            continue
+        if cur is None:
+            if not raw.strip():
+                continue
+            cur = ["", []]                                # 헤더 전 내용(화 미상) → 나중 제외
+            records.append(cur)
+        cur[1].append(raw)
+    return [(hwa, "\n".join(lines).strip()) for hwa, lines in records if hwa]
+
+
 def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
     """[입력](신규) / [수정](기존) — <작품> 경로 + 다음 줄 내용 → 시트 저장.
     mode='create': 이미 있으면 거부 / mode='update': 없으면 거부."""
@@ -225,6 +248,29 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
                 msg += f"\n(모르는 소분류 건너뜀: {', '.join(dict.fromkeys(unknown))} · 가능: {subs})"
             _reply(channel, thread_ts, msg)
             return
+
+    # 개요·대본: 경로에 화가 없거나 'N화' 헤더가 있으면 여러 화를 한 번에
+    if top in ("개요", "대본"):
+        records = _parse_outline_records(content, seed=mid or None)
+        multi = (not mid) or len(records) > 1        # 단순 케이스(경로+단일 내용)는 기존 흐름에 맡김
+        if multi:
+            if not records:
+                _reply(channel, thread_ts,
+                       f"⚠️ {top}는 `{top}/11화` 하고 다음 줄에 내용, 또는 `{top}` 하고 아래처럼 ↓\n"
+                       f"```\n11화\n(내용…)\n\n12화\n(내용…)\n```")
+                return
+            verb = "저장" if mode == "create" else "수정"
+            icon = "✅" if mode == "create" else "✏️"
+            for hwa, body in records:
+                r = sheet.upsert(work, top, hwa, "", body)
+                if isinstance(r, dict) and r.get("error"):
+                    _reply(channel, thread_ts, f"⚠️ {hwa} {verb} 실패: {r['error']}")
+                    return
+            sheet.invalidate(work)
+            names = ", ".join(hwa for hwa, _ in records)
+            _reply(channel, thread_ts, f"{icon} *{work}* / {top} — {names} {verb}했어요.")
+            return
+
     # 내용이 없어도 분류(경로)만 유효하면 빈 칸으로 저장 (나중에 채우기)
     label = " / ".join(x for x in [top, mid, sub] if x)
     exists = sheet.exists(work, top, mid, sub)  # None이면 확인 불가 → 그냥 진행
