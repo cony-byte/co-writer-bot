@@ -35,6 +35,7 @@ SINGLE = {
     "줄거리": "줄거리",
     "금지사항": "금지사항", "금지": "금지사항",
     "진행상태": "진행상태", "진행": "진행상태", "현재화": "진행상태", "현재": "진행상태",
+    "강도": "강도", "수위": "강도", "강도조절": "강도",   # 1~5단계 톤/강도 다이얼
 }
 # PATHED: 대분류 + 경로(중/소는 동적)
 PATHED = {
@@ -146,7 +147,7 @@ class SheetBible:
         except Exception:
             return None
         single = d.get("single", {})
-        if top in ("진행상태", "금지사항", "줄거리"):
+        if top in ("진행상태", "금지사항", "줄거리", "강도"):
             return bool(single.get(top))
         if top in ("로그라인/키워드", "타겟층/핵심정서"):
             return bool(single.get(mid))          # mid = 로그라인/키워드/타겟층/핵심정서
@@ -202,6 +203,8 @@ class SheetBible:
             "status_raw": status,
             "current_episode": int(m.group()) if m else None,
             "progress": progress,   # {개요:3, 대본:2, 회차분배:..} 타입별 진행 화
+            "intensity_raw": (s.get("강도", "") or "").strip(),
+            "intensity_level": (lambda mi: int(mi.group()) if mi else None)(re.search(r"[1-5]", s.get("강도", "") or "")),
             "forbidden": s.get("금지사항", ""),
             "logline": s.get("로그라인", ""),
             "keyword": s.get("키워드", ""),
