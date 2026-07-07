@@ -32,8 +32,8 @@ CAT_KO = {
     "humor_flutter": "코믹 티키타카 설렘",
 }
 MIN_CONF = 0.6          # 검색 풀 신뢰도 게이트 (v4_tag_confidence)
-RECENT_DAYS = 14        # 시간축 비교: 최근 구간 길이
-MIN_BATCH_GAP_DAYS = 7  # 이 이상 날짜가 갈라져야 시간축 비교 발동
+MIN_SIDE = 5            # 시간축 비교: 최근/과거 각 최소 표본
+MIN_SPAN_DAYS = 30      # 게시일 범위가 이 이상이어야 추세 비교 발동
 
 
 class TrendSearch:
@@ -46,7 +46,16 @@ class TrendSearch:
             if x.get("v4_tagged") and (x.get("v4_tag_confidence") or 0) >= MIN_CONF
         ]
         self.all_tagged = [x for x in data if x.get("v4_tagged")]
-        self.dates = sorted({x.get("crawl_date") for x in self.pool if x.get("crawl_date")})
+        # 시간축 = 실제 게시일(publish_dt). 우리가 긁은 날(crawl_date)이 아니라 콘텐츠가 뜬 시점.
+        self.pub_dates = sorted(d for d in (self._pub(x) for x in self.pool) if d)
+
+    @staticmethod
+    def _pub(x):
+        s = x.get("publish_dt") or ""
+        try:
+            return datetime.strptime(s[:10], "%Y-%m-%d")
+        except (ValueError, TypeError):
+            return None
 
     # ---------------- 성과 점수 ----------------
     @staticmethod
@@ -59,19 +68,17 @@ class TrendSearch:
 
     # ---------------- 시간축 ----------------
     def _split_time(self):
-        """crawl_date가 충분히 갈라져 있으면 (최근, 과거) 두 풀로 분리. 아니면 None."""
-        if len(self.dates) < 2:
+        """게시일(publish_dt) 중앙값으로 (최근, 과거) 두 풀로 분리. 표본·범위 부족 시 None."""
+        dated = sorted(((d, x) for x in self.pool if (d := self._pub(x))),
+                       key=lambda t: t[0])
+        if len(dated) < MIN_SIDE * 2:
             return None
-        newest = datetime.strptime(self.dates[-1], "%Y-%m-%d")
-        oldest = datetime.strptime(self.dates[0], "%Y-%m-%d")
-        if (newest - oldest).days < MIN_BATCH_GAP_DAYS:
+        if (dated[-1][0] - dated[0][0]).days < MIN_SPAN_DAYS:
             return None
-        cut = newest - timedelta(days=RECENT_DAYS)
-        recent, past = [], []
-        for x in self.pool:
-            dt = datetime.strptime(x["crawl_date"], "%Y-%m-%d")
-            (recent if dt > cut else past).append(x)
-        if len(recent) < 5 or len(past) < 5:  # 표본 부족 시 비교 안 함
+        mid = len(dated) // 2
+        past = [x for _, x in dated[:mid]]
+        recent = [x for _, x in dated[mid:]]
+        if len(recent) < MIN_SIDE or len(past) < MIN_SIDE:
             return None
         return recent, past
 
@@ -112,9 +119,12 @@ class TrendSearch:
 
     # ---------------- 응답 빌더 (각각 따로 호출 가능) ----------------
     def _pool_note(self, items):
-        d = f"{self.dates[0]}~{self.dates[-1]}" if len(self.dates) > 1 else (self.dates[0] if self.dates else "?")
-        mode = "추세 비교" if self._split_time() else "스냅샷"
-        return f"_(검색풀 {len(items)}건 · {d} · {mode} 기준)_"
+        if self.pub_dates:
+            d = f"게시 {self.pub_dates[0].date()}~{self.pub_dates[-1].date()}"
+        else:
+            d = "게시일 미상"
+        mode = "추세 비교(최근 vs 과거)" if self._split_time() else "스냅샷(성과 상위)"
+        return f"_(검색풀 {len(items)}건 · {d} · {mode})_"
 
     def catharsis(self, flt=None):
         items = self._apply_filter(self.pool, flt)
