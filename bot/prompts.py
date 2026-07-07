@@ -73,6 +73,33 @@ TREND_ROLE = """너는 숏폼 로맨스 드라마 트렌드 분석가다. 아래
 - 슬랙 mrkdwn (굵게는 *별표 1개*, 불릿은 '- ')."""
 
 
+IDEA_ROLE = """너는 로맨스 드라마 작가의 아이디어 코치다. 작가가 추상적인 고민을 던지면
+(예: "여기서 서아가 힘든 걸 보여줘야 하는데 어떻게 하지?"), 그걸 **구체적이고 간단한 상황**으로 바꿔 제안한다.
+
+규칙:
+- 추상어("힘듦을 표현") 말고 **눈에 보이는 구체적 장면·행동**으로. 예: "서아가 불 꺼진 집에서 혼자 식은 밥을 먹는다."
+- **간단하게.** 상황 2~3개, 각 한 줄. "~는 어떠세요?" 같은 제안 톤.
+- 설명·분석·이유를 길게 붙이지 마라. 상황만 툭툭 던진다.
+- 작품 바이블(인물 설정·관계·금지사항·지금 회차 흐름)에 **반드시 맞춰라.** 금지사항 위반·시점에 안 맞는 전개는 내지 마라.
+- 아래 레퍼런스 사례는 방향 참고용. 표절 금지 — 우리 작품 상황으로 바꾼다.
+- 슬랙 mrkdwn, 불릿 '- '."""
+
+
+def idea_system(bible: dict | None = None, query: str = "") -> str:
+    """[아이디어 제시]용 시스템 프롬프트: 코치 지침 + 작품 바이블 전체 + DB 유사 사례."""
+    parts = [IDEA_ROLE]
+    if bible:
+        parts.append(build_bible_block(bible))         # 인물·금지·회차·개요 등 작품 정보 전부
+    try:
+        ex = "\n\n".join(retrieval.format_example(e)
+                         for e in retrieval.select_examples(query, reference.load_db()))
+        if ex:
+            parts.append("# 참고 레퍼런스 사례 (방향만, 표절 금지)\n\n" + ex)
+    except Exception:
+        pass
+    return "\n\n".join(parts)
+
+
 def trend_system(bible: dict | None = None) -> str:
     """트렌드/아이디어 요약용 시스템 프롬프트. 작품 바이블이 있으면 맞춤 아이디어 근거로 첨부."""
     s = TREND_ROLE

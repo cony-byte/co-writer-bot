@@ -41,6 +41,7 @@ CMD_EDIT = {"수정", "편집", "edit"}
 CMD_GEN = {"생성", "generate", "gen"}
 CMD_CONVERT = {"변환", "포맷", "대본변환"}
 CMD_TREND = {"트렌드", "trend"}
+CMD_IDEA = {"아이디어", "아이디어 제시", "아이디어제시", "제안", "idea"}
 CMD_REFRESH = {"새로고침", "refresh"}
 CMD_RELOAD = {"리로드", "reload"}
 
@@ -61,7 +62,7 @@ _HELP = (
     "[생성] <날혐남> 대본 / 24화     ← 24화 개요+바이블 참고해 생성\n"
     "[변환] (줄글 초안 붙여넣기)\n"
     "[트렌드] 요즘 뭐가 유행?          ← 쉬운 요약\n"
-    "[트렌드] <날혐남> 쓸 만한 아이디어  ← 우리 작품 맞춤 개요 아이디어\n"
+    "[아이디어] <날혐남> 서아 힘든 거 어떻게 보여주지?  ← 구체적 상황 제안\n"
     "```\n"
     "• `[입력]` 새로 저장 / `[수정]` 기존 고침 / `[생성]` 생성+저장 / `[변환]` 촬영대본 / `[트렌드]` 조회\n"
     "• 이름만: 로그라인·키워드·타겟층·핵심정서·줄거리·금지사항·진행상태 (뒤에 바로 내용)\n"
@@ -420,6 +421,35 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
     _post_chunks(channel, thread_ts, answer)
 
 
+def _do_idea(channel: str, thread_ts: str, rest: str) -> None:
+    """[아이디어 제시] — 추상적 고민을 구체적이고 간단한 상황 2~3개로. 작품 바이블+DB 근거."""
+    q = rest.strip()
+    work, bible = None, None
+    wm = SUB_RE.match(q)
+    if wm:
+        work = wm.group(1).strip()
+        q = wm.group(2).strip()
+        sheet = reference.sheet()
+        if sheet:
+            try:
+                bible = sheet.get(work)
+            except Exception:
+                log.exception("idea bible load failed")
+    if not q:
+        _reply(channel, thread_ts,
+               "형식: `[아이디어] <작품> 여기서 서아가 힘든 걸 보여주고 싶은데 어떻게?`\n"
+               "추상적 고민을 주면 구체적인 상황을 제안해요.")
+        return
+    system = prompts.idea_system(bible, q)
+    try:
+        answer = generator.complete(system, q).strip()
+    except Exception:
+        log.exception("idea failed")
+        _reply(channel, thread_ts, "아이디어 생성 중 오류가 났어요. 잠시 후 다시 시도해 주세요.")
+        return
+    _post_chunks(channel, thread_ts, answer or "(빈 응답)")
+
+
 def _do_trend(channel: str, thread_ts: str, rest: str) -> None:
     """[트렌드] — 측정 데이터를 근거로, 쉬운 말 요약 + (작품 지정 시) 맞춤 아이디어 제안."""
     trend = reference.load_trend()
@@ -484,6 +514,8 @@ def _handle(event: dict) -> None:
         _do_convert(channel, thread_ts, rest)
     elif cmd in CMD_TREND:
         _do_trend(channel, thread_ts, rest)
+    elif cmd in CMD_IDEA:
+        _do_idea(channel, thread_ts, rest)
     elif cmd in CMD_INPUT:
         _do_input(channel, thread_ts, rest, mode="create")
     elif cmd in CMD_EDIT:
