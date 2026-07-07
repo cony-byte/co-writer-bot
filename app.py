@@ -347,15 +347,10 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
         _reply(channel, thread_ts, "생성 중 오류가 났어요. 잠시 후 다시 시도해 주세요.")
         return
 
-    if sheet and work and mid:  # 회차 지정된 개요/대본만 되저장
-        try:
-            sheet.upsert(work, top, mid, sub, answer)
-            sheet.invalidate(work)
-            label = " / ".join(x for x in [top, mid, sub] if x)
-            answer += f"\n\n_📄 시트 저장: {work} / {label}_"
-        except Exception:
-            log.exception("sheet upsert failed")
-            answer += "\n\n_⚠️ 시트 저장 실패 (생성물은 위에 있어요)_"
+    # 슬랙은 초안 생성만. 시트 저장은 사람이 검토 후 [입력]/[수정]으로 직접.
+    label = " / ".join(x for x in [top, mid, sub] if x)
+    if label:
+        answer += f"\n\n_📝 초안입니다. 확정하려면 `[입력] <{work}> {label}` 로 저장하세요._"
     _post_chunks(channel, thread_ts, answer)
 
 
