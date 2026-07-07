@@ -87,12 +87,13 @@ main{max-width:1060px;margin:0 auto;padding:20px}
 .overlay{position:fixed;inset:0;background:rgba(28,30,42,.45);z-index:50;display:none;align-items:flex-end;justify-content:center}
 .overlay.open{display:flex}
 @media(min-width:720px){.overlay.open{align-items:center}}
-.sheet{background:var(--page);width:100%;max-width:880px;max-height:92vh;overflow-y:auto;border-radius:18px 18px 0 0;padding:26px 24px 40px;position:relative}
+.sheet{background:var(--page);width:100%;max-width:720px;max-height:92vh;overflow-y:auto;border-radius:18px 18px 0 0;padding:26px 24px 40px;position:relative}
 @media(min-width:720px){.sheet{border-radius:16px;max-height:88vh}}
-.d-cols{display:flex;gap:18px;align-items:flex-start}
-.d-col{flex:1 1 0;min-width:0}
-.hintline{font-size:11.5px;color:var(--mute);margin:10px 0 2px;background:var(--paper);border-left:3px solid var(--hl);padding:6px 10px;border-radius:0 6px 6px 0}
-@media(max-width:640px){.d-cols{flex-direction:column;gap:0}}
+/* 맥락 박스 (대사 위) — 상황 + 배경/장르/소재 */
+.d-ctx{background:var(--blue-soft);border-radius:10px;padding:11px 13px;margin-bottom:10px;display:flex;gap:10px;align-items:baseline}
+.ctxk{flex:0 0 auto;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.12em;color:var(--blue);font-weight:500;text-transform:uppercase;padding-top:3px}
+.ctxbody{display:flex;flex-wrap:wrap;gap:6px;align-items:center;flex:1}
+.ctxsit{width:100%;font-size:13.5px;line-height:1.55;color:var(--ink);margin-bottom:3px}
 .close{position:sticky;top:0;float:right;background:var(--paper);border:1px solid var(--line);border-radius:99px;width:34px;height:34px;font-size:16px;cursor:pointer;color:var(--ink-soft);z-index:2}
 .d-rank{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.1em;color:var(--rose);text-transform:uppercase;margin-bottom:8px}
 .d-title{font-family:'Gowun Batang',serif;font-size:17px;font-weight:700;line-height:1.5;margin-bottom:10px}
@@ -487,6 +488,8 @@ function openDetail(id){
     if(!vals.length) return '';
     return `<div class="catline"><span class="catk">${esc(CAT_LABEL[cat]||cat)}</span><span class="catv">${vals.map(v=>`<span class="tag">${esc(v)}</span>`).join('')}</span></div>`;
   }).filter(Boolean).join('');
+  const ctxTags=[...((rec.cats||{})['장르/배경']||[]), ...((rec.cats||{})['소재']||[])];
+  const ctxHtml=`<div class="d-ctx"><span class="ctxk">맥락</span><span class="ctxbody">${rec.hook_desc?`<span class="ctxsit">${esc(rec.hook_desc)}</span>`:''}${ctxTags.map(v=>`<span class="tag blue">${esc(v)}</span>`).join('')}</span></div>`;
   const pubLine=[rec.publish_dt?'발행 '+ymd(rec.publish_dt):'', rec.crawl_date?'크롤 '+rec.crawl_date:'', '대본형태 '+lab(rec.transcript_form||'none')].filter(Boolean).join(' · ');
   const conf=`신뢰도 ${rec.tag_confidence==null?'–':Number(rec.tag_confidence).toFixed(2)}${rec.needs_review?' · <b style="color:#9A6B00">검수 필요</b>':''}`;
   sheet.innerHTML=`
@@ -496,16 +499,10 @@ function openDetail(id){
     <div class="d-desc">${esc(rec.desc)}</div>
     <div class="d-metrics">${metrics}</div>
     <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mute);margin-bottom:4px">${esc(pubLine)}</div>
-    <div class="d-cols">
-      <div class="d-col">
-        <div class="d-section">대사 <span class="badge">${lab(rec.transcript_form||'none')}</span>${(rec.script||[]).length?`<span class="badge">${rec.script.length}줄</span>`:''}</div>
-        ${scriptHTML(rec)}
-      </div>
-      <div class="d-col">
-        ${scenesHTML(rec) || '<div class="d-section">장면</div><div class="noscript-big">장면 데이터 없음</div>'}
-      </div>
-    </div>
-    <div class="hintline">※ 대사와 장면은 시간정렬 전이라 <b>정확히 매칭되지 않습니다</b> — 흐름 대조용. 정밀 매칭은 크롤러 세그먼트 타임스탬프 추가 후.</div>
+    <div class="d-section">대사 <span class="badge">${lab(rec.transcript_form||'none')}</span>${(rec.script||[]).length?`<span class="badge">${rec.script.length}줄</span>`:''}</div>
+    ${ctxHtml}
+    ${scriptHTML(rec)}
+    ${scenesHTML(rec)}
     <div class="d-section">분류 (카테고리)</div>
     ${catsHtml?`<div class="cats">${catsHtml}</div>`:'<span class="sc-shot">분류 없음</span>'}
     <div class="d-section">세부 태그</div>
