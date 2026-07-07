@@ -76,13 +76,35 @@ def _current_arc(episode_plan: dict, te: int) -> str:
     return ""
 
 
+def _fmt_gender(v: str) -> str:
+    """성별 축약값을 명시적으로. '남'→'남성', '여'→'여성'."""
+    t = (v or "").strip()
+    if t in ("남", "남자", "남성", "m", "M", "male", "Male", "♂"):
+        return "남성"
+    if t in ("여", "여자", "여성", "f", "F", "female", "Female", "♀"):
+        return "여성"
+    return t
+
+
+def _fmt_age(v: str) -> str:
+    """나이가 숫자만이면 '세'를 붙여 명시. '32'→'32세', '20대 후반'→그대로."""
+    t = (v or "").strip()
+    return f"{t}세" if t.isdigit() else t
+
+
 def _character_cards(characters: dict) -> str:
-    """{이름: {소분류: 내용}} → 인물 카드들. 소분류를 하나로 조립."""
+    """{이름: {소분류: 내용}} → 인물 카드들. 성별·나이는 명시적 값으로 풀어서 조립."""
     from .sheet_bible import CHAR_SUBS
     cards = []
     for name, subs in characters.items():
-        head_bits = [subs[k] for k in ("나이", "성별", "포지션") if subs.get(k)]
-        head = f"{name}" + (f" ({'/'.join(head_bits)})" if head_bits else "")
+        tags = []
+        if subs.get("포지션"):
+            tags.append(subs["포지션"])
+        if subs.get("성별"):
+            tags.append(_fmt_gender(subs["성별"]))
+        if subs.get("나이"):
+            tags.append(_fmt_age(subs["나이"]))
+        head = f"{name}" + (f" — {' · '.join(tags)}" if tags else "")
         lines = [f"■ {head}"]
         for k in CHAR_SUBS:
             if k in ("나이", "성별", "포지션"):
