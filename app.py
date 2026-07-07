@@ -127,7 +127,7 @@ def _post_code(channel: str, thread_ts: str, text: str) -> None:
 def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
     """[입력](신규) / [수정](기존) — <작품> 경로 + 다음 줄 내용 → 시트 저장.
     mode='create': 이미 있으면 거부 / mode='update': 없으면 거부."""
-    from bot.sheet_bible import parse_path
+    from bot.sheet_bible import parse_path, split_command
     sheet = reference.sheet()
     if not sheet:
         _reply(channel, thread_ts, "시트가 아직 연결 안 됐어요 (SHEET_WEBAPP_URL 미설정).")
@@ -138,8 +138,10 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
         return
     work = sm.group(1).strip()
     after = sm.group(2).splitlines()
-    path_line = after[0].strip() if after else ""
-    content = "\n".join(after[1:]).strip()
+    first = after[0].strip() if after else ""
+    path_line, inline = split_command(first)        # 한 줄에 붙여쓴 내용도 인식
+    next_lines = "\n".join(after[1:]).strip()        # 다음 줄들도 내용
+    content = inline if inline else next_lines       # 인라인 우선, 없으면 다음 줄
     triple = parse_path(path_line)
     if not triple:
         _reply(channel, thread_ts,

@@ -47,6 +47,39 @@ PATHED = {
 CHAR_SUBS = ["성별", "나이", "포지션", "설정", "핵심대사", "설명"]
 
 
+def split_command(first_line: str) -> tuple[str, str]:
+    """첫 줄을 (경로, 인라인 내용)으로 분리. 종류별로 경로가 차지하는 세그먼트 수가
+    정해져 있으므로, 그 뒤에 붙은 텍스트(슬래시든 공백이든)는 전부 내용으로 본다.
+
+      '로그라인/어머니를 살리기…'   → ('로그라인', '어머니를 살리기…')
+      '로그라인 어머니를 살리기…'    → ('로그라인', '어머니를 살리기…')
+      '인물/강태혁/성별 남'          → ('인물/강태혁/성별', '남')
+      '인물/강태혁/성별/남'          → ('인물/강태혁/성별', '남')
+      '개요/11화'                    → ('개요/11화', '')      (내용은 다음 줄)
+    """
+    parts = first_line.split("/")
+    head = parts[0].strip().split()[0] if parts[0].strip() else ""
+    if head in FIXED or head in SINGLE:
+        n = 1
+    elif head in PATHED and PATHED[head] in ("개요", "대본"):
+        n = 2
+    elif head in PATHED:                       # 등장인물·회차분배 (중분류+소분류)
+        n = 3
+    else:
+        return (first_line.strip(), "")        # 모르는 종류 → 전부 경로 (parse_path가 거름)
+
+    path_segs = [s.strip() for s in parts[:n]]
+    rest = [s for s in parts[n:]]
+    inline = "/".join(rest).strip()
+    # 마지막 경로 세그먼트에 공백으로 붙은 내용 떼어내기 (예: '성별 남', '로그라인 …')
+    if path_segs:
+        bits = path_segs[-1].split(None, 1)
+        if len(bits) > 1:
+            path_segs[-1] = bits[0]
+            inline = (bits[1] + ((" " + inline) if inline else "")).strip()
+    return ("/".join(s for s in path_segs if s), inline)
+
+
 def parse_path(path_str: str) -> tuple[str, str, str] | None:
     """명령 경로 → (대분류, 중분류, 소분류). 모르는 종류면 None."""
     parts = [p.strip() for p in path_str.split("/") if p.strip()]
