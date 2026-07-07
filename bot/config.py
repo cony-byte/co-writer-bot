@@ -13,7 +13,7 @@ SLACK_APP_TOKEN = os.environ.get("SLACK_APP_TOKEN", "")  # Socket Mode (xapp-)
 BACKEND = os.environ.get("COWRITER_BACKEND", "agent")
 
 MODEL = os.environ.get("COWRITER_MODEL", "claude-opus-4-8")       # api 백엔드용
-AGENT_MODEL = os.environ.get("COWRITER_AGENT_MODEL", "")           # agent 백엔드용 ("" = Claude Code 기본)
+AGENT_MODEL = os.environ.get("COWRITER_AGENT_MODEL", "claude-sonnet-5")  # agent 백엔드용 (Sonnet 고정)
 MAX_TOKENS = int(os.environ.get("COWRITER_MAX_TOKENS", "16000"))
 
 # 레퍼런스 DB — story-v1-scripts repo의 reference/ 디렉터리 (통합 DB v5: reference_db.json).
