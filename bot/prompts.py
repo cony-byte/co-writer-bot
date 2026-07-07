@@ -62,6 +62,32 @@ FAILSAFE = """## 작품 바이블 준수 (실패 방지 — 반드시 지킬 것
 확신이 안 서는 지점은 지어내지 말고 본문에 `⚠️ 바이블 확인 필요: …`로 표시하라."""
 
 
+TREND_ROLE = """너는 숏폼 로맨스 드라마 트렌드 분석가다. 아래 [측정 데이터]는 실제 성과 지표를 집계한 것이다.
+이걸 근거로만 삼고, 지표 수치·표본수(n)·스냅샷 날짜·'성과지수' 같은 용어는 **결과에 절대 나열하지 마라.**
+
+원칙:
+- 짧고 쉽게, 핵심만. 전체 8줄 이내.
+- 먼저 *요즘 뜨는 것* 을 2~3개로 콕 집어준다 — 스토리 결·키워드 중심의 쉬운 말로 (숫자 금지).
+- 작품 정보가 주어지면, 그 작품에 맞는 구체적 아이디어를 1~2개 **개요 수준(각 한두 줄)** 으로 제안한다.
+- 표절 금지 — 트렌드는 방향만 참고하고 우리 식으로 변형한다.
+- 슬랙 mrkdwn (굵게는 *별표 1개*, 불릿은 '- ')."""
+
+
+def trend_system(bible: dict | None = None) -> str:
+    """트렌드/아이디어 요약용 시스템 프롬프트. 작품 바이블이 있으면 맞춤 아이디어 근거로 첨부."""
+    s = TREND_ROLE
+    if bible:
+        bits = [f"제목: {bible.get('title')}"]
+        for k, lbl in (("logline", "로그라인"), ("target", "타겟"),
+                       ("emotion", "핵심정서"), ("keyword", "키워드")):
+            if bible.get(k):
+                bits.append(f"{lbl}: {bible[k]}")
+        if bible.get("plot"):
+            bits.append(f"줄거리: {bible['plot'][:300]}")
+        s += "\n\n# 이 작품 정보 (아이디어는 이 작품에 맞춰라)\n" + "\n".join(bits)
+    return s
+
+
 def _episode_range(hwasu: str) -> tuple[int, int] | None:
     """'1~12화' → (1,12), '24화' → (24,24)."""
     nums = re.findall(r"\d+", hwasu or "")

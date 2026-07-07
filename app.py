@@ -60,7 +60,8 @@ _HELP = (
     "\n"
     "[생성] <날혐남> 대본 / 24화     ← 24화 개요+바이블 참고해 생성\n"
     "[변환] (줄글 초안 붙여넣기)\n"
-    "[트렌드] 엔딩\n"
+    "[트렌드] 요즘 뭐가 유행?          ← 쉬운 요약\n"
+    "[트렌드] <날혐남> 쓸 만한 아이디어  ← 우리 작품 맞춤 개요 아이디어\n"
     "```\n"
     "• `[입력]` 새로 저장 / `[수정]` 기존 고침 / `[생성]` 생성+저장 / `[변환]` 촬영대본 / `[트렌드]` 조회\n"
     "• 이름만: 로그라인·키워드·타겟층·핵심정서·줄거리·금지사항·진행상태 (뒤에 바로 내용)\n"
@@ -420,15 +421,39 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
 
 
 def _do_trend(channel: str, thread_ts: str, rest: str) -> None:
+    """[트렌드] — 측정 데이터를 근거로, 쉬운 말 요약 + (작품 지정 시) 맞춤 아이디어 제안."""
     trend = reference.load_trend()
     if trend is None:
         _reply(channel, thread_ts, "트렌드 DB가 아직 없어요. `sync_reference.py`로 데이터 반영 후 다시 물어봐 주세요.")
         return
+    q = rest.strip()
+    # <작품> 지정 시 그 바이블을 근거로 맞춤 아이디어
+    work, bible = None, None
+    wm = SUB_RE.match(q)
+    if wm:
+        work = wm.group(1).strip()
+        q = wm.group(2).strip()
+        sheet = reference.sheet()
+        if sheet:
+            try:
+                bible = sheet.get(work)
+            except Exception:
+                log.exception("trend bible load failed")
     try:
-        _post_chunks(channel, thread_ts, trend.answer(rest.strip() or "트렌드"))
+        raw = trend.answer(q or "트렌드")          # 집계 데이터 (참고용, 사용자엔 안 보임)
     except Exception:
-        log.exception("trend search failed")
+        log.exception("trend agg failed")
         _reply(channel, thread_ts, "트렌드 집계 중 오류가 났어요.")
+        return
+    system = prompts.trend_system(bible)
+    user = (f"[작가 질문]\n{q or '요즘 뭐가 유행이야? 우리한테 쓸 만한 아이디어도 알려줘.'}\n\n"
+            f"[측정 데이터 — 참고만, 수치·표를 그대로 옮기지 마라]\n{raw}")
+    try:
+        answer = generator.complete(system, user).strip() or raw
+    except Exception:
+        log.exception("trend summarize failed")
+        answer = raw                                # 폴백: 원본 집계라도 보여줌
+    _post_chunks(channel, thread_ts, answer)
 
 
 def _handle(event: dict) -> None:
