@@ -127,29 +127,18 @@ def _post_code(channel: str, thread_ts: str, text: str) -> None:
 
 # ---------------- 명령별 처리 ----------------
 
-def _parse_fields(content: str, subs: list[str]) -> tuple[list[tuple[str, str]], list[str]]:
-    """여러 줄 '소분류: 값' 블록 → [(소분류, 값)], [모르는 키]. 구분자는 ':' '=' 또는 공백."""
-    pairs, unknown = [], []
-    for raw in content.splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        m = re.match(r"^(\S+?)\s*[:=]\s*(.*)$", line)   # '성별: 남' / '성별=남'
-        if m:
-            k, v = m.group(1).strip(), m.group(2).strip()
-        else:
-            bits = line.split(None, 1)                  # '성별 남'
-            k, v = bits[0].strip(), (bits[1].strip() if len(bits) > 1 else "")
-        (pairs.append((k, v)) if k in subs else unknown.append(k))
-    return pairs, unknown
-
-
-def _parse_records(content: str, subs: list[str]) -> tuple[list[tuple[str, list]], list[str]]:
+def _parse_records(content: str, subs: list[str],
+                   seed: str | None = None) -> tuple[list[tuple[str, list]], list[str]]:
     """여러 인물/막 블록 → [(이름, [(소분류,값)])], [모르는 키].
-    소분류가 아닌 줄은 새 레코드(이름/막) 시작, 그 아래 '소분류: 값' 줄은 그 레코드의 필드."""
+    소분류가 아닌 줄은 새 레코드(이름/막) 시작, 그 아래 '소분류: 값' 줄은 그 레코드의 필드.
+    seed가 있으면(경로에 이름 지정) 첫 레코드를 그 이름으로 시작 → 그 이름의 필드가 먼저 오고,
+    새 이름 줄이 나오면 그때부터 다음 인물."""
     records: list[tuple[str, list]] = []
     unknown: list[str] = []
     cur = None
+    if seed:
+        cur = (seed, [])
+        records.append(cur)
     for raw in content.splitlines():
         line = raw.strip()
         if not line:
@@ -195,18 +184,23 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
                f"`{path_line}` 는 모르는 종류예요. 로그라인·키워드·타겟층·핵심정서·인물/<이름>·줄거리·회차분배·개요/<N화>·대본/<N화>")
         return
     top, mid, sub = triple
-    # 여러 열을 갖는 표(인물·회차분배): 소분류 없이 여러 항목을 한 번에 받는다
+    # 여러 열을 갖는 표(인물·회차분배): 소분류 하나 직접 지정이 아니면 레코드 블록으로 처리
     if top in TABLE_SUBS:
         subs_list = TABLE_SUBS[top]
         subs = " · ".join(subs_list)
         key = "이름" if top == "등장인물" else "막"
         verb = "저장" if mode == "create" else "수정"
         icon = "✅" if mode == "create" else "✏️"
-        if not mid:  # 이름/막 미지정 → 여러 레코드를 한 번에
-            records, unknown = _parse_records(content, subs_list)
-            if not records:
+        if sub and sub not in subs_list:
+            _reply(channel, thread_ts, f"⚠️ `{sub}` 는 {top} 소분류가 아니에요. 가능한 소분류: {subs}")
+            return
+        if not sub:
+            # 경로 이름(mid)을 첫 레코드로 seed → 그 필드 먼저, 이후 새 이름 줄부터 다음 인물
+            records, unknown = _parse_records(content, subs_list, seed=mid or None)
+            if not records:  # 이름도 내용도 없음
                 _reply(channel, thread_ts,
-                       f"⚠️ 여러 개를 한 번에 넣으려면 {key}을 각 줄 맨 앞에 두고 그 아래 `소분류: 값`을 쓰세요. 예:\n"
+                       f"⚠️ {top}은 {key}이 필요해요. 하나만: `{top}/강태혁/성별 남`\n"
+                       f"여러 개: `{top}` 하고 아래처럼 ↓\n"
                        f"```\n강태혁\n성별: 남\n나이: 32\n\n윤서아\n성별: 여\n```\n소분류: {subs}")
                 return
             lines = []
@@ -221,45 +215,15 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
                     if isinstance(r, dict) and r.get("error"):
                         _reply(channel, thread_ts, f"⚠️ {name} 등록 실패: {r['error']}")
                         return
-                lines.append(f"· {name}: " + (", ".join(k for k, _ in pairs) if pairs else "(행만)"))
+                lines.append(f"· {name}: " + (", ".join(k for k, _ in pairs) if pairs else "(행만 등록)"))
             sheet.invalidate(work)
-            msg = f"{icon} *{work}* / {top} — {len(records)}개 {verb}했어요.\n" + "\n".join(lines)
+            if len(records) == 1:
+                msg = f"{icon} *{work}* / {top} / {records[0][0]} — {lines[0].split(': ', 1)[1]} {verb}했어요."
+            else:
+                msg = f"{icon} *{work}* / {top} — {len(records)}개 {verb}했어요.\n" + "\n".join(lines)
             if unknown:
                 msg += f"\n(모르는 소분류 건너뜀: {', '.join(dict.fromkeys(unknown))} · 가능: {subs})"
             _reply(channel, thread_ts, msg)
-            return
-        if sub and sub not in subs_list:
-            _reply(channel, thread_ts, f"⚠️ `{sub}` 는 {top} 소분류가 아니에요. 가능한 소분류: {subs}")
-            return
-        if not sub:  # 소분류 미지정 → 내용을 '소분류: 값' 블록으로 여러 개 일괄 저장/수정
-            pairs, unknown = _parse_fields(content, subs_list)
-            if pairs:
-                saved = []
-                for k, v in pairs:
-                    r = sheet.upsert(work, top, mid, k, v)
-                    if isinstance(r, dict) and r.get("error"):
-                        _reply(channel, thread_ts, f"⚠️ {k} {verb} 실패: {r['error']}")
-                        return
-                    saved.append(k)
-                sheet.invalidate(work)
-                msg = f"{icon} *{work}* / {top} / {mid} — {', '.join(saved)} {verb}했어요."
-                if unknown:
-                    msg += f"\n(모르는 소분류라 건너뜀: {', '.join(unknown)} · 가능: {subs})"
-                _reply(channel, thread_ts, msg)
-                return
-            if content:  # 내용은 있는데 'X: 값' 형식이 아님
-                eg = subs_list[0]
-                _reply(channel, thread_ts,
-                       f"⚠️ 여러 항목은 줄마다 `소분류: 값` 으로 써 주세요. 예:\n"
-                       f"`{eg}: …`  ·  또는 하나만 `{top}/{mid}/{eg} 값`\n소분류: {subs}")
-                return
-            # 내용도 없음 → 행(이름/막)만 등록
-            r = sheet.upsert(work, top, mid, "", "")
-            if isinstance(r, dict) and r.get("error"):
-                _reply(channel, thread_ts, f"⚠️ 등록 실패: {r['error']}")
-                return
-            sheet.invalidate(work)
-            _reply(channel, thread_ts, f"✅ *{work}* / {top} / {mid} 등록했어요. (소분류는 나중에 채우기)")
             return
     # 내용이 없어도 분류(경로)만 유효하면 빈 칸으로 저장 (나중에 채우기)
     label = " / ".join(x for x in [top, mid, sub] if x)
