@@ -745,7 +745,7 @@ def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both") ->
         first = False
 
     if mode in ("fun", "both"):     # v2.1 점수제 재미 평가 (+ 코드로 종합점수 검증)
-        _run(prompts.fun_system(), prompts.fun_user(draft), post_fn=_verify_fun_score)
+        _run(prompts.fun_system(bible, target_episode=target), prompts.fun_user(draft), post_fn=_verify_fun_score)
         if _cancelled(channel, thread_ts, ph if first else None):
             return
     if mode in ("logic", "both"):   # 개연성 지적

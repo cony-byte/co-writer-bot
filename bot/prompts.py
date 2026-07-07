@@ -151,14 +151,19 @@ FUN_USER_TMPL = """아래 [대본]을 시청자 입장에서 평가하라. **아
 ⑤ 엔딩
 
 *최우선 수정*: 가장 약한 항목 1개 + 바로 적용할 수정안 한 줄.
-  단, "대사를 짧게/줄여라"류 수정은 하지 마라. 엔딩 수정안도 무조건 충격·폭로·막장으로 몰지 말고 그 화 상황에 맞게.
+  - "대사를 짧게/줄여라"류 수정은 하지 마라. 무조건 충격·폭로·막장으로 몰지 마라.
+  - **아래 [작품 바이블]의 설정·현재 시점·인물 위치에 맞는 수정만.** 그 화에 없는 장소·인물·미래 사건을 지어내지 마라 (예: 신혼집 장면인데 사무실 컷 제안 X).
 
 [대본]
 {script}"""
 
 
-def fun_system() -> str:
-    return FUN_SYSTEM
+def fun_system(bible: dict | None = None, target_episode: int | None = None) -> str:
+    """재미 평가 지침 + (수정 제안 맥락용) 작품 바이블. 점수는 시청자 관점, 수정은 설정에 맞게."""
+    s = FUN_SYSTEM
+    if bible:
+        s += "\n\n" + build_bible_block(bible, target_episode, failsafe=False)
+    return s
 
 
 def fun_user(script: str) -> str:
