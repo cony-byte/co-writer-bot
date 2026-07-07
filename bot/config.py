@@ -15,6 +15,7 @@ BACKEND = os.environ.get("COWRITER_BACKEND", "agent")
 MODEL = os.environ.get("COWRITER_MODEL", "claude-opus-4-8")       # api 백엔드용
 AGENT_MODEL = os.environ.get("COWRITER_AGENT_MODEL", "claude-sonnet-5")  # agent 백엔드용 (Sonnet 고정)
 MAX_TOKENS = int(os.environ.get("COWRITER_MAX_TOKENS", "16000"))
+AGENT_TIMEOUT = int(os.environ.get("COWRITER_AGENT_TIMEOUT", "150"))  # agent 생성 최대 대기(초)
 
 # 레퍼런스 DB — story-v1-scripts repo의 reference/ 디렉터리 (통합 DB v5: reference_db.json).
 # 사례 선별(retrieval)과 트렌드서치(v4_tagged 편)가 같은 단일 DB를 읽는다.

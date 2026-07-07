@@ -11,6 +11,7 @@ import shutil
 from . import config, prompts
 
 REFUSAL_MSG = "요청을 처리할 수 없었어요. 표현을 바꿔 다시 시도해 주세요."
+TIMEOUT_MSG = "⏱️ 응답이 너무 오래 걸려 중단했어요. 잠시 후 다시 시도해 주세요 (입력이 길면 줄여보세요)."
 TRUNCATED_MSG = "\n\n_(출력 한도로 잘렸어요 — \"이어서\"라고 답장하면 계속 씁니다)_"
 
 
@@ -40,11 +41,16 @@ async def _agent_generate(system_text: str, prompt: str) -> str:
         max_turns=1,
         allowed_tools=[],                   # 순수 텍스트 생성 — 도구 사용 없음
     )
-    out: list[str] = []
-    async for message in query(prompt=prompt, options=options):
-        if isinstance(message, AssistantMessage):
-            out += [b.text for b in message.content if isinstance(b, TextBlock)]
-    return "".join(out).strip()
+
+    async def _run() -> str:
+        out: list[str] = []
+        async for message in query(prompt=prompt, options=options):
+            if isinstance(message, AssistantMessage):
+                out += [b.text for b in message.content if isinstance(b, TextBlock)]
+        return "".join(out).strip()
+
+    # 에이전트 백엔드가 응답 없이 매달리는 경우 방지 — 타임아웃
+    return await asyncio.wait_for(_run(), timeout=config.AGENT_TIMEOUT)
 
 
 # ── api 백엔드 (Anthropic SDK) ─────────────────────────────────────────
@@ -77,7 +83,10 @@ def generate(thread_messages: list[dict], query_text: str,
     if config.BACKEND == "api":
         return _api_generate(thread_messages, blocks)
     system_text = "\n\n".join(b["text"] for b in blocks)
-    text = asyncio.run(_agent_generate(system_text, _flatten_thread(thread_messages)))
+    try:
+        text = asyncio.run(_agent_generate(system_text, _flatten_thread(thread_messages)))
+    except (asyncio.TimeoutError, TimeoutError):
+        return TIMEOUT_MSG
     return text or "(빈 응답)"
 
 
@@ -92,7 +101,10 @@ def complete(system_text: str, user_text: str) -> str:
         ) as stream:
             message = stream.get_final_message()
         return "".join(b.text for b in message.content if b.type == "text")
-    return asyncio.run(_agent_generate(system_text, user_text))
+    try:
+        return asyncio.run(_agent_generate(system_text, user_text))
+    except (asyncio.TimeoutError, TimeoutError):
+        return TIMEOUT_MSG
 
 
 def healthcheck() -> None:
