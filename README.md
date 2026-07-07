@@ -7,11 +7,26 @@
 
 | 입력 | 출처 | 상태 |
 |---|---|---|
-| 패턴 요약 (훅 5유형·절단점 5유형·트로프 분포) | [story-v1-scripts](https://github.com/cony-byte/story-v1-scripts) `reference/patterns/` | ✅ 연동 |
-| 유사 사례 2~3편 (정제 대본 포함) | 같은 repo `reference/reference_db.json` (drama_clip 76편, 스키마 v3) | ✅ 연동 |
-| 사내 작가 기획안·대본 템플릿 | `templates/*.md` | ⏳ 별도 트랙에서 템플릿화 후 투입 |
+| 패턴 요약 (훅·절단점·트로프 분포) | [story-v1-scripts](https://github.com/cony-byte/story-v1-scripts) `reference/patterns/` | ✅ 연동 |
+| 유사 사례 2~3편 (정제 대본 포함) | 같은 repo `reference/reference_db.json` (drama_clip **97편**, 통합 스키마 **v5**) | ✅ 연동 |
+| 사내 작가 기획안·대본 템플릿 | `templates/*.md` | ✅ 투입 (숏폼드라마 템플릿·루브릭 v0) |
 
-생성 프롬프트에는 원본 76편이 아니라 **패턴 요약 + 요청과 유사한 사례 2~3편**만 들어간다 (레퍼런스 DB 설계 원칙).
+생성 프롬프트에는 원본 97편이 아니라 **패턴 요약 + 요청과 유사한 사례 2~3편**만 들어간다 (레퍼런스 DB 설계 원칙).
+
+## 데이터가 어디서 오나 (4-repo 흐름)
+
+봇은 **로우데이터를 직접 읽지 않는다** — LLM으로 태깅·정제된 `reference_db.json`(정제 DB)만 읽는다. 그 정제 DB는 crawler의 로우데이터에서 **자동으로 따라오지 않고**, 아래 3단계를 거친다:
+
+```
+story-v1-crawler (로우데이터 SSOT · 로컬 매일 실행 → data/out/*.csv 커밋)
+  └─① LLM 재태깅 배치 [scripts에서 수동]        → story-v1-scripts reference_db.json (v5)
+       └─② python3 scripts/sync_reference.py [수동] → co-writer-bot data/reference/ 사본
+            └─③ @co-writer reload [슬랙]            → 봇에 반영
+```
+
+- **①이 병목이다.** crawler가 매일 로우데이터를 갱신해도, scripts에서 재태깅(정제) 배치를 돌리지 않으면 봇엔 새 편이 안 들어온다. 정제는 기계 변환이 아니라 LLM 작업이라 자동화돼 있지 않다.
+- 봇은 `data/reference/`에 있는 **자기 사본**을 읽는다(오프라인·기동 안정성). scripts가 갱신되면 ②·③을 돌려야 반영된다.
+- co-writer-bot 자체는 **로우데이터·crawler를 몰라도 된다** — scripts의 정제 DB만 sync하면 끝. (상위 데이터 흐름은 crawler `HANDOFF.md` 참조)
 
 ## 슬랙 사용법
 
@@ -26,7 +41,7 @@
   → ML/FL/SUP/NAR 화자 표기 대본, 훅 대사로 시작 → 절단점 대사로 끝
 ```
 
-### 트렌드 검색 (v4 DB 성과 집계)
+### 트렌드 검색 (통합 DB 성과 집계)
 
 "트렌드/요즘/인기/잘나가/순위/톱클립" 등이 들어간 질문은 생성 대신 트렌드서치로 갑니다.
 
@@ -38,8 +53,8 @@
 ```
 
 성과지수 = 조회수(로그) × 반응률·저장률 가중. 통합 DB(`data/reference/reference_db.json`, v5)의
-`v4_tagged` 편만 집계하고 신뢰도 0.6 미만·표본 부족 축은 경고를 붙입니다. crawl_date가 2구간
-이상 쌓이면 자동으로 상승/하락 추세 비교로 전환됩니다.
+`v4_tagged` 편만 집계하고 신뢰도 0.6 미만·표본 부족 축은 경고를 붙입니다. `publish_dt`(실제 게시일)가
+2구간 이상 쌓이면 자동으로 상승/하락 추세 비교로 전환됩니다.
 
 ### 작품 바이블 (구글 시트)
 
@@ -130,18 +145,18 @@ settings:
 ```
 app.py                  # Slack 이벤트 핸들러 (Socket Mode, 무상태 — 스레드를 매번 다시 읽음)
 bot/config.py           # 환경변수
-bot/reference.py        # 레퍼런스 DB·패턴·템플릿 로드
-bot/retrieval.py        # 한국어 키워드 → v3 태그 → 유사 사례 2~3편 선별
+bot/reference.py        # 레퍼런스 DB·패턴·템플릿·시트 바이블 로드
+bot/retrieval.py        # 한국어 키워드 → v5 통합 태그(catharsis·trope 등) → 유사 사례 2~3편 선별
 bot/prompts.py          # 시스템 프롬프트 조립 (고정부는 프롬프트 캐싱)
-bot/generator.py        # Claude API (claude-opus-4-8, adaptive thinking, streaming)
-bot/trend_search.py     # v4 DB 성과 가중 트렌드 집계 (정서축·조합·훅·절단점·톱클립)
-scripts/sync_reference.py  # story-v1-scripts → data/reference 동기화
-data/reference_db_v4.json  # 트렌드서치용 v4 DB (봇 전용, sync 대상 아님)
+bot/generator.py        # 생성 백엔드 (agent=Claude Code 구독 재사용 / api=Anthropic SDK)
+bot/trend_search.py     # 통합 DB의 v4_tagged 편 성과 가중 트렌드 집계
+scripts/sync_reference.py  # story-v1-scripts/reference → data/reference 동기화 (수동)
+data/reference/         # sync된 정제 DB(v5)·패턴·템플릿 사본 — 봇이 읽는 것
 templates/              # 사내 템플릿 자리 (*.md를 넣으면 자동 주입)
 ```
 
 ## 운영 메모
 
-- **레퍼런스 갱신 흐름**: 크롤러 배치 → story-v1-scripts `reference/` 갱신 → `sync_reference.py` → 슬랙에서 `reload`.
+- **레퍼런스 갱신 흐름** (위 "데이터가 어디서 오나" 3단계): crawler 로우데이터 커밋 → ① scripts에서 LLM 재태깅 배치(수동) → ② `python3 scripts/sync_reference.py`(수동) → ③ 슬랙 `@co-writer reload`. 봇은 자기 사본을 읽으므로 scripts만 갱신하고 ②·③을 안 돌리면 반영 안 됨.
 - 시스템 프롬프트 고정부(역할+패턴+템플릿)에 프롬프트 캐시 브레이크포인트 — 같은 5분 안 반복 호출은 ~90% 저렴.
-- 봇 산출물 검증: 생성된 기획안의 story_type·훅·절단점이 패턴 문서의 실측 유형과 일치하는지 작가가 확인하는 것이 리뷰 포인트.
+- 봇 산출물 검증: 생성된 기획안의 정서축(catharsis)·훅·절단점이 패턴 문서의 실측 유형과 일치하는지 작가가 확인하는 것이 리뷰 포인트.
