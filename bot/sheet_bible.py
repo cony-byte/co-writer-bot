@@ -124,8 +124,15 @@ class SheetBible:
             self._url, data=data, method="POST",
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=15) as r:
-            return json.loads(r.read().decode("utf-8"))
+        last = None
+        for attempt in range(3):   # Apps Script 간헐 지연 대비 재시도 (upsert는 멱등)
+            try:
+                with urllib.request.urlopen(req, timeout=25) as r:
+                    return json.loads(r.read().decode("utf-8"))
+            except Exception as e:
+                last = e
+                time.sleep(0.6 * (attempt + 1))
+        raise last
 
     # ---------------- 쓰기 ----------------
     def upsert(self, work: str, top: str, mid: str = "", sub: str = "", content: str = "") -> dict:

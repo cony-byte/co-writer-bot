@@ -609,46 +609,50 @@ def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
                      replace_ts=ph)
         return
 
-    done, summary = 0, []
-    try:
-        for key, (top, mid, sub) in _SYNC_SINGLE.items():
-            v = (data.get(key) or "").strip() if isinstance(data.get(key), str) else data.get(key)
-            if v:
-                sheet.upsert(work, top, mid, sub, v); done += 1; summary.append(key)
-        chars = data.get("등장인물") or []
-        for r in chars:
-            name = (r.get("이름") or "").strip()
-            if not name:
-                continue
-            for k in CHAR_SUBS:
-                if r.get(k):
-                    sheet.upsert(work, "등장인물", name, k, str(r[k]).strip()); done += 1
-        if chars:
-            summary.append(f"인물 {len([r for r in chars if r.get('이름')])}명")
-        plan = data.get("회차분배") or []
-        for r in plan:
-            mak = (r.get("막") or "").strip()
-            if not mak:
-                continue
-            for k in ("구간", "화수", "핵심사건"):
-                if r.get(k):
-                    sheet.upsert(work, "회차분배", mak, k, str(r[k]).strip()); done += 1
-        if plan:
-            summary.append(f"회차분배 {len([r for r in plan if r.get('막')])}막")
-        outs = data.get("개요") or []
-        for r in outs:
-            hwa = (r.get("화") or "").strip()
-            if hwa and r.get("내용"):
-                sheet.upsert(work, "개요", hwa, "", str(r["내용"]).strip()); done += 1
-        if outs:
-            summary.append(f"개요 {len([r for r in outs if r.get('화')])}화")
-    except Exception:
-        log.exception("sync upsert failed")
-        _post_chunks(channel, thread_ts, f"⚠️ 일부만 반영됐어요 ({done}건 저장 후 오류). 다시 시도해 주세요.", replace_ts=ph)
-        return
+    done, failed, summary = 0, 0, []
+
+    def _up(top, mid, sub, val):   # 실패 하나가 전체를 멈추지 않게 — 건너뛰고 카운트
+        nonlocal done, failed
+        try:
+            sheet.upsert(work, top, mid, sub, val)
+            done += 1
+        except Exception:
+            failed += 1
+            log.warning("sync upsert 실패: %s/%s/%s", top, mid, sub)
+
+    for key, (top, mid, sub) in _SYNC_SINGLE.items():
+        v = data.get(key)
+        v = v.strip() if isinstance(v, str) else v
+        if v:
+            _up(top, mid, sub, v if isinstance(v, str) else str(v)); summary.append(key)
+    chars = [r for r in (data.get("등장인물") or []) if (r.get("이름") or "").strip()]
+    for r in chars:
+        for k in CHAR_SUBS:
+            if r.get(k):
+                _up("등장인물", r["이름"].strip(), k, str(r[k]).strip())
+    if chars:
+        summary.append(f"인물 {len(chars)}명")
+    plan = [r for r in (data.get("회차분배") or []) if (r.get("막") or "").strip()]
+    for r in plan:
+        for k in ("구간", "화수", "핵심사건"):
+            if r.get(k):
+                _up("회차분배", r["막"].strip(), k, str(r[k]).strip())
+    if plan:
+        summary.append(f"회차분배 {len(plan)}막")
+    outs = [r for r in (data.get("개요") or []) if (r.get("화") or "").strip() and r.get("내용")]
+    for r in outs:
+        _up("개요", r["화"].strip(), "", str(r["내용"]).strip())
+    if outs:
+        summary.append(f"개요 {len(outs)}화")
+
     sheet.invalidate(work)
-    msg = (f"✅ *{work}* 노션 동기화 완료 — {done}개 항목 반영.\n· " + "\n· ".join(summary)) if summary \
-          else "동기화했지만 반영할 항목을 못 찾았어요. 노션 내용/소제목을 확인해 주세요."
+    if not done:
+        _post_chunks(channel, thread_ts,
+                     "동기화했지만 반영된 항목이 없어요. 노션 내용/소제목을 확인해 주세요.", replace_ts=ph)
+        return
+    msg = f"✅ *{work}* 노션 동기화 — {done}개 반영.\n· " + "\n· ".join(summary)
+    if failed:
+        msg += f"\n⚠️ {failed}개는 네트워크 문제로 실패 — 다시 `[동기화]` 하면 그 부분만 채워집니다."
     _post_chunks(channel, thread_ts, msg, replace_ts=ph)
 
 
