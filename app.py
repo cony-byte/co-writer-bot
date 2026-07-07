@@ -512,10 +512,14 @@ def _verify_fun_score(text: str) -> str:
         return text
     s = [int(x) for x in scores[:6]]
     total = sum(a * b for a, b in zip(s, _FUN_WEIGHTS)) / 10
+    # 실무자 핵심 질문: "시청자가 봤을 때 재밌을까?" → 한눈 판정
+    fun = ("🔥 재밌음" if total >= 75 else
+           "🙂 볼 만함" if total >= 60 else
+           "😐 애매함" if total >= 45 else "😴 재미없음")
     verdict = ("그대로 가도 됨" if total >= 85 else
                "이것만 고치면 됨" if total >= 70 else
                "약점 2개 이상 수술 필요" if total >= 50 else "구조부터 다시")
-    banner = (f"*🎬 종합 {total:.0f}/100 — {verdict}*  "
+    banner = (f"*{fun}*  ·  종합 {total:.0f}/100 — {verdict}\n"
               f"_(훅{s[0]}·전개{s[1]}·감정{s[2]}·대사{s[3]}·장면{s[4]}·엔딩{s[5]})_\n\n")
     return banner + text
 
