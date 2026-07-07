@@ -222,8 +222,20 @@ def build_bible_block(bible: dict, target_episode: int | None = None) -> str:
             if arc:
                 parts.append(arc)
 
-    # 대상 화 개요 (대본 생성 시 준수 대상)
     outlines = bible.get("outlines", {})
+
+    def _num(k):
+        m = re.search(r"\d+", k)
+        return int(m.group()) if m else 0
+
+    # 지난 화 개요 (흐름 연결용) — 대상 화 직전 최대 3개
+    if target_episode and outlines:
+        prev = sorted((k for k in outlines if _num(k) < target_episode), key=_num)[-3:]
+        if prev:
+            body = "\n\n".join(f"[{k}]\n{outlines[k][:600]}" for k in prev)
+            parts.append("## 지난 화 개요 (흐름 연결용 — 자연스럽게 이어가되 같은 사건 반복 금지)\n" + body)
+
+    # 대상 화 개요 (대본 생성 시 준수 대상)
     if target_episode:
         key = f"{target_episode}화"
         if outlines.get(key):
@@ -232,9 +244,6 @@ def build_bible_block(bible: dict, target_episode: int | None = None) -> str:
     # 톤 학습: 대상 화 이전의 기존 대본 최근 1~2개
     scripts = bible.get("scripts", {})
     if scripts:
-        def _num(k):
-            m = re.search(r"\d+", k)
-            return int(m.group()) if m else 0
         keys = sorted(scripts, key=_num)
         if target_episode:
             keys = [k for k in keys if _num(k) < target_episode] or keys
