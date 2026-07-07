@@ -42,7 +42,9 @@ CMD_GEN = {"생성", "generate", "gen"}
 CMD_CONVERT = {"변환", "포맷", "대본변환"}
 CMD_TREND = {"트렌드", "trend"}
 CMD_IDEA = {"아이디어", "아이디어 제시", "아이디어제시", "제안", "idea"}
-CMD_FEEDBACK = {"피드백", "feedback", "평가", "리뷰", "review"}
+CMD_FEEDBACK = {"피드백", "feedback", "평가", "리뷰", "review"}          # 둘 다
+CMD_FB_FUN = {"재미", "피드백 재미", "피드백재미", "fun"}                 # 재미만
+CMD_FB_LOGIC = {"개연성", "피드백 개연성", "피드백개연성", "논리", "logic"}  # 개연성만
 CMD_STOP = {"멈춰", "멈춤", "중지", "정지", "스톱", "그만", "stop", "cancel"}
 _CANCEL: set[str] = set()   # 취소 요청된 thread_ts (생성 결과를 버림)
 CMD_REFRESH = {"새로고침", "refresh"}
@@ -66,7 +68,7 @@ _HELP = (
     "[변환] (줄글 초안 붙여넣기)\n"
     "[트렌드] 요즘 뭐가 유행?          ← 쉬운 요약\n"
     "[아이디어] <날혐남> 서아 힘든 거 어떻게 보여주지?  ← 구체적 상황 제안\n"
-    "[피드백] <날혐남> (대본 붙여넣기)  ← 재미+개연성 점검\n"
+    "[피드백] <날혐남> (대본)  ← 재미+개연성 / [재미]·[개연성]로 따로도 가능\n"
     "```\n"
     "• `[입력]` 새로 저장 / `[수정]` 기존 고침 / `[생성]` 초안 / `[아이디어]` 상황제안 / `[변환]` 촬영대본 / `[트렌드]` 조회 / `[멈춰]` 중지\n"
     "• 이름만: 로그라인·키워드·타겟층·핵심정서·줄거리·금지사항·진행상태 (뒤에 바로 내용)\n"
@@ -499,8 +501,8 @@ def _do_idea(channel: str, thread_ts: str, rest: str) -> None:
     _post_chunks(channel, thread_ts, answer or "(빈 응답)", replace_ts=ph)
 
 
-def _do_feedback(channel: str, thread_ts: str, rest: str) -> None:
-    """[피드백] — 대본을 넣으면 ①시청자 재미 ②개연성 오류 두 가지만 평가."""
+def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both") -> None:
+    """[피드백] 대본 평가. mode='both'(재미+개연성)/'fun'(재미만)/'logic'(개연성만)."""
     q = rest.strip()
     work, bible = None, None
     wm = SUB_RE.match(q)
@@ -523,9 +525,10 @@ def _do_feedback(channel: str, thread_ts: str, rest: str) -> None:
         return
     em = re.search(r"(\d+)\s*화", draft[:200])   # 대본 앞부분에 회차가 있으면 그 흐름 앵커
     target = int(em.group(1)) if em else None
-    system = prompts.feedback_system(bible, target_episode=target)
+    system = prompts.feedback_system(bible, target_episode=target, mode=mode)
     _CANCEL.discard(thread_ts)
-    ph = _thinking(channel, thread_ts, "대본 보는 중이에요…")
+    note = {"fun": "재미 보는 중이에요…", "logic": "개연성 보는 중이에요…"}.get(mode, "대본 보는 중이에요…")
+    ph = _thinking(channel, thread_ts, note)
     try:
         answer = generator.complete(system, f"[평가할 대본]\n{draft}").strip()
     except Exception:
@@ -608,7 +611,11 @@ def _handle(event: dict) -> None:
     elif cmd in CMD_IDEA:
         _do_idea(channel, thread_ts, rest)
     elif cmd in CMD_FEEDBACK:
-        _do_feedback(channel, thread_ts, rest)
+        _do_feedback(channel, thread_ts, rest, mode="both")
+    elif cmd in CMD_FB_FUN:
+        _do_feedback(channel, thread_ts, rest, mode="fun")
+    elif cmd in CMD_FB_LOGIC:
+        _do_feedback(channel, thread_ts, rest, mode="logic")
     elif cmd in CMD_STOP:
         _do_stop(channel, thread_ts)
     elif cmd in CMD_INPUT:
