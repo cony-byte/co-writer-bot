@@ -17,6 +17,7 @@
 
 실행: python3 app.py  (Socket Mode — 공개 URL 불필요)
 """
+import json
 import logging
 import re
 
@@ -42,6 +43,7 @@ CMD_GEN = {"생성", "generate", "gen"}
 CMD_CONVERT = {"변환", "포맷", "대본변환"}
 CMD_TREND = {"트렌드", "trend"}
 CMD_IDEA = {"아이디어", "아이디어 제시", "아이디어제시", "제안", "idea"}
+CMD_SYNC = {"동기화", "노션동기화", "sync"}                              # 노션 붙여넣기 → 시트
 CMD_FEEDBACK = {"피드백", "feedback", "평가", "리뷰", "review"}          # 둘 다
 CMD_FB_FUN = {"재미", "피드백 재미", "피드백재미", "fun"}                 # 재미만
 CMD_FB_LOGIC = {"개연성", "피드백 개연성", "피드백개연성", "논리", "logic"}  # 개연성만
@@ -69,6 +71,7 @@ _HELP = (
     "[트렌드] 요즘 뭐가 유행?          ← 쉬운 요약\n"
     "[아이디어] <날혐남> 서아 힘든 거 어떻게 보여주지?  ← 구체적 상황 제안\n"
     "[피드백] <날혐남> (대본)  ← 재미+개연성 / [재미]·[개연성]로 따로도 가능\n"
+    "[동기화] <날혐남> (노션 내용 통째로 붙여넣기)  ← 노션→시트 반영\n"
     "```\n"
     "• `[입력]` 새로 저장 / `[수정]` 기존 고침 / `[생성]` 초안 / `[아이디어]` 상황제안 / `[변환]` 촬영대본 / `[트렌드]` 조회 / `[멈춰]` 중지\n"
     "• 이름만: 로그라인·키워드·타겟층·핵심정서·줄거리·금지사항·진행상태 (뒤에 바로 내용)\n"
@@ -502,6 +505,106 @@ def _do_idea(channel: str, thread_ts: str, rest: str) -> None:
     _post_chunks(channel, thread_ts, answer or "(빈 응답)", replace_ts=ph)
 
 
+def _json_loads(raw: str) -> dict:
+    """LLM 응답에서 JSON 객체만 안전하게 추출."""
+    s = re.sub(r"^```(json)?", "", raw.strip()).strip()
+    s = re.sub(r"```$", "", s).strip()
+    a, b = s.find("{"), s.rfind("}")
+    if a >= 0 and b > a:
+        s = s[a:b + 1]
+    return json.loads(s)
+
+
+# 동기화: 단일 필드 → (대분류, 중분류, 소분류)
+_SYNC_SINGLE = {
+    "진행상태": ("진행상태", "", ""),
+    "로그라인": ("로그라인/키워드", "로그라인", ""),
+    "키워드": ("로그라인/키워드", "키워드", ""),
+    "타겟층": ("타겟층/핵심정서", "타겟층", ""),
+    "핵심정서": ("타겟층/핵심정서", "핵심정서", ""),
+    "금지사항": ("금지사항", "", ""),
+    "줄거리": ("줄거리", "", ""),
+}
+
+
+def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
+    """[동기화] <작품> (노션 내용 붙여넣기) → LLM이 스키마로 파싱 → 시트 upsert."""
+    from bot.sheet_bible import CHAR_SUBS
+    sheet = reference.sheet()
+    if not sheet:
+        _reply(channel, thread_ts, "시트가 아직 연결 안 됐어요 (SHEET_WEBAPP_URL 미설정).")
+        return
+    sm = SUB_RE.match(rest.strip())
+    if not sm:
+        _reply(channel, thread_ts, "형식: `[동기화] <작품>` 하고 아래에 노션 내용을 통째로 붙여넣어 주세요.")
+        return
+    work = sm.group(1).strip()
+    content = sm.group(2).strip()
+    if len(content) < 50:
+        _reply(channel, thread_ts, "동기화할 노션 내용을 `<작품>` 뒤에 붙여넣어 주세요 (줄거리·인물·회차분배·개요 등).")
+        return
+    _CANCEL.discard(thread_ts)
+    ph = _thinking(channel, thread_ts, "노션 내용 정리해서 시트에 반영하는 중이에요…")
+    try:
+        raw = generator.complete(prompts.SYNC_SYSTEM + content, "위 문서를 스키마 JSON으로 변환하라.")
+    except Exception:
+        log.exception("sync parse failed")
+        _post_chunks(channel, thread_ts, "동기화 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
+        return
+    if _cancelled(channel, thread_ts, ph):
+        return
+    try:
+        data = _json_loads(raw)
+    except Exception:
+        log.exception("sync json parse failed: %s", raw[:200])
+        _post_chunks(channel, thread_ts,
+                     "노션 내용을 구조로 못 읽었어요. 소제목(줄거리/등장인물/회차분배/개요)이 있으면 더 잘 됩니다.",
+                     replace_ts=ph)
+        return
+
+    done, summary = 0, []
+    try:
+        for key, (top, mid, sub) in _SYNC_SINGLE.items():
+            v = (data.get(key) or "").strip() if isinstance(data.get(key), str) else data.get(key)
+            if v:
+                sheet.upsert(work, top, mid, sub, v); done += 1; summary.append(key)
+        chars = data.get("등장인물") or []
+        for r in chars:
+            name = (r.get("이름") or "").strip()
+            if not name:
+                continue
+            for k in CHAR_SUBS:
+                if r.get(k):
+                    sheet.upsert(work, "등장인물", name, k, str(r[k]).strip()); done += 1
+        if chars:
+            summary.append(f"인물 {len([r for r in chars if r.get('이름')])}명")
+        plan = data.get("회차분배") or []
+        for r in plan:
+            mak = (r.get("막") or "").strip()
+            if not mak:
+                continue
+            for k in ("구간", "화수", "핵심사건"):
+                if r.get(k):
+                    sheet.upsert(work, "회차분배", mak, k, str(r[k]).strip()); done += 1
+        if plan:
+            summary.append(f"회차분배 {len([r for r in plan if r.get('막')])}막")
+        outs = data.get("개요") or []
+        for r in outs:
+            hwa = (r.get("화") or "").strip()
+            if hwa and r.get("내용"):
+                sheet.upsert(work, "개요", hwa, "", str(r["내용"]).strip()); done += 1
+        if outs:
+            summary.append(f"개요 {len([r for r in outs if r.get('화')])}화")
+    except Exception:
+        log.exception("sync upsert failed")
+        _post_chunks(channel, thread_ts, f"⚠️ 일부만 반영됐어요 ({done}건 저장 후 오류). 다시 시도해 주세요.", replace_ts=ph)
+        return
+    sheet.invalidate(work)
+    msg = (f"✅ *{work}* 노션 동기화 완료 — {done}개 항목 반영.\n· " + "\n· ".join(summary)) if summary \
+          else "동기화했지만 반영할 항목을 못 찾았어요. 노션 내용/소제목을 확인해 주세요."
+    _post_chunks(channel, thread_ts, msg, replace_ts=ph)
+
+
 # [재미] 항목 가중치 (①훅 ②전개 ③감정 ④장면 ⑤엔딩 순)
 _FUN_WEIGHTS = [25, 20, 20, 10, 25]
 
@@ -646,6 +749,8 @@ def _handle(event: dict) -> None:
         _do_convert(channel, thread_ts, rest)
     elif cmd in CMD_TREND:
         _do_trend(channel, thread_ts, rest)
+    elif cmd in CMD_SYNC:
+        _do_sync(channel, thread_ts, rest)
     elif cmd in CMD_IDEA:
         _do_idea(channel, thread_ts, rest)
     elif cmd in CMD_FEEDBACK:
