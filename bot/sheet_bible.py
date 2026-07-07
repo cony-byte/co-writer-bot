@@ -31,9 +31,13 @@ FIXED = {
     "정서": ("타겟층/핵심정서", "핵심정서"),
 }
 # SINGLE: 대분류 단일 (중/소 없음)
-SINGLE = {"줄거리": "줄거리", "회차분배": "회차분배"}
+SINGLE = {"줄거리": "줄거리"}
 # PATHED: 대분류 + 경로(중/소는 동적)
-PATHED = {"인물": "등장인물", "등장인물": "등장인물", "개요": "개요", "대본": "대본"}
+PATHED = {
+    "인물": "등장인물", "등장인물": "등장인물",
+    "개요": "개요", "대본": "대본",
+    "회차분배": "회차분배", "분배": "회차분배",  # 중분류=구간(막), 소분류=화수·핵심사건
+}
 
 # 등장인물 소분류 통제어휘 (참고·표시 순서)
 CHAR_SUBS = ["성별", "나이", "포지션", "설정", "핵심대사", "설명"]
@@ -98,10 +102,11 @@ class SheetBible:
             "title": work,
             "logline": "", "keyword": "",
             "target": "", "emotion": "",
-            "plot": "", "episode_plan": "",
-            "characters": {},   # {이름: {소분류: 내용}}
-            "outlines": {},     # {회차: 내용}
-            "scripts": {},      # {회차: 내용}
+            "plot": "",
+            "episode_plan": {},  # {구간(막): {소분류(화수·핵심사건): 내용}}
+            "characters": {},    # {이름: {소분류: 내용}}
+            "outlines": {},      # {회차: 내용}
+            "scripts": {},       # {회차: 내용}
         }
         for r in rows:
             top, mid, sub, content = r.get("top", ""), r.get("mid", ""), r.get("sub", ""), r.get("content", "")
@@ -118,7 +123,8 @@ class SheetBible:
             elif top == "줄거리":
                 b["plot"] = content
             elif top == "회차분배":
-                b["episode_plan"] = content
+                if mid:
+                    b["episode_plan"].setdefault(mid, {})[sub or "내용"] = content
             elif top == "등장인물":
                 if mid:
                     b["characters"].setdefault(mid, {})[sub or "설명"] = content

@@ -93,7 +93,11 @@ def build_bible_block(bible: dict, target_episode: int | None = None) -> str:
     if bible.get("plot"):
         parts.append(f"## 줄거리(참고)\n{bible['plot']}")
     if bible.get("episode_plan"):
-        parts.append(f"## 회차분배(참고 · 줄거리 근거)\n{bible['episode_plan']}")
+        lines = []
+        for gu, subs in bible["episode_plan"].items():
+            bits = " / ".join(f"{k}: {v}" for k, v in subs.items())
+            lines.append(f"- {gu} — {bits}")
+        parts.append("## 회차분배(참고 · 줄거리 근거)\n" + "\n".join(lines))
 
     # 대상 화 개요 (대본 생성 시 준수 대상)
     outlines = bible.get("outlines", {})
