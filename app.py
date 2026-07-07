@@ -644,6 +644,11 @@ def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
         _up("개요", r["화"].strip(), "", str(r["내용"]).strip())
     if outs:
         summary.append(f"개요 {len(outs)}화")
+    scr = [r for r in (data.get("대본") or []) if (r.get("화") or "").strip() and r.get("내용")]
+    for r in scr:
+        _up("대본", r["화"].strip(), "", str(r["내용"]).strip())
+    if scr:
+        summary.append(f"대본 {len(scr)}화")
 
     sheet.invalidate(work)
     if not done:
