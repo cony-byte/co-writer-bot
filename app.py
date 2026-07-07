@@ -55,6 +55,9 @@ _HELP = (
     "나이: 32\n"
     "핵심대사: 알아들었으면 나가.\n"
     "\n"
+    "[생성] <날혐남> 개요 / 11화     ← 다음 줄에 넣고 싶은 포인트 적으면 반영\n"
+    "서아가 처음으로 반격하는 장면 꼭 넣어줘\n"
+    "\n"
     "[생성] <날혐남> 대본 / 24화     ← 24화 개요+바이블 참고해 생성\n"
     "[변환] (줄글 초안 붙여넣기)\n"
     "[트렌드] 엔딩\n"
@@ -318,7 +321,9 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
         _reply(channel, thread_ts, "형식: `[생성] <작품> 대본 / 24화`\n예: `[생성] <날혐남> 대본 / 24화`")
         return
     work = sm.group(1).strip()
-    path_line = (sm.group(2).splitlines() or [""])[0].strip()
+    gen_lines = sm.group(2).splitlines()
+    path_line = (gen_lines or [""])[0].strip()
+    notes = "\n".join(gen_lines[1:]).strip()      # 경로 아래 줄 = 넣고 싶은 포인트/지시
     triple = parse_path(path_line)
     if not triple:
         _reply(channel, thread_ts, "형식: `[생성] <작품> 대본 / 24화` (또는 개요 / N화)")
@@ -339,7 +344,12 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
     messages = _thread_messages(channel, thread_ts)
     if not messages:
         return
-    req = " ".join(x for x in [work, mid, top] if x)
+    # 이번 요청을 명확한 지시로 정리(명령 구문 제거) + 사용자가 넣고 싶은 포인트 강조
+    what = " ".join(x for x in [mid, top] if x) or top
+    req = f"'{work}' {what}를 생성해줘."
+    if notes:
+        req += f"\n\n[이번 생성에 반드시 반영할 포인트]\n{notes}"
+    messages[-1] = {"role": "user", "content": req}
     try:
         answer = generator.generate(messages, req, bible=bible, target_episode=target)
     except Exception:
