@@ -440,7 +440,8 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
     joined = "\n".join(m["content"] for m in messages)
     wm = re.search(r"<\s*([^>]+?)\s*>", joined)
     work = wm.group(1).strip() if wm else None
-    em = re.search(r"(\d+)\s*화", joined)
+    # 이번 피드백에서 회차를 새로 짚으면 그걸 우선(예: 4화 스레드에서 "2화로 가자") → 없으면 스레드에서
+    em = re.search(r"(\d+)\s*화", feedback) or re.search(r"(\d+)\s*화", joined)
     target = int(em.group(1)) if em else None
 
     bible = None
