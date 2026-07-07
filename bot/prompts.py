@@ -68,8 +68,9 @@ def _current_arc(episode_plan: dict, te: int) -> str:
     for gu, subs in episode_plan.items():
         rng = _episode_range(subs.get("화수", ""))
         if rng and rng[0] <= te <= rng[1]:
+            title = f"{gu} {subs.get('구간', '')}".strip()
             evt = subs.get("핵심사건", "")
-            return (f"## ⭐ {te}화가 속한 구간: {gu} (화수 {subs.get('화수', '')})\n"
+            return (f"## ⭐ {te}화가 속한 구간: {title} (화수 {subs.get('화수', '')})\n"
                     f"이 화는 이 구간의 흐름 안에 있다. 아래 핵심사건 범위를 벗어나거나 "
                     f"앞질러 가지 마라:\n{evt}")
     return ""
