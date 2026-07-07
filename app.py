@@ -127,7 +127,7 @@ def _post_code(channel: str, thread_ts: str, text: str) -> None:
 def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
     """[입력](신규) / [수정](기존) — <작품> 경로 + 다음 줄 내용 → 시트 저장.
     mode='create': 이미 있으면 거부 / mode='update': 없으면 거부."""
-    from bot.sheet_bible import parse_path, split_command
+    from bot.sheet_bible import parse_path, split_command, TABLE_SUBS
     sheet = reference.sheet()
     if not sheet:
         _reply(channel, thread_ts, "시트가 아직 연결 안 됐어요 (SHEET_WEBAPP_URL 미설정).")
@@ -148,6 +148,21 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
                f"`{path_line}` 는 모르는 종류예요. 로그라인·키워드·타겟층·핵심정서·인물/<이름>·줄거리·회차분배·개요/<N화>·대본/<N화>")
         return
     top, mid, sub = triple
+    # 여러 열을 갖는 표(인물·회차분배)는 어느 칸에 넣을지 알아야 함 → 소분류 필수
+    if top in TABLE_SUBS:
+        subs = " · ".join(TABLE_SUBS[top])
+        key = "이름" if top == "등장인물" else "막"
+        if not mid:
+            _reply(channel, thread_ts, f"⚠️ {top}은 `{top}/<{key}>/<소분류>` 형식이 필요해요. 소분류: {subs}")
+            return
+        if content and not sub:
+            eg = TABLE_SUBS[top][0]
+            _reply(channel, thread_ts,
+                   f"⚠️ *{mid}* 의 어느 항목인지 소분류를 지정해 주세요. 예: `{top}/{mid}/{eg} …`\n소분류: {subs}")
+            return
+        if sub and sub not in TABLE_SUBS[top]:
+            _reply(channel, thread_ts, f"⚠️ `{sub}` 는 {top} 소분류가 아니에요. 가능한 소분류: {subs}")
+            return
     # 내용이 없어도 분류(경로)만 유효하면 빈 칸으로 저장 (나중에 채우기)
     label = " / ".join(x for x in [top, mid, sub] if x)
     exists = sheet.exists(work, top, mid, sub)  # None이면 확인 불가 → 그냥 진행
@@ -159,7 +174,10 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
         return
 
     try:
-        sheet.upsert(work, top, mid, sub, content)
+        res = sheet.upsert(work, top, mid, sub, content)
+        if isinstance(res, dict) and res.get("error"):
+            _reply(channel, thread_ts, f"⚠️ 저장 못 했어요: {res['error']}")
+            return
         sheet.invalidate(work)
         verb = "저장" if mode == "create" else "수정"
         icon = "✅" if mode == "create" else "✏️"
