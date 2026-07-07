@@ -50,8 +50,18 @@ select{padding:9px 10px;border:1px solid var(--line);border-radius:8px;backgroun
 .chip{border:1px solid var(--line);background:var(--page);border-radius:99px;padding:4px 11px;font-size:12px;color:var(--ink-soft);cursor:pointer;transition:all .12s}
 .chip:hover{border-color:var(--rose)}
 .chip.on{background:var(--ink);border-color:var(--ink);color:#fff}
-.chip.kw.on{background:var(--rose);border-color:var(--rose)}
+.chip.zero{opacity:.4}
 .count{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--mute)}
+/* 카테고리 필터 (왼쪽 라벨 + 칩 행) */
+#catZones{display:flex;flex-direction:column}
+.catrow{display:flex;gap:12px;align-items:baseline;padding:6px 0}
+.catrow + .catrow{border-top:1px solid var(--line)}
+.catlabel{flex:0 0 76px;font-size:12px;font-weight:700;color:var(--ink);padding-top:3px;word-break:keep-all}
+.catchips{display:flex;gap:6px;flex-wrap:wrap;flex:1}
+/* 최상단 지역 필터 강조 */
+#regionZone .catrow.region{border-top:none;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:2px}
+.chip.region{font-weight:700;font-size:13px;padding:5px 16px}
+.chip.region.on{background:var(--rose);border-color:var(--rose);color:#fff}
 
 main{max-width:1060px;margin:0 auto;padding:20px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
@@ -77,8 +87,12 @@ main{max-width:1060px;margin:0 auto;padding:20px}
 .overlay{position:fixed;inset:0;background:rgba(28,30,42,.45);z-index:50;display:none;align-items:flex-end;justify-content:center}
 .overlay.open{display:flex}
 @media(min-width:720px){.overlay.open{align-items:center}}
-.sheet{background:var(--page);width:100%;max-width:720px;max-height:92vh;overflow-y:auto;border-radius:18px 18px 0 0;padding:26px 24px 40px;position:relative}
+.sheet{background:var(--page);width:100%;max-width:880px;max-height:92vh;overflow-y:auto;border-radius:18px 18px 0 0;padding:26px 24px 40px;position:relative}
 @media(min-width:720px){.sheet{border-radius:16px;max-height:88vh}}
+.d-cols{display:flex;gap:18px;align-items:flex-start}
+.d-col{flex:1 1 0;min-width:0}
+.hintline{font-size:11.5px;color:var(--mute);margin:10px 0 2px;background:var(--paper);border-left:3px solid var(--hl);padding:6px 10px;border-radius:0 6px 6px 0}
+@media(max-width:640px){.d-cols{flex-direction:column;gap:0}}
 .close{position:sticky;top:0;float:right;background:var(--paper);border:1px solid var(--line);border-radius:99px;width:34px;height:34px;font-size:16px;cursor:pointer;color:var(--ink-soft);z-index:2}
 .d-rank{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.1em;color:var(--rose);text-transform:uppercase;margin-bottom:8px}
 .d-title{font-family:'Gowun Batang',serif;font-size:17px;font-weight:700;line-height:1.5;margin-bottom:10px}
@@ -112,6 +126,10 @@ main{max-width:1060px;margin:0 auto;padding:20px}
 .sc-shot{color:var(--ink-soft)} .sc-ppl{font-family:'IBM Plex Mono',monospace;color:var(--mute);text-align:right}
 
 .d-tags{display:flex;gap:6px;flex-wrap:wrap}
+.cats{display:flex;flex-direction:column;gap:6px}
+.catline{display:flex;gap:10px;align-items:baseline}
+.catk{flex:0 0 76px;font-size:11px;font-weight:700;color:var(--ink-soft);word-break:keep-all}
+.catv{display:flex;gap:5px;flex-wrap:wrap;flex:1}
 .tlink{display:inline-block;margin-top:20px;font-size:13px;color:var(--rose);font-weight:500;text-decoration:none;border-bottom:1px solid var(--rose)}
 .noscript-big{padding:22px;background:var(--paper);border:1px dashed var(--line);border-radius:10px;color:var(--mute);font-size:13px;text-align:center}
 .notes{font-size:12px;color:var(--ink-soft);background:var(--paper);border-left:3px solid var(--line);padding:8px 12px;margin-top:8px;border-radius:0 6px 6px 0}
@@ -143,7 +161,7 @@ h1{font-size:22px}
   <div class="hwrap">
     <div class="eyebrow">Reference Script Library · Internal</div>
     <h1>레퍼런스 대본 라이브러리</h1>
-    <div class="subtitle">drama_clip <b id="totalCount"></b>편 · 정제 대본 <b id="scriptCount"></b>편 · 발행 <span id="pubRange"></span></div>
+    <div class="subtitle">노출 <b id="scriptCount"></b>편 (대본 확보) · 발행 <span id="pubRange"></span></div>
   </div>
 </header>
 
@@ -152,12 +170,10 @@ h1{font-size:22px}
     <div class="row1">
       <input type="search" id="q" placeholder="대사·설명·훅 검색">
       <select id="sort"></select>
-      <label class="toggle"><input type="checkbox" id="onlyScript">정제 대본 있는 것만</label>
-      <label class="toggle"><input type="checkbox" id="hideReview">검수 필요 숨기기</label>
       <span class="count" id="count"></span>
     </div>
-    <div id="chipZones"></div>
-    <div class="chiprow" id="kwZone"><span class="chiplabel">키워드</span></div>
+    <div id="regionZone"></div>
+    <div id="catZones"></div>
   </div>
 </div>
 
@@ -215,7 +231,7 @@ function matchKw(rec, group){
 // ---- 초기화 ----
 function boot(payload){
   DATA=payload.data; FILTERS=payload.filters;
-  state={q:'', sort:(FILTERS.sort_options&&FILTERS.sort_options[0]||{id:'er'}).id, onlyScript:false, hideReview:false, chips:{}, kw:new Set()};
+  state={q:'', sort:(FILTERS.sort_options&&FILTERS.sort_options[0]||{id:'er'}).id, cats:{}};
 
   // 정렬 옵션
   const sortSel=document.getElementById('sort');
@@ -223,88 +239,125 @@ function boot(payload){
     const opt=document.createElement('option'); opt.value=o.id; opt.textContent='정렬: '+o.label; sortSel.appendChild(opt);
   });
 
-  // auto 칩 존
-  const zones=document.getElementById('chipZones');
-  (FILTERS.auto_chips||[]).filter(c=>c.enabled!==false).forEach(c=>{
-    const counts={};
-    DATA.forEach(rec=>fieldVals(rec,c.field).forEach(v=>{ if(v&&v!=='unknown') counts[v]=(counts[v]||0)+1; }));
-    const entries=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
-    if(!entries.length) return;
-    state.chips[c.id]={field:c.field, set:new Set()};
-    const row=document.createElement('div'); row.className='chiprow';
-    row.innerHTML=`<span class="chiplabel">${esc(c.label)}</span>`;
-    entries.forEach(([t,n])=>{
-      const b=document.createElement('button'); b.className='chip'; b.textContent=`${lab(t)} ${n}`;
-      b.onclick=()=>{ const s=state.chips[c.id].set; s.has(t)?s.delete(t):s.add(t); b.classList.toggle('on'); render(); };
-      row.appendChild(b);
-    });
-    zones.appendChild(row);
-  });
+  // 최상단 지역 필터 (한국/서양)
+  buildRegionChips();
 
-  // 키워드 그룹 — 우선 번들(filters.json)로 즉시 그리고, 시트 URL 있으면 거기서 덮어씀
-  buildKeywordChips(FILTERS.keyword_groups || []);
+  // 카테고리 칩 (재태깅된 cats 기반). 시트 URL 있으면 순서·숨김 큐레이션 적용
+  buildCategoryChips(null);
   if(FILTERS.keyword_sheet_csv_url){
-    fetchSheetGroups(FILTERS.keyword_sheet_csv_url)
-      .then(groups=>{ if(groups && groups.length) buildKeywordChips(groups); })
-      .catch(err=>console.warn('키워드 시트 로드 실패, 번들 값 사용:', err));
+    fetchCuration(FILTERS.keyword_sheet_csv_url)
+      .then(cur=>{ if(cur && Object.keys(cur).length) buildCategoryChips(cur); })
+      .catch(err=>console.warn('큐레이션 시트 로드 실패 — 데이터 기준으로 표시:', err));
   }
 
-  // 헤더 통계
-  document.getElementById('totalCount').textContent=DATA.length;
-  document.getElementById('scriptCount').textContent=DATA.filter(r=>(r.script||[]).length).length;
+  // 헤더 통계 (노출 대상 = view_rules 충족 편수)
+  document.getElementById('scriptCount').textContent=eligibleData().length;
   const pubs=DATA.map(r=>ymd(r.publish_dt)).filter(Boolean).sort();
   document.getElementById('pubRange').textContent=pubs.length? pubs[0]+' ~ '+pubs[pubs.length-1] : '—';
 
   document.getElementById('q').addEventListener('input', e=>{state.q=e.target.value.trim(); render();});
   sortSel.addEventListener('change', e=>{state.sort=e.target.value; render();});
-  document.getElementById('onlyScript').addEventListener('change', e=>{state.onlyScript=e.target.checked; render();});
-  document.getElementById('hideReview').addEventListener('change', e=>{state.hideReview=e.target.checked; render();});
 
   document.getElementById('gate').classList.add('hidden');
   document.getElementById('app').style.display='';
   render();
 }
 
-// ---- 키워드 칩 (번들 또는 구글시트) ----
-function buildKeywordChips(groups){
-  groups = (groups||[]).filter(g=>g.label && (g.any||[]).length);
-  FILTERS.keyword_groups = groups;          // filtered()가 인덱스로 참조하므로 동일 배열로 교체
-  state.kw = new Set();                      // 재구성 시 선택 초기화
-  const kwZone=document.getElementById('kwZone');
-  kwZone.querySelectorAll('.chip.kw').forEach(el=>el.remove());  // 라벨 span만 남기고 칩 제거
-  kwZone.style.display = groups.length ? '' : 'none';
-  groups.forEach((g,i)=>{
-    const n=DATA.filter(r=>matchKw(r,g)).length;
-    const b=document.createElement('button'); b.className='chip kw'; b.textContent=`${esc(g.label)} ${n}`;
-    b.onclick=()=>{ state.kw.has(i)?state.kw.delete(i):state.kw.add(i); b.classList.toggle('on'); render(); };
-    kwZone.appendChild(b);
+// ---- 카테고리 칩 (재태깅된 cats 기반) ----
+const CATS=["장르/배경","소재","관계","남자주인공","여자주인공","분위기"];
+const CAT_LABEL={"남자주인공":"남자 주인공","여자주인공":"여자 주인공"};
+
+// view_rules를 통과한 노출 대상만 (칩 카운트·통계 기준)
+function eligibleData(){
+  const vr=FILTERS.view_rules||{};
+  return DATA.filter(r=>
+    (!vr.require_script || (r.script||[]).length) &&
+    (!vr.hide_needs_review || !r.needs_review) &&
+    (!vr.min_script_chars || (r.script_len||0)>=vr.min_script_chars));
+}
+
+// 최상단 지역 필터 (한국/서양) — 노출 대상 기준 카운트
+function buildRegionChips(){
+  state.region=new Set();
+  const pool=eligibleData();
+  const counts={};
+  pool.forEach(r=>{ const v=r.region||'서양'; counts[v]=(counts[v]||0)+1; });
+  const order=['한국','서양'];  // 항상 둘 다 표시(0편이면 흐리게) — 구분 준비 상태 노출
+  const zone=document.getElementById('regionZone');
+  zone.innerHTML='';
+  const row=document.createElement('div'); row.className='catrow region';
+  row.innerHTML=`<span class="catlabel">국가</span>`;
+  const chips=document.createElement('div'); chips.className='catchips';
+  order.forEach(v=>{
+    const n=counts[v]||0;
+    const b=document.createElement('button'); b.className='chip region'+(n?'':' zero'); b.textContent=`${v} ${n}`;
+    b.onclick=()=>{ state.region.has(v)?state.region.delete(v):state.region.add(v); b.classList.toggle('on'); render(); };
+    chips.appendChild(b);
+  });
+  row.appendChild(chips); zone.appendChild(row);
+}
+
+// curation: {카테고리: {order:[태그...], hide:Set(태그)}} 또는 null(=데이터 기준)
+function buildCategoryChips(curation){
+  state.cats={};
+  const pool=eligibleData();
+  const zone=document.getElementById('catZones');
+  zone.innerHTML='';
+  CATS.forEach(cat=>{
+    const counts={};
+    pool.forEach(rec=>((rec.cats||{})[cat]||[]).forEach(v=>{ if(v) counts[v]=(counts[v]||0)+1; }));
+    let tags=Object.keys(counts);
+    const cur=curation && curation[cat];
+    if(cur){
+      tags=tags.filter(t=>!cur.hide.has(t));
+      tags.sort((a,b)=>{
+        const ia=cur.order.indexOf(a), ib=cur.order.indexOf(b);
+        if(ia>=0&&ib>=0) return ia-ib; if(ia>=0) return -1; if(ib>=0) return 1;
+        return counts[b]-counts[a];
+      });
+    } else {
+      tags.sort((a,b)=>counts[b]-counts[a]);
+    }
+    if(!tags.length) return;
+    state.cats[cat]=new Set();
+    const row=document.createElement('div'); row.className='catrow';
+    row.innerHTML=`<span class="catlabel">${esc(CAT_LABEL[cat]||cat)}</span>`;
+    const chips=document.createElement('div'); chips.className='catchips';
+    tags.forEach(t=>{
+      const b=document.createElement('button'); b.className='chip'+(counts[t]?'':' zero');
+      b.textContent=`${t} ${counts[t]}`;
+      b.onclick=()=>{ const s=state.cats[cat]; s.has(t)?s.delete(t):s.add(t); b.classList.toggle('on'); render(); };
+      chips.appendChild(b);
+    });
+    row.appendChild(chips); zone.appendChild(row);
   });
   render();
 }
 
-// 구글시트 published/gviz CSV → 키워드 그룹. 컬럼: 라벨 | 키워드(| 구분) | 검색범위(선택) | 사용(선택)
-async function fetchSheetGroups(url){
+// 큐레이션 시트 CSV → {카테고리:{order,hide}}. 컬럼: 카테고리 | 태그 | 사용(선택) | 순서(선택)
+async function fetchCuration(url){
   const r=await fetch(url,{cache:'no-store'}); if(!r.ok) throw new Error('HTTP '+r.status);
   const rows=parseCSV(await r.text()).filter(row=>row.some(c=>c.trim()));
-  if(rows.length<2) return [];
+  if(rows.length<2) return null;
   const head=rows[0].map(h=>h.trim());
-  const col=name=>head.indexOf(name);
-  const iL=col('라벨'), iK=col('키워드'), iS=col('검색범위'), iOn=col('사용');
-  if(iL<0 || iK<0) throw new Error("시트 헤더에 '라벨'·'키워드' 필요");
+  const col=n=>head.indexOf(n);
+  const iC=col('카테고리'), iT=col('태그'), iOn=col('사용'), iOrd=col('순서');
+  if(iC<0 || iT<0) throw new Error("시트 헤더에 '카테고리'·'태그' 필요");
   const off=/^(n|no|off|x|0|아니오?|끄기|비활성)$/i;
-  const groups=[];
+  const cur={};
+  const seq=[];
   for(let k=1;k<rows.length;k++){
     const row=rows[k];
-    const label=(row[iL]||'').trim();
-    const any=(row[iK]||'').split('|').map(s=>s.trim()).filter(Boolean);
-    if(!label || !any.length) continue;
-    if(iOn>=0 && off.test((row[iOn]||'').trim())) continue;
-    const scope=(iS>=0 && (row[iS]||'').trim())
-      ? row[iS].split('|').map(s=>s.trim()).filter(Boolean)
-      : ['desc','script.line','hook_desc'];
-    groups.push({label, any, search_in:scope});
+    const cat=(row[iC]||'').trim(), tag=(row[iT]||'').trim();
+    if(!cat || !tag) continue;
+    cur[cat]=cur[cat]||{order:[], hide:new Set()};
+    if(iOn>=0 && off.test((row[iOn]||'').trim())){ cur[cat].hide.add(tag); continue; }
+    const ord=iOrd>=0 ? parseFloat(row[iOrd]) : NaN;
+    seq.push([cat,tag,isNaN(ord)?1e9:ord,k]);
   }
-  return groups;
+  seq.sort((a,b)=> a[2]-b[2] || a[3]-b[3]);
+  seq.forEach(([cat,tag])=>cur[cat].order.push(tag));
+  return cur;
 }
 
 function parseCSV(text){
@@ -325,16 +378,22 @@ function parseCSV(text){
 
 // ---- 필터 + 정렬 ----
 function filtered(){
-  const excl=FILTERS.exclude_keywords;
+  const vr=FILTERS.view_rules||{};
   let arr=DATA.filter(rec=>{
-    if(state.onlyScript && !(rec.script||[]).length) return false;
-    if(state.hideReview && rec.needs_review) return false;
-    for(const id in state.chips){
-      const {field,set}=state.chips[id];
-      if(set.size && !fieldVals(rec,field).some(v=>set.has(v))) return false;
+    // 노출 규칙 (filters.json view_rules)
+    if(vr.require_script && !(rec.script||[]).length) return false;
+    if(vr.hide_needs_review && rec.needs_review) return false;
+    if(vr.min_script_chars && (rec.script_len||0) < vr.min_script_chars) return false;
+    // 지역 (한국/서양)
+    if(state.region && state.region.size && !state.region.has(rec.region||'서양')) return false;
+    // 카테고리: 선택 있는 축마다 교집합 필요(축 내 OR, 축 간 AND)
+    for(const cat in state.cats){
+      const sel=state.cats[cat];
+      if(sel.size){
+        const have=(rec.cats||{})[cat]||[];
+        if(!have.some(v=>sel.has(v))) return false;
+      }
     }
-    for(const i of state.kw){ if(!matchKw(rec, FILTERS.keyword_groups[i])) return false; }
-    if(excl && (excl.any||[]).length && matchKw(rec, excl)) return false;
     if(state.q && !haystack(rec, FILTERS.search_fields||['desc']).includes(state.q.toLowerCase())) return false;
     return true;
   });
@@ -354,16 +413,14 @@ function cardHTML(rec){
   const head = rec.hook_desc
     ? `<div class="hooktext">${esc(rec.hook_desc)}</div>`
     : `<div class="hooktext empty">${hasScript?'훅 설명 없음':'대본 없음 — 원본 확인 필요'}</div>`;
-  const tags=[
-    ...(rec.tags.story_type?[`<span class="tag">${lab(rec.tags.story_type)}</span>`]:[]),
-    ...(rec.tags.trope_tags||[]).slice(0,2).map(t=>`<span class="tag gray">${lab(t)}</span>`),
-    ...(rec.needs_review?[`<span class="tag warn">검수 필요</span>`]:[])
-  ].join('');
+  const C=rec.cats||{};
+  const catTags=[...(C['남자주인공']||[]).slice(0,1),...(C['관계']||[]).slice(0,1),...(C['분위기']||[]).slice(0,1)];
+  const tags=catTags.map(t=>`<span class="tag gray">${esc(t)}</span>`).join('');
   return `<div class="card" tabindex="0" data-id="${rec.id}">
     <div class="cardtop"><span class="ranknum">#${rec.rank??'–'} · @${esc(rec.author)}</span><span class="er">ER ${rec.metrics.er==null?'–':rec.metrics.er.toFixed(2)}%</span></div>
     ${head}
     <div class="cardtags">${tags}</div>
-    <div class="cardmeta"><span>▶ ${fmt(rec.metrics.views)}</span><span>⏱ ${rec.metrics.dur?Math.round(rec.metrics.dur)+'s':'–'}</span>${rec.publish_dt?`<span>📅 ${ymd(rec.publish_dt)}</span>`:''}${(rec.script||[]).length?`<span>💬 ${rec.script.length}</span>`:''}</div>
+    <div class="cardmeta"><span>▶ ${fmt(rec.metrics.views)}</span><span>⏱ ${rec.metrics.dur?Math.round(rec.metrics.dur)+'s':'–'}</span>${rec.publish_dt?`<span>📅 ${ymd(rec.publish_dt)}</span>`:''}<span>💬 ${rec.script_len||0}자</span></div>
   </div>`;
 }
 
@@ -425,6 +482,11 @@ function openDetail(id){
     ...(t.trope_tags||[]).map(x=>`<span class="tag gray">${lab(x)}</span>`),
     ...(t.dialogue_tags||[]).map(x=>`<span class="tag gray">${lab(x)}</span>`)
   ].join('');
+  const catsHtml=CATS.map(cat=>{
+    const vals=(rec.cats||{})[cat]||[];
+    if(!vals.length) return '';
+    return `<div class="catline"><span class="catk">${esc(CAT_LABEL[cat]||cat)}</span><span class="catv">${vals.map(v=>`<span class="tag">${esc(v)}</span>`).join('')}</span></div>`;
+  }).filter(Boolean).join('');
   const pubLine=[rec.publish_dt?'발행 '+ymd(rec.publish_dt):'', rec.crawl_date?'크롤 '+rec.crawl_date:'', '대본형태 '+lab(rec.transcript_form||'none')].filter(Boolean).join(' · ');
   const conf=`신뢰도 ${rec.tag_confidence==null?'–':Number(rec.tag_confidence).toFixed(2)}${rec.needs_review?' · <b style="color:#9A6B00">검수 필요</b>':''}`;
   sheet.innerHTML=`
@@ -434,10 +496,19 @@ function openDetail(id){
     <div class="d-desc">${esc(rec.desc)}</div>
     <div class="d-metrics">${metrics}</div>
     <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--mute);margin-bottom:4px">${esc(pubLine)}</div>
-    <div class="d-section">대본 <span class="badge">${lab(rec.transcript_form||'none')}</span>${(rec.script||[]).length?`<span class="badge">${rec.script.length}줄</span>`:''}</div>
-    ${scriptHTML(rec)}
-    ${scenesHTML(rec)}
-    <div class="d-section">태그</div>
+    <div class="d-cols">
+      <div class="d-col">
+        <div class="d-section">대사 <span class="badge">${lab(rec.transcript_form||'none')}</span>${(rec.script||[]).length?`<span class="badge">${rec.script.length}줄</span>`:''}</div>
+        ${scriptHTML(rec)}
+      </div>
+      <div class="d-col">
+        ${scenesHTML(rec) || '<div class="d-section">장면</div><div class="noscript-big">장면 데이터 없음</div>'}
+      </div>
+    </div>
+    <div class="hintline">※ 대사와 장면은 시간정렬 전이라 <b>정확히 매칭되지 않습니다</b> — 흐름 대조용. 정밀 매칭은 크롤러 세그먼트 타임스탬프 추가 후.</div>
+    <div class="d-section">분류 (카테고리)</div>
+    ${catsHtml?`<div class="cats">${catsHtml}</div>`:'<span class="sc-shot">분류 없음</span>'}
+    <div class="d-section">세부 태그</div>
     <div class="d-tags">${alltags||'<span class="sc-shot">태그 없음</span>'}</div>
     <div class="notes">${conf}${rec.tag_notes?' · '+esc(rec.tag_notes):''}</div>
     ${rec.url?`<a class="tlink" href="${esc(rec.url)}" target="_blank" rel="noopener">원본 영상 보기 ↗</a>`:''}

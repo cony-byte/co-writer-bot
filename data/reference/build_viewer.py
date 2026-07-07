@@ -33,13 +33,16 @@ def trim(rec):
         "id": rec["id"], "url": rec.get("url", ""), "author": rec.get("author", ""),
         "desc": rec.get("desc", ""), "rank": rec.get("rank"),
         "crawl_date": rec.get("crawl_date", ""), "publish_dt": rec.get("publish_dt", ""),
+        "region": rec.get("region", "서양"),
         "metrics": {k: rec["metrics"].get(k) for k in
                     ("er", "save_rate", "views", "likes", "shares", "dur", "cut_count", "avg_cut")},
         "transcript_form": rec.get("transcript_form"),
         "transcript_raw": (rec.get("transcript_raw") or "")[:1],  # 존재 여부만 (원문은 뷰어에 불필요)
         "script": rec.get("script") or [],
+        "script_len": sum(len(l.get("line", "")) for l in (rec.get("script") or [])),
         "scenes": rec.get("scenes") or [],
         "hook_desc": rec.get("hook_desc") or "",
+        "cats": rec.get("cats") or {},
         "tags": rec.get("tags") or {},
         "tag_confidence": rec.get("tag_confidence"),
         "tag_notes": rec.get("tag_notes") or "",

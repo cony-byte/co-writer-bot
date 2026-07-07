@@ -1,7 +1,7 @@
 {
   "_README": "뷰어 필터 설정. auto 칩은 데이터에서 자동 수집. 키워드 필터는 구글시트로 관리(keyword_sheet_csv_url) — 실무자가 시트만 편집하면 됨. 시트 로드 실패 시 아래 keyword_groups(번들)로 폴백.",
-  "keyword_sheet_csv_url": "https://docs.google.com/spreadsheets/d/12eRW10XxcuYqhuFuDpplqFQQJ031UV0l7JPAksRPecY/gviz/tq?tqx=out:csv",
-  "_keyword_sheet_note": "구글시트 키워드 관리: 시트를 '링크가 있는 모든 사용자=뷰어'로 공유 후, gviz CSV URL을 여기에 넣으면 됨. 형식: https://docs.google.com/spreadsheets/d/<시트ID>/gviz/tq?tqx=out:csv&sheet=<탭이름>. 시트 컬럼(1행 헤더): 라벨 | 키워드 | 검색범위(선택) | 사용(선택). 키워드는 셀 안에서 | 로 구분(예: 재벌|CEO|billionaire). 비우면 아래 keyword_groups(번들)를 사용.",
+  "keyword_sheet_csv_url": "https://docs.google.com/spreadsheets/d/1VMjP6qs7wchoaER9SCYlKsrPlYpdO1H2ZQ04S7URI8U/gviz/tq?tqx=out:csv",
+  "_keyword_sheet_note": "v4 큐레이션 시트: 카테고리 필터의 태그 순서·숨김을 제어. 시트를 '링크가 있는 모든 사용자=뷰어'로 공유 후 gviz CSV URL 사용. 컬럼(1행 헤더): 카테고리 | 태그 | 사용(선택) | 순서(선택). 카테고리는 장르/배경·소재·관계·남자주인공·여자주인공·분위기. 태그 값은 데이터의 cats와 일치해야 함(태그 자체 추가는 재태깅 필요). 사용=N이면 숨김, 순서 숫자로 정렬. 비우거나 로드 실패 시 데이터 기준(건수순).",
   "auto_chips": [
     {
       "id": "story_type",
@@ -83,6 +83,12 @@
   ],
   "sort_options": [
     {
+      "id": "script_len",
+      "label": "대본 긴 순",
+      "field": "script_len",
+      "dir": "desc"
+    },
+    {
       "id": "er",
       "label": "ER 높은순",
       "field": "metrics.er",
@@ -112,5 +118,11 @@
       "field": "publish_dt",
       "dir": "asc"
     }
-  ]
+  ],
+  "view_rules": {
+    "require_script": true,
+    "hide_needs_review": false,
+    "min_script_chars": 20,
+    "_note": "require_script=대본없음 숨김, hide_needs_review=검수필요 숨김, min_script_chars=이보다 짧은 대본 숨김. 숫자·불리언만 바꾸면 됨."
+  }
 }

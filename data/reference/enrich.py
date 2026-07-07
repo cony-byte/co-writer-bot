@@ -39,7 +39,10 @@ def publish_dt(vid):
 
 
 def neutralize(script):
-    """script[].speaker(ML/FL/SUP/NAR/UNK) → 중립 라벨. 등장순으로 화자N 부여, 원값은 role_hint."""
+    """script[].speaker(ML/FL/SUP/NAR/UNK) → 중립 라벨. 등장순으로 화자N 부여, 원값은 role_hint.
+    멱등: 이미 role_hint가 있으면(=변환 완료) 그대로 둔다."""
+    if script and all("role_hint" in l for l in script):
+        return script
     order = {}
     out = []
     for line in script:
@@ -52,6 +55,24 @@ def neutralize(script):
             label = order[role]
         out.append({"speaker": label, "role_hint": role, "line": line["line"]})
     return out
+
+
+def extract_market(paths):
+    """CSV들에서 video_id → 크롤 market (KR/EN/…). 지역 구분(한국/서양)의 근거."""
+    mk = {}
+    for p in paths:
+        with open(p, encoding="utf-8-sig") as f:
+            for r in csv.DictReader(f):
+                vid = (r.get("source_video_id") or "").strip()
+                m = (r.get("market") or "").strip().upper()
+                if vid and vid not in mk and m:
+                    mk[vid] = m
+    return mk
+
+
+def region_of(market):
+    """크롤 market → 지역 라벨. KR만 한국, 나머지(EN/SEA/…)는 서양(글로벌)."""
+    return "한국" if market == "KR" else "서양"
 
 
 def extract_scenes(paths):
@@ -97,6 +118,7 @@ def main():
 
     db = json.load(open(DB, encoding="utf-8"))
     scenes = extract_scenes(a.csv) if a.csv else {}
+    markets = extract_market(a.csv) if a.csv else {}
 
     n_pub = n_scene = 0
     for r in db:
@@ -110,9 +132,16 @@ def main():
             n_scene += 1
         else:
             r.setdefault("scenes", [])
+        # 지역: CSV market 있으면 갱신, 없으면 기존 유지, 그래도 없으면 서양 기본
+        if vid in markets:
+            r["region"] = region_of(markets[vid])
+        else:
+            r.setdefault("region", "서양")
 
     json.dump(db, open(DB, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
-    print(f"강화 완료: 발행시각 {n_pub}/{len(db)}, 장면데이터 {n_scene}/{len(db)}, 화자중립화 전편")
+    from collections import Counter
+    reg = Counter(r.get("region") for r in db)
+    print(f"강화 완료: 발행시각 {n_pub}/{len(db)}, 장면 {n_scene}/{len(db)}, 화자중립 전편, 지역 {dict(reg)}")
 
 
 if __name__ == "__main__":
