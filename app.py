@@ -167,7 +167,8 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
         _reply(channel, thread_ts, "형식: `[생성] <작품> 대본 / 24화` (또는 개요 / N화)")
         return
     top, mid, sub = triple
-    epm = re.search(r"(\d+)", mid) if mid else None
+    # 대상 회차: 경로 어디에 있든 'N화'를 잡음 (없으면 build가 진행상태 화로 fallback)
+    epm = re.search(r"(\d+)\s*화", path_line)
     target = int(epm.group(1)) if epm else None
 
     sheet = reference.sheet()
