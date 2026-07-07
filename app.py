@@ -478,10 +478,12 @@ def _do_idea(channel: str, thread_ts: str, rest: str) -> None:
                 log.exception("idea bible load failed")
     if not q:
         _reply(channel, thread_ts,
-               "형식: `[아이디어] <작품> 여기서 서아가 힘든 걸 보여주고 싶은데 어떻게?`\n"
-               "추상적 고민을 주면 구체적인 상황을 제안해요.")
+               "형식: `[아이디어] <작품> 4화에서 서아가 힘든 걸 보여주고 싶은데 어떻게?`\n"
+               "추상적 고민을 주면 구체적인 상황을 제안해요. (N화를 넣으면 그 회차 흐름에 맞춰요)")
         return
-    system = prompts.idea_system(bible, q)
+    em = re.search(r"(\d+)\s*화", q)              # 질문에 회차가 있으면 그 화 흐름 앵커
+    target = int(em.group(1)) if em else None
+    system = prompts.idea_system(bible, q, target_episode=target)
     _CANCEL.discard(thread_ts)
     ph = _thinking(channel, thread_ts, "아이디어 짜는 중이에요…")
     try:
