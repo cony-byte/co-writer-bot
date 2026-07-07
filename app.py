@@ -2,21 +2,19 @@
 # -*- coding: utf-8 -*-
 """co-writer-bot — 숏폼 드라마 보조 작가 슬랙 에이전트.
 
-사용법 (슬랙):
-  @co-writer 기획안: 재벌 남주 x 계약결혼, 오피스        → 기획안
-  @co-writer 3화 절단점을 정체 폭로 직전으로 바꿔줘       → 수정본
-  @co-writer [작품X] 24화 대본 써줘                      → 대본 + 시트에 저장(24화_대본)
-  @co-writer [작품X] 인물: 연우는 1~38화 활동…            → 시트에 설정 저장(생성 안 함)
-  @co-writer [작품X] 현재 24화                           → 진행상태 갱신
-  @co-writer 요즘 트렌드                                 → 트렌드서치
-  새로고침                                               → 시트 바이블 캐시 무효화
-  DM으로도 동일하게 동작 (멘션 불필요)
+명령 = [상위] <종류> 작품명 (회차) 형식. 앞에 [명령]이 없으면 사용법 안내.
 
-바이블(구글 시트): [작품명]으로 작품 지정 시, 봇이 시트에서 그 작품 바이블을 읽어
-PART D(시점 일관성) 규칙을 적용하고, 생성 결과를 시트에 되저장한다. 시트 미설정이면 바이블 없이 생성.
+  [입력] <인물> 날혐남           → 다음 줄 내용을 시트에 저장 (생성 안 함)
+  연우(여주) 1~38화 활동…
+  [생성] <대본> 날혐남 24화      → 바이블 참고해 생성 + 시트 저장
+  [변환] <줄글 초안…>            → 초안을 촬영대본 포맷으로 (창작 아님)
+  [트렌드] 엔딩                  → 트렌드 조회
+  [새로고침] / [리로드]          → 캐시 무효화
 
-실행:
-  python3 app.py   (Socket Mode — 공개 URL 불필요)
+<종류>는 자유(기획안·대본·개요·인물·줄거리·로그라인·회차표·현재화 등). 봇은 종류를 강제하지 않고
+그대로 시트 구분(kind)으로 저장한다. 회차가 붙으면 'N화_<종류>' 로 저장.
+
+실행: python3 app.py  (Socket Mode — 공개 URL 불필요)
 """
 import logging
 import re
@@ -33,53 +31,48 @@ app = App(token=config.SLACK_BOT_TOKEN)
 BOT_USER_ID = app.client.auth_test()["user_id"]
 
 MENTION_RE = re.compile(rf"<@{BOT_USER_ID}>\s*")
-# 트렌드 질문 트리거 — 매칭되면 생성 대신 트렌드서치로 라우팅
-TREND_RE = re.compile(r"트렌드|요즘|유행|인기|잘\s*나가|잘나가|순위|랭킹|톱\s*클립|톱클립")
+CMD_RE = re.compile(r"^\s*\[\s*([^\]]+?)\s*\]\s*(.*)$", re.S)   # [상위] 나머지
+SUB_RE = re.compile(r"^\s*<\s*([^>]+?)\s*>\s*(.*)$", re.S)      # <종류> 나머지
+HEAD_EP_RE = re.compile(r"(\d+)\s*화\s*$")                      # 첫 줄 끝의 N화
 
-# 바이블(구글 시트) 연동
-WORK_RE = re.compile(r"\[([^\]]+)\]")          # [작품명] — 작품 지정
-EPISODE_RE = re.compile(r"(\d+)\s*화")          # N화 — 대상 회차
-# 입력 모드 명령: [입력]/[저장]/[바이블] → 이하 내용을 시트에 저장(생성 안 함)
-INPUT_CMD_RE = re.compile(r"\[\s*(입력|저장|바이블|input)\s*\]")
-# 변환 모드 명령: [변환]/[포맷] → 줄글 초안을 촬영대본 포맷으로 재편(창작 아님)
-CONVERT_CMD_RE = re.compile(r"\[\s*(변환|포맷|대본변환)\s*\]")
-# 입력 블록 안의 "항목: 내용" 줄
-FIELD_RE = re.compile(r"^\s*([^:：\n]+?)\s*[:：]\s*(.+)$", re.S)
-# 항목 키 별칭 → 시트 kind
-FIELD_ALIAS = {
-    "로그라인": "로그라인", "키워드": "로그라인",
-    "타겟": "타겟정서", "타겟정서": "타겟정서", "핵심정서": "타겟정서", "타겟층": "타겟정서",
-    "인물": "인물", "등장인물": "인물", "캐릭터": "인물",
-    "줄거리": "줄거리", "시놉시스": "줄거리",
-    "회차표": "회차표", "회차분배": "회차표",
-    "현재": "현재화", "현재화": "현재화", "진행": "현재화", "진행상태": "현재화",
-}
+# 상위 명령 별칭
+CMD_INPUT = {"입력", "저장", "input"}
+CMD_GEN = {"생성", "generate", "gen"}
+CMD_CONVERT = {"변환", "포맷", "대본변환"}
+CMD_TREND = {"트렌드", "trend"}
+CMD_REFRESH = {"새로고침", "refresh"}
+CMD_RELOAD = {"리로드", "reload"}
 
-
-def _norm_field(key: str) -> str | None:
-    """항목명 → 시트 kind. 'N화 대본'/'N화 개요'도 인식. 모르면 None."""
-    k = key.strip().replace(" ", "")
-    if k in FIELD_ALIAS:
-        return FIELD_ALIAS[k]
-    m = re.match(r"(\d+)화_?(개요|대본)$", k)
-    if m:
-        return f"{m.group(1)}화_{m.group(2)}"
-    return None
-
-
-def _result_kind(query: str, target: int | None) -> str | None:
-    """생성 결과를 시트 어느 구분(kind)에 저장할지. 없으면 저장 안 함(수정 등)."""
-    if "대본" in query and target is not None:
-        return f"{target}화_대본"
-    if "개요" in query and target is not None:
-        return f"{target}화_개요"
-    if "기획안" in query:
-        return "기획안"
-    return None
+_HELP = (
+    "명령은 `[상위] <종류>` 형식이에요 👇\n"
+    "```\n"
+    "[입력] <인물> 날혐남\n"
+    "연우(여주) 1~38화 활동 / 태식(남주) 38화까지 냉대\n"
+    "\n"
+    "[생성] <대본> 날혐남 24화\n"
+    "[변환] (여기에 줄글 초안 붙여넣기)\n"
+    "[트렌드] 엔딩\n"
+    "```\n"
+    "• `[입력]` 저장 / `[생성]` 생성+저장 / `[변환]` 촬영대본 포맷 / `[트렌드]` 조회\n"
+    "• `<종류>`는 자유 (기획안·대본·개요·인물·줄거리·로그라인·회차표·현재화 …)\n"
+    "• 첫 줄에 `<종류> 작품명 (24화)`, 내용은 다음 줄부터"
+)
 
 
 def _clean(text: str) -> str:
     return MENTION_RE.sub("", text or "").strip()
+
+
+def _reply(channel: str, thread_ts: str, text: str) -> None:
+    app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
+
+
+def _parse_head(head: str) -> tuple[str, str | None]:
+    """'작품명 24화' → ('작품명', '24'). 회차 없으면 ('작품명', None)."""
+    m = HEAD_EP_RE.search(head)
+    if m:
+        return head[:m.start()].strip(), m.group(1)
+    return head.strip(), None
 
 
 def _thread_messages(channel: str, thread_ts: str) -> list[dict]:
@@ -93,9 +86,7 @@ def _thread_messages(channel: str, thread_ts: str) -> list[dict]:
         if not text:
             continue
         role = "assistant" if m.get("user") == BOT_USER_ID or m.get("bot_id") else "user"
-        # 연속 같은 role은 API가 한 턴으로 합쳐주므로 그대로 쌓는다
         messages.append({"role": role, "content": text})
-    # 첫 메시지는 user여야 함
     while messages and messages[0]["role"] != "user":
         messages.pop(0)
     return messages
@@ -113,13 +104,12 @@ def _post_chunks(channel: str, thread_ts: str, text: str) -> None:
     if chunk:
         chunks.append(chunk)
     for c in chunks:
-        app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=c)
+        _reply(channel, thread_ts, c)
 
 
 def _post_code(channel: str, thread_ts: str, text: str) -> None:
     """정렬 유지가 필요한 촬영대본은 코드블록(monospace)으로. 줄 경계로 분할."""
-    limit, buf = 3600, ""
-    chunks = []
+    limit, buf, chunks = 3600, "", []
     for line in text.split("\n"):
         if len(buf) + len(line) + 1 > limit:
             chunks.append(buf)
@@ -129,186 +119,54 @@ def _post_code(channel: str, thread_ts: str, text: str) -> None:
     if buf:
         chunks.append(buf)
     for c in chunks:
-        app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"```\n{c}\n```")
+        _reply(channel, thread_ts, f"```\n{c}\n```")
 
 
-_INPUT_HELP = (
-    "입력 형식이에요 👇 (한 줄에 하나씩 `항목: 내용`)\n"
-    "```\n[입력]\n작품명: 날 혐오하는 남편\n로그라인: 정략결혼한 여주가 남편을 살리고 도망친다\n"
-    "인물: 연우(여주) 1~38화 활동 / 태식(남주) 38화까지 냉대\n줄거리: 결혼지옥 → 이탈 → 후회\n현재: 24화\n```\n"
-    "항목: *작품명* · 로그라인 · 타겟 · 인물 · 줄거리 · 회차표 · 현재 · N화개요 · N화대본"
-)
+# ---------------- 명령별 처리 ----------------
 
-
-def _handle_convert(channel: str, thread_ts: str, query: str) -> None:
-    """[변환]: 초안(명령 뒤 본문, 없으면 스레드 직전 봇 대본)을 촬영대본 포맷으로."""
-    from bot import script_format
-    raw = CONVERT_CMD_RE.sub("", query).strip()
-    epm = re.search(r"(\d+)\s*화", raw)
-    ep = epm.group(1) if epm else ""
-    draft = raw
-    if len(draft) < 30:  # 초안을 안 붙였으면 스레드 직전 봇 대본을 초안으로
-        prior = [m["content"] for m in _thread_messages(channel, thread_ts)
-                 if m["role"] == "assistant"]
-        draft = prior[-1] if prior else ""
-    if not draft:
-        app.client.chat_postMessage(
-            channel=channel, thread_ts=thread_ts,
-            text="변환할 초안을 `[변환]` 뒤에 붙여주세요. 대본이 있는 스레드에서는 `[변환]`만 보내도 직전 대본을 변환합니다.",
-        )
+def _do_input(channel: str, thread_ts: str, rest: str) -> None:
+    """[입력] <종류> 작품명 (회차) + 다음 줄 내용 → 시트 저장."""
+    sheet = reference.sheet()
+    if not sheet:
+        _reply(channel, thread_ts, "시트가 아직 연결 안 됐어요 (SHEET_WEBAPP_URL 미설정).")
         return
-    try:
-        result = script_format.convert_script(draft, generator.complete, episode_label=ep)
-        _post_code(channel, thread_ts, result)
-    except Exception:
-        log.exception("script convert failed")
-        app.client.chat_postMessage(
-            channel=channel, thread_ts=thread_ts,
-            text="변환 중 오류가 났어요 (초안 구조를 못 읽었을 수 있어요). 다시 시도해 주세요.",
-        )
-
-
-WORK_FIELD = {"작품명", "작품", "제목", "title"}
-
-
-def _handle_input(channel: str, thread_ts: str, sheet, query: str) -> None:
-    """[입력] 블록 파싱 → 항목별 시트 upsert. 여러 줄 값 지원.
-    작품명은 '작품명:/작품:/제목:' 필드로, 또는 첫 줄(비필드 텍스트)로 지정."""
-    raw = INPUT_CMD_RE.sub("", query).strip()
-    lines = [ln.rstrip() for ln in raw.splitlines() if ln.strip()]
-    if not lines:
-        app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=_INPUT_HELP)
+    sm = SUB_RE.match(rest)
+    if not sm:
+        _reply(channel, thread_ts, "형식: `[입력] <종류> 작품명` + 다음 줄에 내용\n" + _HELP)
         return
-
-    # 작품명 추출: '작품명: X' 필드 우선, 없으면 첫 줄이 비필드면 그걸 작품명으로
-    work = None
-    field_lines: list[str] = []
-    for i, ln in enumerate(lines):
-        m = FIELD_RE.match(ln)
-        if m and m.group(1).strip().replace(" ", "") in WORK_FIELD:
-            work = m.group(2).strip()
-        elif i == 0 and not m:
-            work = ln.strip()
-        else:
-            field_lines.append(ln)
-
+    kind_type = sm.group(1).strip()
+    after_lines = sm.group(2).splitlines()
+    head = after_lines[0].strip() if after_lines else ""
+    content = "\n".join(after_lines[1:]).strip()
+    work, ep = _parse_head(head)
     if not work:
-        app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=_INPUT_HELP)
+        _reply(channel, thread_ts, "작품명을 `<종류>` 뒤에 써주세요. 예: `[입력] <인물> 날혐남`")
         return
-
-    # 항목 블록 조립: 알려진 '키:' 로 시작하면 새 항목, 아니면 이전 항목 값에 이어붙임
-    items: list[list[str]] = []
-    for ln in field_lines:
-        m = FIELD_RE.match(ln)
-        if m and _norm_field(m.group(1)):
-            items.append([m.group(1), m.group(2)])
-        elif items:
-            items[-1][1] += "\n" + ln
-
-    if not items:  # 작품명만 있고 저장할 항목이 없음
-        app.client.chat_postMessage(
-            channel=channel, thread_ts=thread_ts,
-            text=(f"작품 *{work}* 확인했어요. 저장할 항목도 같이 넣어주세요 👇\n"
-                  f"```\n[입력] 작품명: {work}\n로그라인: …\n인물: …\n현재: 24화\n```"),
-        )
+    if not content:
+        _reply(channel, thread_ts, f"저장할 내용을 다음 줄에 써주세요.\n예:\n```\n[입력] <{kind_type}> {work}\n(내용)\n```")
         return
+    kind = f"{ep}화_{kind_type}" if ep else kind_type
+    try:
+        sheet.upsert(work, kind, content)
+        sheet.invalidate(work)
+        _reply(channel, thread_ts, f"✅ *{work}* / {kind} 저장했어요.")
+    except Exception:
+        log.exception("input upsert failed")
+        _reply(channel, thread_ts, "⚠️ 시트 저장에 실패했어요. 잠시 후 다시 시도해 주세요.")
 
-    saved, skipped = [], []
-    for key, val in items:
-        kind = _norm_field(key)
-        val = val.strip()
-        if kind == "현재화":
-            d = re.search(r"\d+", val)
-            val = d.group() if d else val
-        try:
-            sheet.upsert(work, kind, val)
-            saved.append(kind)
-        except Exception:
-            log.exception("input upsert failed")
-            skipped.append(kind)
-    sheet.invalidate(work)
 
-    if not saved and not skipped:
-        app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=_INPUT_HELP)
+def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
+    """[생성] <종류> 작품명 (회차) → 바이블 참고 생성 + 시트 저장."""
+    sm = SUB_RE.match(rest)
+    if not sm:
+        _reply(channel, thread_ts, "형식: `[생성] <종류> 작품명 (24화)`\n예: `[생성] <대본> 날혐남 24화`")
         return
-    msg = f"✅ *{work}* 저장: {', '.join(saved) or '없음'}"
-    if skipped:
-        msg += f"\n⚠️ 실패: {', '.join(skipped)}"
-    app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=msg)
+    kind_type = sm.group(1).strip()
+    head = (sm.group(2).splitlines() or [""])[0].strip()
+    work, ep = _parse_head(head)
+    target = int(ep) if ep else None
 
-
-def _handle(event: dict) -> None:
-    channel = event["channel"]
-    thread_ts = event.get("thread_ts") or event["ts"]
-    query = _clean(event.get("text", ""))
-
-    if query in ("reload", "리로드"):
-        reference.reload()
-        app.client.chat_postMessage(
-            channel=channel, thread_ts=thread_ts,
-            text="레퍼런스 DB·템플릿을 다시 불러왔어요.",
-        )
-        return
-
-    sheet = reference.sheet()  # 구글 시트 바이블 (미설정이면 None)
-
-    # 시트 바이블 새로고침 (캐시 즉시 무효화)
-    if query in ("새로고침", "refresh"):
-        if sheet:
-            sheet.invalidate()
-        app.client.chat_postMessage(
-            channel=channel, thread_ts=thread_ts,
-            text="시트 바이블 캐시를 비웠어요. 다음 요청부터 최신으로 읽어옵니다.",
-        )
-        return
-
-    # 변환 모드: [변환] 줄글 초안 → 촬영대본 포맷 (창작 아님, 형식 재편)
-    if CONVERT_CMD_RE.search(query):
-        _handle_convert(channel, thread_ts, query)
-        return
-
-    # 입력 모드: [입력] 작품명 + 항목:내용 → 생성 없이 시트에 저장
-    if INPUT_CMD_RE.search(query):
-        if not sheet:
-            app.client.chat_postMessage(
-                channel=channel, thread_ts=thread_ts,
-                text="시트가 아직 연결 안 됐어요 (SHEET_WEBAPP_URL 미설정).",
-            )
-            return
-        _handle_input(channel, thread_ts, sheet, query)
-        return
-
-    # 생성용: 작품 지정([작품명])·대상 회차(N화) 파싱
-    wm = WORK_RE.search(query)
-    work = wm.group(1).strip() if wm else None
-    body = WORK_RE.sub("", query).strip() if wm else query
-    ep = EPISODE_RE.search(body)
-    target = int(ep.group(1)) if ep else None
-
-    # 트렌드 질문이면 생성 대신 트렌드서치 (v4 DB 성과 집계)
-    if TREND_RE.search(query):
-        trend = reference.load_trend()
-        if trend is None:
-            app.client.chat_postMessage(
-                channel=channel, thread_ts=thread_ts,
-                text="트렌드 DB가 아직 없어요. `sync_reference.py`로 데이터 반영 후 다시 물어봐 주세요.",
-            )
-            return
-        try:
-            _post_chunks(channel, thread_ts, trend.answer(query))
-        except Exception:
-            log.exception("trend search failed")
-            app.client.chat_postMessage(
-                channel=channel, thread_ts=thread_ts,
-                text="트렌드 집계 중 오류가 났어요.",
-            )
-        return
-
-    messages = _thread_messages(channel, thread_ts)
-    if not messages:
-        return
-
-    # 작품 바이블 로드 (작품 지정 + 시트 설정 시) — PART D 실패방지 참조
+    sheet = reference.sheet()
     bible = None
     if sheet and work:
         try:
@@ -316,24 +174,93 @@ def _handle(event: dict) -> None:
         except Exception:
             log.exception("sheet bible load failed")  # 못 읽어도 생성은 계속
 
+    messages = _thread_messages(channel, thread_ts)
+    if not messages:
+        return
+    req = " ".join(x for x in [work, f"{ep}화" if ep else "", kind_type] if x)
     try:
-        answer = generator.generate(messages, body or query, bible=bible, target_episode=target)
+        answer = generator.generate(messages, req, bible=bible, target_episode=target)
     except Exception:
         log.exception("generation failed")
-        answer = "생성 중 오류가 났어요. 잠시 후 다시 시도해 주세요."
+        _reply(channel, thread_ts, "생성 중 오류가 났어요. 잠시 후 다시 시도해 주세요.")
+        return
 
-    # 생성 결과를 시트에 저장 (작품 지정 + 저장 대상 kind일 때)
-    kind = _result_kind(body, target) if (sheet and work) else None
-    if kind:
+    if sheet and work:
+        kind = f"{ep}화_{kind_type}" if ep else kind_type
         try:
             sheet.upsert(work, kind, answer)
-            sheet.invalidate(work)  # 다음 참조 시 최신 반영
+            sheet.invalidate(work)
             answer += f"\n\n_📄 시트 저장: {work} / {kind}_"
         except Exception:
             log.exception("sheet upsert failed")
             answer += "\n\n_⚠️ 시트 저장 실패 (생성물은 위에 있어요)_"
-
     _post_chunks(channel, thread_ts, answer)
+
+
+def _do_convert(channel: str, thread_ts: str, rest: str) -> None:
+    """[변환]: 초안(명령 뒤 본문, 없으면 스레드 직전 봇 대본)을 촬영대본 포맷으로."""
+    from bot import script_format
+    raw = rest.strip()
+    epm = re.search(r"(\d+)\s*화", raw)
+    ep = epm.group(1) if epm else ""
+    draft = raw
+    if len(draft) < 30:  # 초안 미첨부 → 스레드 직전 봇 대본
+        prior = [m["content"] for m in _thread_messages(channel, thread_ts)
+                 if m["role"] == "assistant"]
+        draft = prior[-1] if prior else ""
+    if not draft:
+        _reply(channel, thread_ts,
+               "변환할 초안을 `[변환]` 뒤에 붙여주세요. 대본이 있는 스레드에서는 `[변환]`만 보내도 직전 대본을 변환합니다.")
+        return
+    try:
+        result = script_format.convert_script(draft, generator.complete, episode_label=ep)
+        _post_code(channel, thread_ts, result)
+    except Exception:
+        log.exception("script convert failed")
+        _reply(channel, thread_ts, "변환 중 오류가 났어요 (초안 구조를 못 읽었을 수 있어요). 다시 시도해 주세요.")
+
+
+def _do_trend(channel: str, thread_ts: str, rest: str) -> None:
+    trend = reference.load_trend()
+    if trend is None:
+        _reply(channel, thread_ts, "트렌드 DB가 아직 없어요. `sync_reference.py`로 데이터 반영 후 다시 물어봐 주세요.")
+        return
+    try:
+        _post_chunks(channel, thread_ts, trend.answer(rest.strip() or "트렌드"))
+    except Exception:
+        log.exception("trend search failed")
+        _reply(channel, thread_ts, "트렌드 집계 중 오류가 났어요.")
+
+
+def _handle(event: dict) -> None:
+    channel = event["channel"]
+    thread_ts = event.get("thread_ts") or event["ts"]
+    query = _clean(event.get("text", ""))
+
+    m = CMD_RE.match(query)
+    if not m:
+        _reply(channel, thread_ts, _HELP)
+        return
+    cmd, rest = m.group(1).strip(), m.group(2)
+
+    if cmd in CMD_RELOAD:
+        reference.reload()
+        _reply(channel, thread_ts, "레퍼런스 DB·템플릿을 다시 불러왔어요.")
+    elif cmd in CMD_REFRESH:
+        sheet = reference.sheet()
+        if sheet:
+            sheet.invalidate()
+        _reply(channel, thread_ts, "시트 바이블 캐시를 비웠어요. 다음 요청부터 최신으로 읽어옵니다.")
+    elif cmd in CMD_CONVERT:
+        _do_convert(channel, thread_ts, rest)
+    elif cmd in CMD_TREND:
+        _do_trend(channel, thread_ts, rest)
+    elif cmd in CMD_INPUT:
+        _do_input(channel, thread_ts, rest)
+    elif cmd in CMD_GEN:
+        _do_generate(channel, thread_ts, rest)
+    else:
+        _reply(channel, thread_ts, f"`[{cmd}]` 는 모르는 명령이에요.\n\n" + _HELP)
 
 
 @app.event("app_mention")
@@ -358,6 +285,6 @@ def on_message(event, ack):
 
 
 if __name__ == "__main__":
-    generator.healthcheck()  # Anthropic 자격증명 확인 (API 키 또는 ant auth login 프로필)
-    log.info("co-writer-bot 시작 (model=%s, reference=%s)", config.MODEL, config.REFERENCE_DIR)
+    generator.healthcheck()  # Anthropic 자격증명 확인 (내부 Claude Code 팀 로그인 or API 키)
+    log.info("co-writer-bot 시작 (backend=%s, reference=%s)", config.BACKEND, config.REFERENCE_DIR)
     SocketModeHandler(app, config.SLACK_APP_TOKEN).start()
