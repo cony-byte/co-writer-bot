@@ -412,7 +412,7 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
     _CANCEL.discard(thread_ts)                    # 이전 취소 플래그 정리
     ph = _thinking(channel, thread_ts, f"{what} 초안 쓰는 중이에요…")
     try:
-        answer = generator.generate(messages, req, bible=bible, target_episode=target)
+        answer = generator.generate(messages, req, bible=bible, target_episode=target, kind=top)
     except Exception:
         log.exception("generation failed")
         _post_chunks(channel, thread_ts, "생성 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)

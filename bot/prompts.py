@@ -171,7 +171,7 @@ def fun_system(bible: dict | None = None, target_episode: int | None = None) -> 
     """재미 평가 지침 + (수정 제안 맥락용) 작품 바이블. 점수는 시청자 관점, 수정은 설정에 맞게."""
     s = FUN_SYSTEM
     if bible:
-        s += "\n\n" + build_bible_block(bible, target_episode, failsafe=False)
+        s += "\n\n" + build_bible_block(bible, target_episode, failsafe=False, kind="재미")
     return s
 
 
@@ -209,7 +209,7 @@ def feedback_system(bible: dict | None = None, target_episode: int | None = None
     sections = ([FEEDBACK_FUN] if want_fun else []) + ([FEEDBACK_LOGIC] if want_logic else [])
     parts = [FEEDBACK_HEAD, "# 평가 항목\n\n" + "\n\n".join(sections)]
     if want_logic and bible:
-        parts.append(build_bible_block(bible, target_episode, failsafe=False))
+        parts.append(build_bible_block(bible, target_episode, failsafe=False, kind="개연성"))
     if want_fun:
         try:
             pat = reference.load_patterns()
@@ -245,7 +245,7 @@ def idea_system(bible: dict | None = None, query: str = "",
     parts = [IDEA_ROLE]
     if bible:
         # 아이디어는 개요가 아직 없는 회차라도 정상 → 생성용 준수 규칙(FAILSAFE) 제외
-        parts.append(build_bible_block(bible, target_episode, failsafe=False))
+        parts.append(build_bible_block(bible, target_episode, failsafe=False, kind="아이디어"))
     try:
         ex = "\n\n".join(retrieval.format_example(e)
                          for e in retrieval.select_examples(query, reference.load_db()))
@@ -384,13 +384,16 @@ _INTENSITY_LEVELS = {
 }
 
 
-def _intensity_note(bible: dict) -> str:
-    """작가가 강도를 지정했으면 그 수위에 맞춘 지침, 아니면 기본(억제) 지침."""
-    lvl = bible.get("intensity_level")
+def _intensity_note(bible: dict, kind: str | None = None) -> str:
+    """작가가 지정한 강도(타입별 우선 → 일반값)에 맞춘 지침, 없으면 기본(억제) 지침.
+    kind: 개요/대본/아이디어/재미/개연성 — 그 기능의 강도를 먼저 찾는다."""
+    imap = bible.get("intensity_map") or {}
+    lvl = (imap.get(kind) if kind else None) or bible.get("intensity_level")
     raw = (bible.get("intensity_raw") or "").strip()
     if not lvl and not raw:
         return INTENSITY_NOTE
-    label = f"{lvl}단계" if lvl else raw
+    typed = kind and imap.get(kind)
+    label = (f"{kind} " if typed else "") + (f"{lvl}단계" if lvl else raw)
     desc = _INTENSITY_LEVELS.get(lvl, raw)
     return (f"## 🎚️ 강도: 작가 지정 = {label} (이 수위에 정확히 맞춰라)\n"
             f"- {desc}\n"
@@ -399,7 +402,7 @@ def _intensity_note(bible: dict) -> str:
 
 
 def build_bible_block(bible: dict, target_episode: int | None = None,
-                      failsafe: bool = True) -> str:
+                      failsafe: bool = True, kind: str | None = None) -> str:
     """바이블(대/중/소 조립본) + (선택)실패방지 지시 → 프롬프트 텍스트 (캐시 뒤 가변부).
     시점(target) = 명시 회차 or 진행 상태 화.
     failsafe=False: 생성용 준수 규칙(개요 준수·바이블 확인 경고 등) 제외 → 아이디어 브레인스토밍용."""
@@ -418,7 +421,7 @@ def build_bible_block(bible: dict, target_episode: int | None = None,
     if now:
         parts.append(now)
 
-    parts.append(_intensity_note(bible))   # 강도 (작가 지정 있으면 그 수위, 없으면 기본 억제)
+    parts.append(_intensity_note(bible, kind))   # 강도 (기능별 지정 → 일반값 → 기본 억제)
 
     if bible.get("forbidden"):
         parts.append(f"## ⛔ 금지사항 (절대 위반 금지)\n{bible['forbidden']}")
@@ -480,7 +483,7 @@ def build_bible_block(bible: dict, target_episode: int | None = None,
 
 
 def system_blocks(query: str, bible: dict | None = None,
-                  target_episode: int | None = None) -> list[dict]:
+                  target_episode: int | None = None, kind: str | None = None) -> list[dict]:
     patterns = reference.load_patterns()
     templates = reference.load_templates()
 
@@ -500,6 +503,6 @@ def system_blocks(query: str, bible: dict | None = None,
         {"type": "text", "text": stable, "cache_control": {"type": "ephemeral"}},
     ]
     if bible:  # 가변부: 작품 바이블(작품·화별로 변함)
-        blocks.append({"type": "text", "text": build_bible_block(bible, target_episode)})
+        blocks.append({"type": "text", "text": build_bible_block(bible, target_episode, kind=kind)})
     blocks.append({"type": "text", "text": "# 이번 요청 유사 사례\n\n" + examples})
     return blocks

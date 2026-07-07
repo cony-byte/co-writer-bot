@@ -50,6 +50,25 @@ CHAR_SUBS = ["성별", "나이", "포지션", "설정", "핵심대사", "설명"
 TABLE_SUBS = {"등장인물": CHAR_SUBS, "회차분배": ["구간", "화수", "핵심사건"]}
 
 
+def _parse_intensity(text: str) -> dict:
+    """강도 필드 파싱. '개요 3, 대본 2' → {개요:3,대본:2}, 타입 없는 숫자는 일반값.
+    → {intensity_map:{...}, intensity_level: 일반값|None}"""
+    imap, general = {}, None
+    for chunk in re.split(r"[,\n;]", text or ""):
+        mi = re.search(r"[1-5]", chunk)
+        if not mi:
+            continue
+        lvl = int(mi.group())
+        typed = False
+        for t in ("개요", "대본", "아이디어", "재미", "개연성", "회차분배"):
+            if t in chunk:
+                imap[t] = lvl
+                typed = True
+        if not typed and general is None:
+            general = lvl
+    return {"intensity_map": imap, "intensity_level": general}
+
+
 def split_command(first_line: str) -> tuple[str, str]:
     """첫 줄을 (경로, 인라인 내용)으로 분리. 종류별로 경로가 차지하는 세그먼트 수가
     정해져 있으므로, 그 뒤에 붙은 텍스트(슬래시든 공백이든)는 전부 내용으로 본다.
@@ -204,7 +223,7 @@ class SheetBible:
             "current_episode": int(m.group()) if m else None,
             "progress": progress,   # {개요:3, 대본:2, 회차분배:..} 타입별 진행 화
             "intensity_raw": (s.get("강도", "") or "").strip(),
-            "intensity_level": (lambda mi: int(mi.group()) if mi else None)(re.search(r"[1-5]", s.get("강도", "") or "")),
+            **_parse_intensity(s.get("강도", "") or ""),
             "forbidden": s.get("금지사항", ""),
             "logline": s.get("로그라인", ""),
             "keyword": s.get("키워드", ""),

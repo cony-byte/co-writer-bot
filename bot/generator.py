@@ -78,8 +78,9 @@ def _api_generate(thread_messages: list[dict], system_blocks: list[dict]) -> str
 # ── 공통 진입점 ─────────────────────────────────────────────────────────
 
 def generate(thread_messages: list[dict], query_text: str,
-             bible: dict | None = None, target_episode: int | None = None) -> str:
-    blocks = prompts.system_blocks(query_text, bible=bible, target_episode=target_episode)
+             bible: dict | None = None, target_episode: int | None = None,
+             kind: str | None = None) -> str:
+    blocks = prompts.system_blocks(query_text, bible=bible, target_episode=target_episode, kind=kind)
     if config.BACKEND == "api":
         return _api_generate(thread_messages, blocks)
     system_text = "\n\n".join(b["text"] for b in blocks)
