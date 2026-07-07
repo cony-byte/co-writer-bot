@@ -2,17 +2,17 @@
 # -*- coding: utf-8 -*-
 """co-writer-bot — 숏폼 드라마 보조 작가 슬랙 에이전트.
 
-명령 = [상위] <종류> 작품명 (회차) 형식. 앞에 [명령]이 없으면 사용법 안내.
+명령 = [명령] <작품> 경로 형식. 앞에 [명령]이 없으면 사용법 안내.
 
-  [입력] <인물> 날혐남           → 다음 줄 내용을 시트에 저장 (생성 안 함)
-  연우(여주) 1~38화 활동…
-  [생성] <대본> 날혐남 24화      → 바이블 참고해 생성 + 시트 저장
-  [변환] <줄글 초안…>            → 초안을 촬영대본 포맷으로 (창작 아님)
-  [트렌드] 엔딩                  → 트렌드 조회
-  [새로고침] / [리로드]          → 캐시 무효화
+  [입력] <날혐남> 로그라인            → 다음 줄 내용을 시트에 저장
+  [입력] <날혐남> 인물 / 강태혁 / 설정  → 등장인물 소분류 저장
+  [생성] <날혐남> 대본 / 24화         → 24화 개요+바이블 참고해 생성 + 시트 저장
+  [변환] <줄글 초안…>                → 초안을 촬영대본 포맷으로 (창작 아님)
+  [트렌드] 엔딩                      → 트렌드 조회
+  [새로고침] / [리로드]              → 캐시 무효화
 
-<종류>는 자유(기획안·대본·개요·인물·줄거리·로그라인·회차표·현재화 등). 봇은 종류를 강제하지 않고
-그대로 시트 구분(kind)으로 저장한다. 회차가 붙으면 'N화_<종류>' 로 저장.
+바이블 = 구글 시트(탭=작품). 대분류/중분류/소분류 계층으로 저장하고, [생성] 시 봇이 그 작품 탭을
+통째로 읽어 PART D(시점·개요 준수)에 반영한다.
 
 실행: python3 app.py  (Socket Mode — 공개 URL 불필요)
 """
@@ -31,9 +31,8 @@ app = App(token=config.SLACK_BOT_TOKEN)
 BOT_USER_ID = app.client.auth_test()["user_id"]
 
 MENTION_RE = re.compile(rf"<@{BOT_USER_ID}>\s*")
-CMD_RE = re.compile(r"^\s*\[\s*([^\]]+?)\s*\]\s*(.*)$", re.S)   # [상위] 나머지
-SUB_RE = re.compile(r"^\s*<\s*([^>]+?)\s*>\s*(.*)$", re.S)      # <종류> 나머지
-HEAD_EP_RE = re.compile(r"(\d+)\s*화\s*$")                      # 첫 줄 끝의 N화
+CMD_RE = re.compile(r"^\s*\[\s*([^\]]+?)\s*\]\s*(.*)$", re.S)   # [명령] 나머지
+SUB_RE = re.compile(r"^\s*<\s*([^>]+?)\s*>\s*(.*)$", re.S)      # <작품> 나머지
 
 # 상위 명령 별칭
 CMD_INPUT = {"입력", "저장", "input"}
@@ -44,18 +43,21 @@ CMD_REFRESH = {"새로고침", "refresh"}
 CMD_RELOAD = {"리로드", "reload"}
 
 _HELP = (
-    "명령은 `[상위] <종류>` 형식이에요 👇\n"
+    "명령은 `[명령] <작품> 경로` 형식이에요 👇\n"
     "```\n"
-    "[입력] <인물> 날혐남\n"
-    "연우(여주) 1~38화 활동 / 태식(남주) 38화까지 냉대\n"
+    "[입력] <날혐남> 로그라인\n"
+    "정략결혼한 여주가 남편을 살리고 도망친다\n"
     "\n"
-    "[생성] <대본> 날혐남 24화\n"
-    "[변환] (여기에 줄글 초안 붙여넣기)\n"
+    "[입력] <날혐남> 인물 / 강태혁 / 핵심대사\n"
+    "\"알아들었으면 나가.\"\n"
+    "\n"
+    "[생성] <날혐남> 대본 / 24화     ← 24화 개요+바이블 참고해 생성\n"
+    "[변환] (줄글 초안 붙여넣기)\n"
     "[트렌드] 엔딩\n"
     "```\n"
     "• `[입력]` 저장 / `[생성]` 생성+저장 / `[변환]` 촬영대본 포맷 / `[트렌드]` 조회\n"
-    "• `<종류>`는 자유 (기획안·대본·개요·인물·줄거리·로그라인·회차표·현재화 …)\n"
-    "• 첫 줄에 `<종류> 작품명 (24화)`, 내용은 다음 줄부터"
+    "• 이름만: 로그라인·키워드·타겟층·핵심정서·줄거리·회차분배\n"
+    "• 경로: 인물 / <이름> / <성별·나이·포지션·설정·핵심대사·설명> · 개요 / <N화> · 대본 / <N화>"
 )
 
 
@@ -65,14 +67,6 @@ def _clean(text: str) -> str:
 
 def _reply(channel: str, thread_ts: str, text: str) -> None:
     app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
-
-
-def _parse_head(head: str) -> tuple[str, str | None]:
-    """'작품명 24화' → ('작품명', '24'). 회차 없으면 ('작품명', None)."""
-    m = HEAD_EP_RE.search(head)
-    if m:
-        return head[:m.start()].strip(), m.group(1)
-    return head.strip(), None
 
 
 def _thread_messages(channel: str, thread_ts: str) -> list[dict]:
@@ -125,46 +119,55 @@ def _post_code(channel: str, thread_ts: str, text: str) -> None:
 # ---------------- 명령별 처리 ----------------
 
 def _do_input(channel: str, thread_ts: str, rest: str) -> None:
-    """[입력] <종류> 작품명 (회차) + 다음 줄 내용 → 시트 저장."""
+    """[입력] <작품> 경로 + 다음 줄 내용 → 시트 저장."""
+    from bot.sheet_bible import parse_path
     sheet = reference.sheet()
     if not sheet:
         _reply(channel, thread_ts, "시트가 아직 연결 안 됐어요 (SHEET_WEBAPP_URL 미설정).")
         return
     sm = SUB_RE.match(rest)
     if not sm:
-        _reply(channel, thread_ts, "형식: `[입력] <종류> 작품명` + 다음 줄에 내용\n" + _HELP)
+        _reply(channel, thread_ts, _HELP)
         return
-    kind_type = sm.group(1).strip()
-    after_lines = sm.group(2).splitlines()
-    head = after_lines[0].strip() if after_lines else ""
-    content = "\n".join(after_lines[1:]).strip()
-    work, ep = _parse_head(head)
-    if not work:
-        _reply(channel, thread_ts, "작품명을 `<종류>` 뒤에 써주세요. 예: `[입력] <인물> 날혐남`")
+    work = sm.group(1).strip()
+    after = sm.group(2).splitlines()
+    path_line = after[0].strip() if after else ""
+    content = "\n".join(after[1:]).strip()
+    triple = parse_path(path_line)
+    if not triple:
+        _reply(channel, thread_ts,
+               f"`{path_line}` 는 모르는 종류예요. 로그라인·키워드·타겟층·핵심정서·인물/<이름>·줄거리·회차분배·개요/<N화>·대본/<N화>")
         return
+    top, mid, sub = triple
     if not content:
-        _reply(channel, thread_ts, f"저장할 내용을 다음 줄에 써주세요.\n예:\n```\n[입력] <{kind_type}> {work}\n(내용)\n```")
+        _reply(channel, thread_ts, f"저장할 내용을 다음 줄에 써주세요.\n예:\n```\n[입력] <{work}> {path_line}\n(내용)\n```")
         return
-    kind = f"{ep}화_{kind_type}" if ep else kind_type
     try:
-        sheet.upsert(work, kind, content)
+        sheet.upsert(work, top, mid, sub, content)
         sheet.invalidate(work)
-        _reply(channel, thread_ts, f"✅ *{work}* / {kind} 저장했어요.")
+        label = " / ".join(x for x in [top, mid, sub] if x)
+        _reply(channel, thread_ts, f"✅ *{work}* / {label} 저장했어요.")
     except Exception:
         log.exception("input upsert failed")
         _reply(channel, thread_ts, "⚠️ 시트 저장에 실패했어요. 잠시 후 다시 시도해 주세요.")
 
 
 def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
-    """[생성] <종류> 작품명 (회차) → 바이블 참고 생성 + 시트 저장."""
+    """[생성] <작품> 경로(대본/N화 등) → 바이블 참고 생성 + 시트 저장."""
+    from bot.sheet_bible import parse_path
     sm = SUB_RE.match(rest)
     if not sm:
-        _reply(channel, thread_ts, "형식: `[생성] <종류> 작품명 (24화)`\n예: `[생성] <대본> 날혐남 24화`")
+        _reply(channel, thread_ts, "형식: `[생성] <작품> 대본 / 24화`\n예: `[생성] <날혐남> 대본 / 24화`")
         return
-    kind_type = sm.group(1).strip()
-    head = (sm.group(2).splitlines() or [""])[0].strip()
-    work, ep = _parse_head(head)
-    target = int(ep) if ep else None
+    work = sm.group(1).strip()
+    path_line = (sm.group(2).splitlines() or [""])[0].strip()
+    triple = parse_path(path_line)
+    if not triple:
+        _reply(channel, thread_ts, "형식: `[생성] <작품> 대본 / 24화` (또는 개요 / N화)")
+        return
+    top, mid, sub = triple
+    epm = re.search(r"(\d+)", mid) if mid else None
+    target = int(epm.group(1)) if epm else None
 
     sheet = reference.sheet()
     bible = None
@@ -177,7 +180,7 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
     messages = _thread_messages(channel, thread_ts)
     if not messages:
         return
-    req = " ".join(x for x in [work, f"{ep}화" if ep else "", kind_type] if x)
+    req = " ".join(x for x in [work, mid, top] if x)
     try:
         answer = generator.generate(messages, req, bible=bible, target_episode=target)
     except Exception:
@@ -185,12 +188,12 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
         _reply(channel, thread_ts, "생성 중 오류가 났어요. 잠시 후 다시 시도해 주세요.")
         return
 
-    if sheet and work:
-        kind = f"{ep}화_{kind_type}" if ep else kind_type
+    if sheet and work and mid:  # 회차 지정된 개요/대본만 되저장
         try:
-            sheet.upsert(work, kind, answer)
+            sheet.upsert(work, top, mid, sub, answer)
             sheet.invalidate(work)
-            answer += f"\n\n_📄 시트 저장: {work} / {kind}_"
+            label = " / ".join(x for x in [top, mid, sub] if x)
+            answer += f"\n\n_📄 시트 저장: {work} / {label}_"
         except Exception:
             log.exception("sheet upsert failed")
             answer += "\n\n_⚠️ 시트 저장 실패 (생성물은 위에 있어요)_"
