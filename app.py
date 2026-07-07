@@ -356,6 +356,18 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
         _reply(channel, thread_ts, "⚠️ 시트 저장에 실패했어요. 잠시 후 다시 시도해 주세요.")
 
 
+def _progress_episode(bible: dict | None, prefer: list[str]) -> int | None:
+    """회차 미지정 시 진행상태에서 기본 화를 고른다. prefer 타입(개요/대본/회차분배) 우선,
+    없으면 아무 진행 화, 그것도 없으면 current_episode."""
+    if not bible:
+        return None
+    prog = bible.get("progress") or {}
+    for t in prefer:
+        if prog.get(t):
+            return prog[t]
+    return next(iter(prog.values()), None) or bible.get("current_episode")
+
+
 def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
     """[생성] <작품> 경로(대본/N화 등) → 바이블 참고 생성 + 시트 저장."""
     from bot.sheet_bible import parse_path
@@ -385,8 +397,8 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
             log.exception("sheet bible load failed")  # 못 읽어도 생성은 계속
 
     # 회차 안 적었으면 진행상태의 '타입별 진행 화' 사용 (예: 생성 개요 → 개요 진행 화)
-    if target is None and bible:
-        target = (bible.get("progress") or {}).get(top)
+    if target is None:
+        target = _progress_episode(bible, [top])
 
     messages = _thread_messages(channel, thread_ts)
     if not messages:
@@ -540,7 +552,7 @@ def _do_idea(channel: str, thread_ts: str, rest: str) -> None:
                "추상적 고민을 주면 구체적인 상황을 제안해요. (N화를 넣으면 그 회차 흐름에 맞춰요)")
         return
     em = re.search(r"(\d+)\s*화", q)              # 질문에 회차가 있으면 그 화 흐름 앵커
-    target = int(em.group(1)) if em else None
+    target = int(em.group(1)) if em else _progress_episode(bible, ["대본", "개요"])
     system = prompts.idea_system(bible, q, target_episode=target)
     _CANCEL.discard(thread_ts)
     ph = _thinking(channel, thread_ts, "아이디어 짜는 중이에요…")
@@ -711,7 +723,7 @@ def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both") ->
                "형식: `[피드백] <작품> (대본 붙여넣기)` — 대본을 주면 재미·개연성을 봐드려요.")
         return
     em = re.search(r"(\d+)\s*화", draft[:200])   # 대본 앞부분에 회차가 있으면 그 흐름 앵커
-    target = int(em.group(1)) if em else None
+    target = int(em.group(1)) if em else _progress_episode(bible, ["대본", "개요"])
     _CANCEL.discard(thread_ts)
     note = {"fun": "재미 보는 중이에요…", "logic": "개연성 보는 중이에요…"}.get(mode, "대본 보는 중이에요…")
     ph = _thinking(channel, thread_ts, note)
