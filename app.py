@@ -501,6 +501,25 @@ def _do_idea(channel: str, thread_ts: str, rest: str) -> None:
     _post_chunks(channel, thread_ts, answer or "(빈 응답)", replace_ts=ph)
 
 
+# [재미] 항목 가중치 (①훅 ②전개 ③감정 ④대사 ⑤장면 ⑥엔딩 순)
+_FUN_WEIGHTS = [25, 15, 20, 10, 5, 25]
+
+
+def _verify_fun_score(text: str) -> str:
+    """LLM이 매긴 6개 항목 점수를 코드로 재계산해 종합점수를 맨 위에 붙인다(산수 오류 방지)."""
+    scores = re.findall(r"점수\s*(\d+)\s*/\s*10", text)
+    if len(scores) < 6:
+        return text
+    s = [int(x) for x in scores[:6]]
+    total = sum(a * b for a, b in zip(s, _FUN_WEIGHTS)) / 10
+    verdict = ("그대로 가도 됨" if total >= 85 else
+               "이것만 고치면 됨" if total >= 70 else
+               "약점 2개 이상 수술 필요" if total >= 50 else "구조부터 다시")
+    banner = (f"*🎬 종합 {total:.0f}/100 — {verdict}*  "
+              f"_(훅{s[0]}·전개{s[1]}·감정{s[2]}·대사{s[3]}·장면{s[4]}·엔딩{s[5]})_\n\n")
+    return banner + text
+
+
 def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both") -> None:
     """[피드백] 대본 평가. mode='both'(재미+개연성)/'fun'(재미만)/'logic'(개연성만)."""
     q = rest.strip()
@@ -525,19 +544,33 @@ def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both") ->
         return
     em = re.search(r"(\d+)\s*화", draft[:200])   # 대본 앞부분에 회차가 있으면 그 흐름 앵커
     target = int(em.group(1)) if em else None
-    system = prompts.feedback_system(bible, target_episode=target, mode=mode)
     _CANCEL.discard(thread_ts)
     note = {"fun": "재미 보는 중이에요…", "logic": "개연성 보는 중이에요…"}.get(mode, "대본 보는 중이에요…")
     ph = _thinking(channel, thread_ts, note)
-    try:
-        answer = generator.complete(system, f"[평가할 대본]\n{draft}").strip()
-    except Exception:
-        log.exception("feedback failed")
-        _post_chunks(channel, thread_ts, "피드백 생성 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
-        return
-    if _cancelled(channel, thread_ts, ph):
-        return
-    _post_chunks(channel, thread_ts, answer or "(빈 응답)", replace_ts=ph)
+    first = True
+
+    def _run(sys_text: str, user_text: str, post_fn=None):
+        nonlocal first
+        try:
+            ans = generator.complete(sys_text, user_text).strip()
+        except Exception:
+            log.exception("feedback failed")
+            _post_chunks(channel, thread_ts, "피드백 생성 중 오류가 났어요. 잠시 후 다시 시도해 주세요.",
+                         replace_ts=(ph if first else None))
+            first = False
+            return
+        if post_fn:
+            ans = post_fn(ans)
+        _post_chunks(channel, thread_ts, ans or "(빈 응답)", replace_ts=(ph if first else None))
+        first = False
+
+    if mode in ("fun", "both"):     # v2.1 점수제 재미 평가 (+ 코드로 종합점수 검증)
+        _run(prompts.fun_system(), prompts.fun_user(draft), post_fn=_verify_fun_score)
+        if _cancelled(channel, thread_ts, ph if first else None):
+            return
+    if mode in ("logic", "both"):   # 개연성 지적
+        sys_text = prompts.feedback_system(bible, target_episode=target, mode="logic")
+        _run(sys_text, f"[평가할 대본]\n{draft}")
 
 
 def _do_trend(channel: str, thread_ts: str, rest: str) -> None:
