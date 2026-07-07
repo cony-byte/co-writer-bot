@@ -23,7 +23,7 @@ import re
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
-from bot import config, generator, reference
+from bot import config, generator, prompts, reference
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("co-writer")
@@ -100,10 +100,20 @@ def _thread_messages(channel: str, thread_ts: str) -> list[dict]:
     return messages
 
 
-def _post_chunks(channel: str, thread_ts: str, text: str) -> None:
-    """슬랙 메시지 길이 제한(4000자) 대응 — 문단 경계로 분할 전송."""
+def _thinking(channel: str, thread_ts: str, note: str = "생성 중이에요… (몇 초~1분)") -> str | None:
+    """진행 표시용 플레이스홀더 메시지. 완료되면 _post_chunks(replace_ts=...)로 교체됨."""
+    try:
+        r = app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"⏳ {note}")
+        return r.get("ts")
+    except Exception:
+        return None
+
+
+def _post_chunks(channel: str, thread_ts: str, text: str, replace_ts: str | None = None) -> None:
+    """슬랙 메시지 길이 제한(4000자) 대응 — 문단 경계로 분할 전송.
+    replace_ts가 있으면 첫 청크로 그 플레이스홀더를 교체(update)한다."""
     chunk, chunks = "", []
-    for para in text.split("\n\n"):
+    for para in (text or "(빈 응답)").split("\n\n"):
         if len(chunk) + len(para) + 2 > 3800:
             chunks.append(chunk)
             chunk = para
@@ -111,7 +121,13 @@ def _post_chunks(channel: str, thread_ts: str, text: str) -> None:
             chunk = f"{chunk}\n\n{para}" if chunk else para
     if chunk:
         chunks.append(chunk)
-    for c in chunks:
+    for i, c in enumerate(chunks):
+        if i == 0 and replace_ts:
+            try:
+                app.client.chat_update(channel=channel, ts=replace_ts, text=c)
+                continue
+            except Exception:
+                pass
         _reply(channel, thread_ts, c)
 
 
@@ -352,18 +368,19 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
     if notes:
         req += f"\n\n[이번 생성에 반드시 반영할 포인트]\n{notes}"
     messages[-1] = {"role": "user", "content": req}
+    ph = _thinking(channel, thread_ts, f"{what} 초안 쓰는 중이에요…")
     try:
         answer = generator.generate(messages, req, bible=bible, target_episode=target)
     except Exception:
         log.exception("generation failed")
-        _reply(channel, thread_ts, "생성 중 오류가 났어요. 잠시 후 다시 시도해 주세요.")
+        _post_chunks(channel, thread_ts, "생성 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
         return
 
     # 슬랙은 초안 생성만. 시트 저장은 사람이 검토 후 [입력]/[수정]으로 직접.
     label = " / ".join(x for x in [top, mid, sub] if x)
     if label:
         answer += f"\n\n_📝 초안입니다. 확정하려면 `[입력] <{work}> {label}` 로 저장하세요._"
-    _post_chunks(channel, thread_ts, answer)
+    _post_chunks(channel, thread_ts, answer, replace_ts=ph)
 
 
 def _do_convert(channel: str, thread_ts: str, rest: str) -> None:
@@ -410,15 +427,16 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
                 bible = sheet.get(work)
             except Exception:
                 log.exception("revise bible load failed")  # 못 읽어도 진행
+    ph = _thinking(channel, thread_ts, "수정하는 중이에요…")
     try:
         answer = generator.generate(messages, feedback, bible=bible, target_episode=target)
     except Exception:
         log.exception("revise failed")
-        _reply(channel, thread_ts, "수정 중 오류가 났어요. 잠시 후 다시 시도해 주세요.")
+        _post_chunks(channel, thread_ts, "수정 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
         return
     if work:
         answer += f"\n\n_📝 초안입니다. 확정은 `[입력]`/`[수정]` 으로._"
-    _post_chunks(channel, thread_ts, answer)
+    _post_chunks(channel, thread_ts, answer, replace_ts=ph)
 
 
 def _do_idea(channel: str, thread_ts: str, rest: str) -> None:
@@ -441,13 +459,14 @@ def _do_idea(channel: str, thread_ts: str, rest: str) -> None:
                "추상적 고민을 주면 구체적인 상황을 제안해요.")
         return
     system = prompts.idea_system(bible, q)
+    ph = _thinking(channel, thread_ts, "아이디어 짜는 중이에요…")
     try:
         answer = generator.complete(system, q).strip()
     except Exception:
         log.exception("idea failed")
-        _reply(channel, thread_ts, "아이디어 생성 중 오류가 났어요. 잠시 후 다시 시도해 주세요.")
+        _post_chunks(channel, thread_ts, "아이디어 생성 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
         return
-    _post_chunks(channel, thread_ts, answer or "(빈 응답)")
+    _post_chunks(channel, thread_ts, answer or "(빈 응답)", replace_ts=ph)
 
 
 def _do_trend(channel: str, thread_ts: str, rest: str) -> None:
@@ -478,12 +497,13 @@ def _do_trend(channel: str, thread_ts: str, rest: str) -> None:
     system = prompts.trend_system(bible)
     user = (f"[작가 질문]\n{q or '요즘 뭐가 유행이야? 우리한테 쓸 만한 아이디어도 알려줘.'}\n\n"
             f"[측정 데이터 — 참고만, 수치·표를 그대로 옮기지 마라]\n{raw}")
+    ph = _thinking(channel, thread_ts, "트렌드 정리하는 중이에요…")
     try:
         answer = generator.complete(system, user).strip() or raw
     except Exception:
         log.exception("trend summarize failed")
         answer = raw                                # 폴백: 원본 집계라도 보여줌
-    _post_chunks(channel, thread_ts, answer)
+    _post_chunks(channel, thread_ts, answer, replace_ts=ph)
 
 
 def _handle(event: dict) -> None:
