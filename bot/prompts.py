@@ -245,6 +245,26 @@ def _episode_range(hwasu: str) -> tuple[int, int] | None:
     return None
 
 
+def _now_marker(bible: dict, te: int | None) -> str:
+    """'지금 시점' 못박기 — 줄거리·인물 설명은 전체 스토리(결말 포함)라서, 현재 위치를 명시해
+    미래 사건 앞당김/과거 되풀이를 막는다."""
+    if not te:
+        return ""
+    mak = ""
+    for gu, subs in (bible.get("episode_plan") or {}).items():
+        rng = _episode_range(subs.get("화수", ""))
+        if rng and rng[0] <= te <= rng[1]:
+            mak = f" · {gu} {subs.get('구간', '')}".strip()
+            break
+    return (
+        f"## 🕒 지금 시점 = {te}화{mak}  (이 지점 기준으로만 써라)\n"
+        f"아래 [줄거리]와 [등장인물]은 이 작품의 **전체 스토리(먼 과거 배경 ~ 결말)**를 담은 것이다. "
+        f"지금은 그중 **{te}화 지점**일 뿐이다.\n"
+        f"- {te}화 *이후*에 올 사건(줄거리 뒷부분·인물의 미래 행동·결말)은 **아직 일어나지 않았다. 절대 앞당기지 마라.**\n"
+        f"- 지난 화에서 이미 벌어진 사건은 되풀이하거나 되돌아가지 마라.\n"
+        f"- {te}화는 '지난 화 개요'의 마지막 다음, 이 구간(막)의 흐름 안에서 자연스럽게 이어진다.")
+
+
 def _current_arc(episode_plan: dict, te: int) -> str:
     """te화가 속한 구간(막) + 막 안에서의 위치(초/중/후반)를 강조 텍스트로.
     핵심사건은 막 전체에 걸친 목록이므로, 위치를 알려 급발진(사건 앞당김)을 막는다."""
@@ -325,6 +345,10 @@ def build_bible_block(bible: dict, target_episode: int | None = None,
     if bible.get("stale"):
         parts.append("⚠️ (시트를 못 읽어 이전 캐시 기준입니다. 최신이 아닐 수 있음.)")
 
+    now = _now_marker(bible, te)   # '지금 시점' 못박기 (미래 앞당김·과거 되풀이 방지)
+    if now:
+        parts.append(now)
+
     if bible.get("forbidden"):
         parts.append(f"## ⛔ 금지사항 (절대 위반 금지)\n{bible['forbidden']}")
     if bible.get("logline"):
@@ -336,9 +360,11 @@ def build_bible_block(bible: dict, target_episode: int | None = None,
     if bible.get("emotion"):
         parts.append(f"## 핵심정서\n{bible['emotion']}")
     if bible.get("characters"):
-        parts.append("## 등장인물\n" + _character_cards(bible["characters"]))
+        parts.append("## 등장인물 (설정·관계·포지션·말투는 지켜라. 단, 설명 속 *미래 여정*은 아직 안 온 것 — 이 화에서 미리 실행하지 마라)\n"
+                     + _character_cards(bible["characters"]))
     if bible.get("plot"):
-        parts.append(f"## 줄거리(참고)\n{bible['plot']}")
+        parts.append("## 줄거리 (작품 전체 스토리 — 배경·현재·미래·결말 다 포함. '지금 시점'을 넘어서는 뒷부분은 앞당기지 마라)\n"
+                     + bible["plot"])
     if bible.get("episode_plan"):
         lines = []
         for gu, subs in bible["episode_plan"].items():
