@@ -178,7 +178,8 @@ def _parse_outline_records(content: str, seed: str | None = None) -> list[tuple[
         cur = [seed, []]
         records.append(cur)
     for raw in content.splitlines():
-        m = _HWA_HEAD_RE.match(raw.strip())
+        head_test = raw.strip().strip("*_~ ").strip()    # 슬랙 볼드/이탤릭(*1화*) 마커 제거 후 판정
+        m = _HWA_HEAD_RE.match(head_test)
         if m:
             cur = [f"{m.group(1)}화", []]
             title = (m.group(2) or "").strip()
