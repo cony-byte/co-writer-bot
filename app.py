@@ -356,6 +356,19 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
         _reply(channel, thread_ts, "⚠️ 시트 저장에 실패했어요. 잠시 후 다시 시도해 주세요.")
 
 
+def _override_intensity(bible: dict | None, text: str) -> dict | None:
+    """명령/피드백에 '강도 N'이 있으면 이번 호출만 그 레벨로 재보정 (캐시 원본은 안 건드림)."""
+    if not bible:
+        return bible
+    im = re.search(r"강도\s*([1-5])", text or "")
+    if not im:
+        return bible
+    b = dict(bible)
+    b["intensity_level"] = int(im.group(1))
+    b["intensity_map"] = {}       # 이번 지시가 타입별 설정보다 우선
+    return b
+
+
 def _progress_episode(bible: dict | None, prefer: list[str]) -> int | None:
     """회차 미지정 시 진행상태에서 기본 화를 고른다. prefer 타입(개요/대본/회차분배) 우선,
     없으면 아무 진행 화, 그것도 없으면 current_episode."""
@@ -399,6 +412,7 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
     # 회차 안 적었으면 진행상태의 '타입별 진행 화' 사용 (예: 생성 개요 → 개요 진행 화)
     if target is None:
         target = _progress_episode(bible, [top])
+    bible = _override_intensity(bible, notes)   # '강도 N' 포인트로 이번만 재보정
 
     messages = _thread_messages(channel, thread_ts)
     if not messages:
@@ -499,6 +513,7 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
             except Exception:
                 log.exception("revise bible load failed")
 
+    bible = _override_intensity(bible, feedback)   # '강도 N으로 바꿔' → 이번 수정만 그 레벨로 재보정
     mode = _thread_origin_mode(messages)
     _CANCEL.discard(thread_ts)
     note = {"idea": "아이디어 이어가는 중이에요…", "trend": "트렌드 이어보는 중이에요…"}.get(mode, "수정하는 중이에요…")
