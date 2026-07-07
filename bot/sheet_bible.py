@@ -96,6 +96,15 @@ class SheetBible:
     def upsert(self, work: str, top: str, mid: str = "", sub: str = "", content: str = "") -> dict:
         return self._post({"work": work, "top": top, "mid": mid, "sub": sub, "content": content})
 
+    def exists(self, work: str, top: str, mid: str = "", sub: str = "") -> bool | None:
+        """해당 (대,중,소) 칸이 이미 있는지. 확인 불가(장애)면 None."""
+        try:
+            rows = self._get(work=work).get("rows", [])
+        except Exception:
+            return None
+        return any(r.get("top") == top and (r.get("mid") or "") == mid
+                   and (r.get("sub") or "") == sub for r in rows)
+
     # ---------------- 읽기·조립 ----------------
     def list_works(self) -> list[str]:
         return self._get().get("works", [])
