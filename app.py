@@ -592,7 +592,8 @@ def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
     _CANCEL.discard(thread_ts)
     ph = _thinking(channel, thread_ts, "노션 내용 정리해서 시트에 반영하는 중이에요…")
     try:
-        raw = generator.complete(prompts.SYNC_SYSTEM + content, "위 문서를 스키마 JSON으로 변환하라.")
+        raw = generator.complete(prompts.SYNC_SYSTEM + content,
+                                 "위 문서를 스키마 JSON으로 변환하라.", timeout=600)
     except Exception:
         log.exception("sync parse failed")
         _post_chunks(channel, thread_ts, "동기화 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)

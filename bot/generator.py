@@ -30,7 +30,7 @@ def _flatten_thread(thread_messages: list[dict]) -> str:
     return current
 
 
-async def _agent_generate(system_text: str, prompt: str) -> str:
+async def _agent_generate(system_text: str, prompt: str, timeout: int | None = None) -> str:
     from claude_agent_sdk import (
         AssistantMessage, ClaudeAgentOptions, TextBlock, query,
     )
@@ -49,8 +49,8 @@ async def _agent_generate(system_text: str, prompt: str) -> str:
                 out += [b.text for b in message.content if isinstance(b, TextBlock)]
         return "".join(out).strip()
 
-    # 에이전트 백엔드가 응답 없이 매달리는 경우 방지 — 타임아웃
-    return await asyncio.wait_for(_run(), timeout=config.AGENT_TIMEOUT)
+    # 에이전트 백엔드가 응답 없이 매달리는 경우 방지 — 타임아웃 (호출별 override 가능)
+    return await asyncio.wait_for(_run(), timeout=timeout or config.AGENT_TIMEOUT)
 
 
 # ── api 백엔드 (Anthropic SDK) ─────────────────────────────────────────
@@ -90,8 +90,9 @@ def generate(thread_messages: list[dict], query_text: str,
     return text or "(빈 응답)"
 
 
-def complete(system_text: str, user_text: str) -> str:
-    """단발 (system, user) → text. script_format 등 llm 콜러블용. 스레드/바이블 없이 순수 호출."""
+def complete(system_text: str, user_text: str, timeout: int | None = None) -> str:
+    """단발 (system, user) → text. script_format 등 llm 콜러블용. 스레드/바이블 없이 순수 호출.
+    timeout: agent 백엔드 최대 대기(초) override — 큰 동기화 등 오래 걸리는 작업용."""
     if config.BACKEND == "api":
         import anthropic
         client = anthropic.Anthropic()
@@ -102,7 +103,7 @@ def complete(system_text: str, user_text: str) -> str:
             message = stream.get_final_message()
         return "".join(b.text for b in message.content if b.type == "text")
     try:
-        return asyncio.run(_agent_generate(system_text, user_text))
+        return asyncio.run(_agent_generate(system_text, user_text, timeout=timeout))
     except (asyncio.TimeoutError, TimeoutError):
         return TIMEOUT_MSG
 
