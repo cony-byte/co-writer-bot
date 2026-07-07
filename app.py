@@ -434,20 +434,46 @@ def _do_convert(channel: str, thread_ts: str, rest: str) -> None:
         _reply(channel, thread_ts, "변환 중 오류가 났어요 (초안 구조를 못 읽었을 수 있어요). 다시 시도해 주세요.")
 
 
+def _thread_origin_mode(messages: list[dict]) -> str:
+    """스레드를 시작한 명령이 뭔지 → 후속 답글을 그 모드로 이어가기 위함."""
+    for m in messages:
+        if m["role"] != "user":
+            continue
+        cm = CMD_RE.match(m["content"])
+        if not cm:
+            continue
+        cmd = cm.group(1).strip()
+        if cmd in CMD_IDEA:
+            return "idea"
+        if cmd in CMD_TREND:
+            return "trend"
+        if cmd in CMD_FB_FUN:
+            return "fun"
+        if cmd in CMD_FB_LOGIC:
+            return "logic"
+        if cmd in CMD_FEEDBACK:
+            return "feedback"
+        if cmd in CMD_GEN:
+            return "gen"
+    return "gen"
+
+
+def _convo_text(messages: list[dict]) -> str:
+    lines = [f"[{'작가' if m['role'] == 'user' else '봇'}] {m['content']}" for m in messages]
+    return "\n".join(lines) + "\n\n(위 대화 흐름을 그대로 이어서 답하라.)"
+
+
 def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
-    """스레드 후속 피드백 → 이전 초안을 그 지시대로 수정해 전체본 재출력 (저장은 안 함)."""
+    """스레드 후속 답글 → 스레드를 시작한 명령의 모드로 이어감 (아이디어는 아이디어, 생성은 수정 등)."""
     messages = _thread_messages(channel, thread_ts)
     if not messages:
         _reply(channel, thread_ts, _HELP)
         return
-    # 스레드에서 작품·회차 추론 (초안 생성 때 쓴 <작품>·N화). 바이블을 계속 근거로.
     joined = "\n".join(m["content"] for m in messages)
     wm = re.search(r"<\s*([^>]+?)\s*>", joined)
     work = wm.group(1).strip() if wm else None
-    # 이번 피드백에서 회차를 새로 짚으면 그걸 우선(예: 4화 스레드에서 "2화로 가자") → 없으면 스레드에서
     em = re.search(r"(\d+)\s*화", feedback) or re.search(r"(\d+)\s*화", joined)
     target = int(em.group(1)) if em else None
-
     bible = None
     if work:
         sheet = reference.sheet()
@@ -455,20 +481,39 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
             try:
                 bible = sheet.get(work)
             except Exception:
-                log.exception("revise bible load failed")  # 못 읽어도 진행
+                log.exception("revise bible load failed")
+
+    mode = _thread_origin_mode(messages)
     _CANCEL.discard(thread_ts)
-    ph = _thinking(channel, thread_ts, "수정하는 중이에요…")
+    note = {"idea": "아이디어 이어가는 중이에요…", "trend": "트렌드 이어보는 중이에요…"}.get(mode, "수정하는 중이에요…")
+    ph = _thinking(channel, thread_ts, note)
+
     try:
-        answer = generator.generate(messages, feedback, bible=bible, target_episode=target)
+        if mode == "idea":
+            answer = generator.complete(prompts.idea_system(bible, feedback, target_episode=target),
+                                        _convo_text(messages))
+        elif mode == "trend":
+            trend = reference.load_trend()
+            raw = trend.answer(feedback) if trend else ""
+            sys = prompts.trend_system(bible)
+            answer = generator.complete(sys, _convo_text(messages)
+                                        + f"\n\n[측정 데이터 참고]\n{raw}")
+        elif mode in ("fun", "logic", "feedback"):
+            # 피드백 대화 후속은 그 맥락에서 자유 답변
+            answer = generator.complete(prompts.feedback_system(bible, target_episode=target,
+                                        mode=(mode if mode in ("fun", "logic") else "both")),
+                                        _convo_text(messages))
+        else:  # gen — 초안 수정
+            answer = generator.generate(messages, feedback, bible=bible, target_episode=target)
+            if work:
+                answer += "\n\n_📝 초안입니다. 확정은 `[입력]`/`[수정]` 으로._"
     except Exception:
         log.exception("revise failed")
-        _post_chunks(channel, thread_ts, "수정 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
+        _post_chunks(channel, thread_ts, "이어가는 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
         return
     if _cancelled(channel, thread_ts, ph):
         return
-    if work:
-        answer += f"\n\n_📝 초안입니다. 확정은 `[입력]`/`[수정]` 으로._"
-    _post_chunks(channel, thread_ts, answer, replace_ts=ph)
+    _post_chunks(channel, thread_ts, answer or "(빈 응답)", replace_ts=ph)
 
 
 def _do_idea(channel: str, thread_ts: str, rest: str) -> None:
