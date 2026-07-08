@@ -199,19 +199,31 @@ FEEDBACK_FUN = """*시청자 재미* — 스크롤 넘기려는 숏폼 시청자
 말투는 현업 PD처럼 직관적으로. **지표·수치·패턴 문서 이름(ER·story_type 등)은 절대 인용하지 마라** — '요즘 이런 오프닝이 잘 먹힌다' 식으로 쉽게 풀어라."""
 
 FEEDBACK_LOGIC = """*개연성 오류* — 지적만(수정안 금지). **아주 간결하게, 한 오류당 딱 두 줄.**
-- 인물 설정·말투, 앞 화 흐름, 회차분배 핵심사건, 금지사항과 어긋나는 지점만. 캐릭터 붕괴·시점 오류·급전개를 특히 본다.
-- 각 오류는 이 형식 그대로, 각 줄 한 문장 이내:
+- **바이블과 명백히 충돌하는 것만** 짚어라. 억지로 만들어내지 마라 — 해석의 여지가 있거나, 연출·취향 선택이거나, "그럴 수도 있는" 수준이면 지적하지 마라.
+- 봐야 할 건: 인물 설정·말투 위반, 시점 오류(아직 모를 정보를 앎), 앞 화와 모순, 회차분배 핵심사건·금지사항 위반, 명백한 캐릭터 붕괴·급전개.
+- 대본에 안 나온 걸 상상해서 트집 잡지 마라. 바이블에 실제로 적힌 것과 대조되는 것만.
+- 각 오류는 이 형식, 각 줄 한 문장 이내:
   `- *문제*: 무엇이 어긋나는지`
   `  *근거*: 바이블 어디와 충돌하는지`
-- 설명·수식어·수정안 금지. 어긋나는 게 없으면 "*개연성 문제 없음*" 한 줄만."""
+- 어긋나는 게 없으면(대부분의 경우) **"개연성 문제 없음"** 한 줄만. 억지로 채우지 마라."""
+
+
+_LOGIC_STRICT = {
+    1: "엄격도 1(아주 관대): 이야기가 완전히 무너지는 **치명적·명백한 오류만**. 웬만하면 '개연성 문제 없음'.",
+    2: "엄격도 2(관대): 확실히 어긋나는 큰 것만. 사소한 건 넘어가라.",
+    3: "엄격도 3(보통): 명백히 어긋나는 것 위주.",
+    4: "엄격도 4(엄격): 잠재적 모순까지 꼼꼼히.",
+    5: "엄격도 5(아주 엄격): 사소한 것·해석 여지 있는 것까지 다 짚어라.",
+}
 
 
 def feedback_system(bible: dict | None = None, target_episode: int | None = None,
-                    mode: str = "both") -> str:
-    """[피드백]용: 재미/개연성 중 요청 항목만. 재미↔패턴, 개연성↔작품 바이블 근거."""
+                    mode: str = "both", strictness: int | None = None) -> str:
+    """[피드백]용: 재미/개연성 중 요청 항목만. strictness(1~5)=개연성 엄격도."""
     want_fun = mode in ("both", "fun")
     want_logic = mode in ("both", "logic")
-    sections = ([FEEDBACK_FUN] if want_fun else []) + ([FEEDBACK_LOGIC] if want_logic else [])
+    logic_txt = FEEDBACK_LOGIC + (f"\n- {_LOGIC_STRICT[strictness]}" if strictness in _LOGIC_STRICT else "")
+    sections = ([FEEDBACK_FUN] if want_fun else []) + ([logic_txt] if want_logic else [])
     parts = [FEEDBACK_HEAD, "# 평가 항목\n\n" + "\n\n".join(sections)]
     if want_logic and bible:
         parts.append(build_bible_block(bible, target_episode, failsafe=False, kind="개연성"))

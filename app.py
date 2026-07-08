@@ -881,8 +881,11 @@ def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both") ->
             _run(prompts.fun_system(bible, target_episode=target), prompts.fun_user(draft), post_fn=_verify_fun_score)
         if _cancelled(channel, thread_ts, ph if first else None):
             return
-    if mode in ("logic", "both"):   # 개연성 지적
-        sys_text = prompts.feedback_system(bible, target_episode=target, mode="logic")
+    if mode in ("logic", "both"):   # 개연성 지적 (엄격도: 명령 강도 N > 시트 개연성 강도)
+        strict = (lens_levels[0] if lens_levels and len(lens_levels) == 1 else None)
+        if strict is None and bible:
+            strict = (bible.get("intensity_map") or {}).get("개연성")
+        sys_text = prompts.feedback_system(bible, target_episode=target, mode="logic", strictness=strict)
         _run(sys_text, f"[평가할 대본]\n{draft}")
 
 
