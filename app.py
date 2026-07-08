@@ -90,6 +90,9 @@ def _clean(text: str) -> str:
     # 슬랙은 사용자가 친 < > & 를 HTML 엔티티로 보냄 → 되돌려야 <작품> 패턴이 잡힘
     text = MENTION_RE.sub("", text or "")
     text = text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+    text = text.strip()
+    # 슬랙이 자동으로 붙인 목록 기호(1. / 1) / - / • 등)를 앞에서 제거 → 명령이 '['로 시작하게
+    text = re.sub(r"^\s*(?:\d+[.)]|[-*•·▪◦])\s+", "", text)
     return text.strip()
 
 
