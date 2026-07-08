@@ -1024,23 +1024,63 @@ def _do_trend(channel: str, thread_ts: str, rest: str) -> None:
     _post_chunks(channel, thread_ts, answer, replace_ts=ph)
 
 
+def _hwpx_text(raw: bytes) -> str:
+    """.hwpx(ZIP+XML, OWPML) → 본문 텍스트만. 표준 라이브러리만 사용(서식·표는 버림).
+    본문은 Contents/section*.xml 의 <hp:t> 런에 있고 문단은 <hp:p>. 실패 시 빈 문자열."""
+    import io
+    import zipfile
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(raw))
+    except Exception:
+        return ""
+    names = sorted(n for n in zf.namelist()
+                   if re.match(r"Contents/section\d+\.xml$", n))
+    chunks = []
+    for n in names:
+        try:
+            xml = zf.read(n).decode("utf-8", "replace")
+        except Exception:
+            continue
+        xml = re.sub(r"</(?:\w+:)?p>", "\n", xml)                       # 문단 끝 → 줄바꿈
+        xml = re.sub(r"<(?:\w+:)?t>(.*?)</(?:\w+:)?t>", r"\1", xml, flags=re.S)  # 텍스트 런 언랩
+        xml = re.sub(r"<[^>]+>", "", xml)                               # 나머지 태그 제거(줄바꿈 유지)
+        for a, b in (("&lt;", "<"), ("&gt;", ">"), ("&amp;", "&"),
+                     ("&quot;", '"'), ("&apos;", "'")):
+            xml = xml.replace(a, b)
+        lines = [ln.strip() for ln in xml.split("\n")]
+        text = "\n".join(ln for ln in lines if ln)                      # 빈 줄 정리, 문단 유지
+        if text:
+            chunks.append(text)
+    return "\n".join(chunks).strip()
+
+
 def _files_text(event: dict) -> tuple[str, int]:
-    """메시지에 붙은 스니펫/텍스트 파일 내용을 봇 토큰으로 내려받아 합친다.
+    """메시지에 붙은 스니펫/텍스트/.hwpx 파일 내용을 봇 토큰으로 내려받아 합친다.
     반환: (내용, blocked) — blocked>0이면 권한 부족으로 로그인 HTML만 받은 것."""
     out, blocked = [], 0
     for f in event.get("files") or []:
         url = f.get("url_private_download") or f.get("url_private")
         if not url:
             continue
+        name = (f.get("name") or "").lower()
+        ftype = (f.get("filetype") or "").lower()
         try:
             req = urllib.request.Request(
                 url, headers={"Authorization": f"Bearer {config.SLACK_BOT_TOKEN}"})
             with urllib.request.urlopen(req, timeout=20) as r:
-                body = r.read().decode("utf-8", "replace")
+                data = r.read()
         except Exception:
             log.exception("첨부 파일 다운로드 실패")
             blocked += 1
             continue
+        if name.endswith(".hwpx") or ftype == "hwpx":          # 신형 한글 = ZIP+XML → 텍스트 추출
+            txt = _hwpx_text(data)
+            if txt:
+                out.append(txt)
+            else:
+                log.warning("hwpx 본문 추출 실패(빈 결과)")
+            continue
+        body = data.decode("utf-8", "replace")
         if body.lstrip()[:200].lower().find("<!doctype html") >= 0 or body.lstrip().lower().startswith("<html"):
             log.warning("첨부 다운로드가 로그인 HTML 반환 — files:read 권한 필요")
             blocked += 1
