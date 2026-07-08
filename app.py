@@ -8,7 +8,7 @@
   [수정] <날혐남> 로그라인            → 기존 값 고침 (없으면 경고)
   [입력] <날혐남> 인물 / 강태혁 / 설정  → 등장인물 소분류 저장
   [생성] <날혐남> 대본 / 24화         → 24화 개요+바이블 참고해 생성 + 시트 저장
-  [변환] <줄글 초안…>                → 초안을 촬영대본 포맷으로 (창작 아님)
+  [변환] 휴대폰 보는 연우…            → 줄글 상황을 드라마 대본식 지문으로 구체화
   [트렌드] 엔딩                      → 트렌드 조회
   [새로고침] / [리로드]              → 캐시 무효화
 
@@ -71,14 +71,14 @@ _HELP = (
     "\n"
     "[생성] <날혐남> 대본 / 24화     ← 24화 개요+바이블 참고해 생성 (자동 검증 관문 ON)\n"
     "[생성] <날혐남> 대본 / 24화 검증생략   ← 빠르게: 바이블 준수 자동검증 끄기\n"
-    "[변환] (줄글 초안 붙여넣기)\n"
+    "[변환] 휴대폰 보는 연우, 화내며 나감   ← 줄글 상황 → 드라마 대본식 지문으로\n"
     "[트렌드] 요즘 뭐가 유행?          ← 쉬운 요약\n"
     "[아이디어] <날혐남> 서아 힘든 거 어떻게 보여주지?  ← 구체적 상황 제안\n"
     "[피드백] <날혐남> (대본)  ← 재미+개연성 / [재미]·[개연성]로 따로도 가능\n"
     "[동기화] <날혐남> (노션 내용 통째로 붙여넣기)  ← 노션→시트 반영\n"
     "[좋아]/[별로] (생성물 스레드에서, 뒤에 이유)  ← 다음 생성에 학습 (별로는 바로 다시 뽑음)\n"
     "```\n"
-    "• `[입력]` 새로 저장 / `[수정]` 기존 고침 / `[생성]` 초안 / `[아이디어]` 상황제안 / `[변환]` 촬영대본 / `[트렌드]` 조회 / `[멈춰]` 중지\n"
+    "• `[입력]` 새로 저장 / `[수정]` 기존 고침 / `[생성]` 초안 / `[아이디어]` 상황제안 / `[변환]` 줄글→대본식지문 / `[트렌드]` 조회 / `[멈춰]` 중지\n"
     "• 이름만: 로그라인·키워드·타겟층·핵심정서·줄거리·금지사항·진행상태 (뒤에 바로 내용)\n"
     "• 인물/회차분배: 소분류 하나 `인물/강태혁/성별 남` 또는 여러 개를 줄마다 `소분류: 값`\n"
     "  인물 소분류 = 성별·나이·포지션·설정·핵심대사·설명 / 회차분배 = 구간·화수·핵심사건\n"
@@ -663,26 +663,43 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
 
 
 def _do_convert(channel: str, thread_ts: str, rest: str) -> None:
-    """[변환]: 초안(명령 뒤 본문, 없으면 스레드 직전 봇 대본)을 촬영대본 포맷으로."""
-    from bot import script_format
-    raw = rest.strip()
-    epm = re.search(r"(\d+)\s*화", raw)
-    ep = epm.group(1) if epm else ""
-    draft = raw
-    if len(draft) < 30:  # 초안 미첨부 → 스레드 직전 봇 대본
+    """[변환]: 대충 쓴 줄글 상황 → 드라마 대본식 지문으로 구체화 (원문에 없는 내용 추가 금지)."""
+    q = rest.strip()
+    work, bible = None, None
+    wm = SUB_RE.match(q)
+    if wm:                              # <작품> 지정 시 인물 이름·호칭 참고
+        work = wm.group(1).strip()
+        q = wm.group(2).strip()
+        sheet = reference.sheet()
+        if sheet:
+            try:
+                bible = sheet.get(work)
+            except Exception:
+                log.exception("convert bible load failed")
+    epm = re.search(r"(\d+)\s*화", q[:200])
+    target = int(epm.group(1)) if epm else None
+    draft = q
+    if len(draft) < 10:                 # 본문 거의 없음 → 스레드 직전 봇 출력을 변환
         prior = [m["content"] for m in _thread_messages(channel, thread_ts)
                  if m["role"] == "assistant"]
         draft = prior[-1] if prior else ""
-    if not draft:
+    if len(draft) < 5:
         _reply(channel, thread_ts,
-               "변환할 초안을 `[변환]` 뒤에 붙여주세요. 대본이 있는 스레드에서는 `[변환]`만 보내도 직전 대본을 변환합니다.")
+               "줄글로 상황을 써서 `[변환]` 뒤에 붙이면 드라마 대본식 지문으로 바꿔드려요.\n"
+               "예: `[변환] 휴대폰 들여다보는 연우, 화나서 나감`")
         return
+    _CANCEL.discard(thread_ts)
+    ph = _thinking(channel, thread_ts, "대본식 지문으로 바꾸는 중이에요…")
     try:
-        result = script_format.convert_script(draft, generator.complete, episode_label=ep)
-        _post_code(channel, thread_ts, result)
+        answer = generator.complete(prompts.convert_system(bible, target_episode=target),
+                                    prompts.convert_user(draft), timeout=300).strip()
     except Exception:
-        log.exception("script convert failed")
-        _reply(channel, thread_ts, "변환 중 오류가 났어요 (초안 구조를 못 읽었을 수 있어요). 다시 시도해 주세요.")
+        log.exception("convert failed")
+        _post_chunks(channel, thread_ts, "변환 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
+        return
+    if _cancelled(channel, thread_ts, ph):
+        return
+    _post_chunks(channel, thread_ts, answer or "(빈 응답)", replace_ts=ph)
 
 
 def _thread_origin_mode(messages: list[dict]) -> str:
