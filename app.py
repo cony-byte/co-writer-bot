@@ -490,6 +490,21 @@ def _do_pref(channel: str, thread_ts: str, rest: str, sign: str) -> None:
         _do_generate(channel, thread_ts, f"<{work}> {top}{ep}{lv_cmd}")
 
 
+def _notes_block(notes: str) -> str:
+    """작가가 넣고 싶은 포인트를 '재료'로 주입. 그대로 반복하지 말고 살 붙여 전개 + 이후 사건까지."""
+    notes = (notes or "").strip()
+    if not notes:
+        return ""
+    return (
+        "\n\n[작가가 넣고 싶은 포인트 — 이미 정해진 '재료'다]\n"
+        f"{notes}\n"
+        "※ 위 포인트를 그대로 옮겨 적거나 요약해서 되풀이하지 마라. 이건 결과물이 아니라 '넣어야 할 재료'다.\n"
+        "  1) 각 포인트를 장면·행동·대치로 살을 붙여 전개하고,\n"
+        "  2) **마지막 포인트 그 뒤에 자연스럽게 이어질 다음 사건·전개(엔딩 훅 포함)를 새로 만들어** 이번 화를 완성하라.\n"
+        "  → 재료를 나열·재진술하는 게 아니라, 재료를 딛고 '그다음'을 쓰는 게 목적이다."
+    )
+
+
 def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
     """[생성] <작품> 경로(대본/N화 등) → 바이블 참고 생성 + 시트 저장."""
     from bot.sheet_bible import parse_path
@@ -514,6 +529,15 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
         _reply(channel, thread_ts, "형식: `[생성] <작품> 대본 / 24화` (또는 개요 / N화)")
         return
     top, mid, sub = triple
+    # 개요·대본: 같은 줄에서 경로('개요/4화') 뒤에 붙인 텍스트는 mid가 아니라 '넣고 싶은 포인트'다.
+    # mid는 'N화'만 남기고 나머지는 notes로 넘긴다. (예: '4화 과거 플래시백…' → mid='4화', 포인트='과거…')
+    if top in ("개요", "대본") and mid:
+        mm = re.match(r"\s*(\d+\s*화)\s*(.*)$", mid, re.S)
+        if mm:
+            mid = mm.group(1).strip()
+            inline = mm.group(2).strip()
+            if inline:
+                notes = (inline + ("\n" + notes if notes else "")).strip()
     # 대상 회차: 경로 어디에 있든 'N화'를 잡음 (없으면 build가 진행상태 화로 fallback)
     epm = re.search(r"(\d+)\s*화", path_clean)
     target = int(epm.group(1)) if epm else None
@@ -541,7 +565,7 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
     what = " ".join(x for x in [mid, top] if x) or top
     if all_lvls:
         notes_c = re.sub(r"강도\s*(전체|전부|모두|비교|1\s*[~\-]\s*5|1to5)[^\n]*", "", notes).strip()
-        req = f"'{work}' {what}를 생성해줘." + (f"\n\n[반드시 반영할 포인트]\n{notes_c}" if notes_c else "")
+        req = f"'{work}' {what}를 생성해줘." + _notes_block(notes_c)
         # prefs는 루프에서 강도별로 붙임
         _CANCEL.discard(thread_ts)
         ph = _thinking(channel, thread_ts, f"{what} 강도 1~5단계 순서대로 뽑는 중이에요… (좀 걸려요)")
@@ -563,10 +587,8 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
 
     # 강도 명시 안 했으면 기본 4로 고정
     bible = _ensure_default_intensity(bible, top)
-    # 이번 요청을 명확한 지시로 정리(명령 구문 제거) + 사용자가 넣고 싶은 포인트 강조
-    req = f"'{work}' {what}를 생성해줘."
-    if notes:
-        req += f"\n\n[이번 생성에 반드시 반영할 포인트]\n{notes}"
+    # 이번 요청을 명확한 지시로 정리(명령 구문 제거) + 넣고 싶은 포인트는 '재료'로 (반복 금지)
+    req = f"'{work}' {what}를 생성해줘." + _notes_block(notes)
     _eff_lvl = (bible.get("intensity_map") or {}).get(top) or bible.get("intensity_level") if bible else None
     req = _with_prefs(req, work, top, level=_eff_lvl)   # 관련(강도 일치) 좋아/별로 피드백 주입
     messages[-1] = {"role": "user", "content": req}
