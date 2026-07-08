@@ -1014,7 +1014,8 @@ def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both") ->
         if strict is None and bible:
             strict = (bible.get("intensity_map") or {}).get("개연성")
         sys_text = prompts.feedback_system(bible, target_episode=target, mode="logic", strictness=strict)
-        _run(sys_text, f"[평가할 대본]\n{draft}")
+        _run(sys_text, "‼️ 아래 [대본]에 실제로 적힌 것만 검토하라. [작품 바이블]은 대조용 배경일 뿐, "
+                       f"그 줄거리·개요를 대본으로 착각하지 마라.\n\n[평가할 대본]\n{draft}")
 
 
 def _trend_filter_llm(system: str, user: str) -> str:
