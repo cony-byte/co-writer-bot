@@ -392,13 +392,17 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
     gen_lines = sm.group(2).splitlines()
     path_line = (gen_lines or [""])[0].strip()
     notes = "\n".join(gen_lines[1:]).strip()      # 경로 아래 줄 = 넣고 싶은 포인트/지시
-    triple = parse_path(path_line)
+    directive = path_line + "\n" + notes          # 강도 지시 감지용(명령 줄 포함)
+    # 강도 지시를 경로에서 떼어내 mid 오염 방지 (예: '개요/4화 강도 4' → '개요/4화')
+    _INTPAT = r"강도\s*(전체|전부|모두|비교|1\s*[~\-]\s*5|1to5|[1-5])\S*"
+    path_clean = re.sub(r"\s*" + _INTPAT, "", path_line).strip()
+    triple = parse_path(path_clean)
     if not triple:
         _reply(channel, thread_ts, "형식: `[생성] <작품> 대본 / 24화` (또는 개요 / N화)")
         return
     top, mid, sub = triple
     # 대상 회차: 경로 어디에 있든 'N화'를 잡음 (없으면 build가 진행상태 화로 fallback)
-    epm = re.search(r"(\d+)\s*화", path_line)
+    epm = re.search(r"(\d+)\s*화", path_clean)
     target = int(epm.group(1)) if epm else None
 
     sheet = reference.sheet()
@@ -412,13 +416,13 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
     # 회차 안 적었으면 진행상태의 '타입별 진행 화' 사용 (예: 생성 개요 → 개요 진행 화)
     if target is None:
         target = _progress_episode(bible, [top])
-    bible = _override_intensity(bible, notes)   # '강도 N' 포인트로 이번만 재보정
+    bible = _override_intensity(bible, directive)   # '강도 N'(명령 줄/포인트) 이번만 재보정
 
     messages = _thread_messages(channel, thread_ts)
     if not messages:
         return
     # '강도 1~5 / 전체 / 비교' → 5단계 버전을 한 번에 뽑기
-    all_lvls = re.search(r"강도\s*(전체|전부|모두|비교|1\s*[~\-]\s*5|1to5)", path_line + " " + notes)
+    all_lvls = re.search(r"강도\s*(전체|전부|모두|비교|1\s*[~\-]\s*5|1to5)", directive)
     what = " ".join(x for x in [mid, top] if x) or top
     if all_lvls:
         notes_c = re.sub(r"강도\s*(전체|전부|모두|비교|1\s*[~\-]\s*5|1to5)[^\n]*", "", notes).strip()
