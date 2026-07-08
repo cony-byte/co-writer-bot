@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """환경 설정. 모든 값은 환경변수로 주입 (.env.example 참고)."""
+import json
 import os
 from pathlib import Path
 
@@ -38,3 +39,11 @@ THREAD_HISTORY_LIMIT = int(os.environ.get("COWRITER_THREAD_LIMIT", "40"))
 SHEET_WEBAPP_URL = os.environ.get("SHEET_WEBAPP_URL", "")
 SHEET_SECRET = os.environ.get("SHEET_SECRET", "")
 SHEET_CACHE_TTL = int(os.environ.get("COWRITER_SHEET_TTL", "300"))  # 초 (기본 5분)
+
+# 노션 통합(읽기 전용) — [동기화]가 이 토큰으로 기획안 페이지를 직접 읽어 시트에 반영.
+# NOTION_PAGES: 작품명 → 페이지ID 매핑(JSON). 예: {"날혐남":"679beda6e49082b6963d01ddbc5c24a4"}
+NOTION_TOKEN = os.environ.get("NOTION_TOKEN", "")
+try:
+    NOTION_PAGES = json.loads(os.environ.get("NOTION_PAGES", "{}"))
+except Exception:
+    NOTION_PAGES = {}

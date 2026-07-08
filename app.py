@@ -862,11 +862,28 @@ def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
         return
     work = sm.group(1).strip()
     content = sm.group(2).strip()
+    src = "붙여넣은 내용"
+    # 붙여넣기 없으면 → 등록된 노션 페이지를 토큰으로 직접 읽는다.
+    page_id = (config.NOTION_PAGES or {}).get(work)
+    if len(content) < 50 and config.NOTION_TOKEN and page_id:
+        _CANCEL.discard(thread_ts)
+        ph0 = _thinking(channel, thread_ts, "노션 페이지 읽는 중이에요…")
+        try:
+            from bot import notion_sync
+            content = notion_sync.page_text(page_id)
+            src = "노션 페이지"
+        except Exception:
+            log.exception("notion page fetch failed")
+            _post_chunks(channel, thread_ts,
+                         "노션 페이지를 못 읽었어요. 페이지가 통합에 연결됐는지 확인해 주세요.", replace_ts=ph0)
+            return
     if len(content) < 50:
-        _reply(channel, thread_ts, "동기화할 노션 내용을 `<작품>` 뒤에 붙여넣어 주세요 (줄거리·인물·회차분배·개요 등).")
+        hint = "" if page_id else "\n(또는 이 작품 노션 페이지를 등록하면 `[동기화] <작품>`만으로 자동 반영돼요.)"
+        _reply(channel, thread_ts,
+               "동기화할 노션 내용을 `<작품>` 뒤에 붙여넣어 주세요 (줄거리·인물·회차분배·개요 등)." + hint)
         return
     _CANCEL.discard(thread_ts)
-    ph = _thinking(channel, thread_ts, "노션 내용 정리해서 시트에 반영하는 중이에요…")
+    ph = _thinking(channel, thread_ts, f"{src} 정리해서 시트에 반영하는 중이에요…")
     try:
         raw = generator.complete(prompts.SYNC_SYSTEM + content,
                                  "위 문서를 스키마 JSON으로 변환하라.", timeout=600)
