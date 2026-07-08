@@ -422,6 +422,18 @@ def _ensure_default_intensity(bible: dict | None, kind: str,
     return b
 
 
+def _idea_intensity(bible: dict | None, text: str) -> dict | None:
+    """[아이디어]는 강도 IDEA_INTENSITY로 고정 — 작품 전체 강도(예: 4)에 끌려가지 않게.
+    단, 질문에 '강도 N'이 있거나 시트에 '아이디어' 전용 강도가 있으면 그건 존중한다."""
+    if not bible:
+        return bible
+    if re.search(r"강도\s*[1-5]", text or ""):          # 질문의 명시 강도 우선 (이미 _override로 반영)
+        return bible
+    if (bible.get("intensity_map") or {}).get("아이디어"):  # 시트의 아이디어 전용 강도 존중
+        return bible
+    return dict(bible, intensity_map={"아이디어": IDEA_INTENSITY}, intensity_level=None)
+
+
 def _progress_episode(bible: dict | None, prefer: list[str]) -> int | None:
     """회차 미지정 시 진행상태에서 기본 화를 고른다. prefer 타입(개요/대본/회차분배) 우선,
     없으면 아무 진행 화, 그것도 없으면 current_episode."""
@@ -730,7 +742,7 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
 
     try:
         if mode == "idea":
-            bible_i = _ensure_default_intensity(bible, "아이디어", default=IDEA_INTENSITY)
+            bible_i = _idea_intensity(bible, feedback)   # 아이디어 기본 강도 3 고정
             answer = generator.complete(prompts.idea_system(bible_i, feedback, target_episode=target),
                                         _convo_text(messages))
         elif mode == "trend":
@@ -778,8 +790,8 @@ def _do_idea(channel: str, thread_ts: str, rest: str) -> None:
         return
     em = re.search(r"(\d+)\s*화", q)              # 질문에 회차가 있으면 그 화 흐름 앵커
     target = int(em.group(1)) if em else _progress_episode(bible, ["대본", "개요"])
-    bible = _override_intensity(bible, q)                       # 질문에 '강도 N' 있으면 반영
-    bible = _ensure_default_intensity(bible, "아이디어", default=IDEA_INTENSITY)  # 기본 강도 3
+    bible = _override_intensity(bible, q)     # 질문에 '강도 N' 있으면 그게 우선
+    bible = _idea_intensity(bible, q)         # 아이디어는 기본 강도 3 고정(작품 전체 강도에 안 끌림)
     system = prompts.idea_system(bible, q, target_episode=target)
     _CANCEL.discard(thread_ts)
     ph = _thinking(channel, thread_ts, "아이디어 짜는 중이에요…")
