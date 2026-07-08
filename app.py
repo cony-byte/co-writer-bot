@@ -424,6 +424,8 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
     if target is None:
         target = _progress_episode(bible, [top])
     bible = _override_intensity(bible, directive)   # '강도 N'(명령 줄/포인트) 이번만 재보정
+    log.info("생성 top=%s target=%s 강도lvl=%s map=%s", top, target,
+             (bible or {}).get("intensity_level"), (bible or {}).get("intensity_map"))
 
     messages = _thread_messages(channel, thread_ts)
     if not messages:

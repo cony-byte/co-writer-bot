@@ -323,10 +323,9 @@ def _current_arc(episode_plan: dict, te: int) -> str:
             hwasu = subs.get("화수", "")
             return (
                 f"## ⭐ {te}화가 속한 구간: {title} (화수 {hwasu}) — 이 막의 **{phase}**\n"
-                f"아래 핵심사건은 이 막 전체({hwasu})에 걸친 목록이다. **목록에 있다고 이 화에서 당겨쓰지 마라.** "
-                f"{te}화는 {phase}이므로, 그 시점에 아직 오지 않은 사건은 건드리지 않는다. "
-                f"특히 **발각·정면충돌·대형 반전·관계 급전환**은 막 후반부 몫이다 — "
-                f"{phase}에는 상황 심화·긴장 누적·암시까지만 하고 사건을 터뜨리지 마라.\n{evt}")
+                f"아래 핵심사건은 이 막 전체({hwasu})에 걸친 목록이다. **이 목록에서 아직 순서상 오지 않은 뒷부분 사건을 "
+                f"{te}화에서 미리 터뜨리지 마라** — 이야기 순서를 지켜라. (이건 '타임라인' 규칙이다. "
+                f"강도가 세더라도 아직 안 온 사건을 당기는 것과는 별개 — 지금 시점의 사건을 세게 그리는 건 강도 지시를 따른다.)\n{evt}")
     return ""
 
 
@@ -400,10 +399,15 @@ def _intensity_note(bible: dict, kind: str | None = None) -> str:
     typed = kind and imap.get(kind)
     label = (f"{kind} " if typed else "") + (f"{lvl}단계" if lvl else raw)
     desc = _INTENSITY_LEVELS.get(lvl, raw)
-    return (f"## 🎚️ 강도: 작가 지정 = {label} (이 수위에 정확히 맞춰라)\n"
-            f"- {desc}\n"
-            f"- 지난 화 대비 급상승 금지. 회차분배 핵심사건에 없는 큰 사건은 지어내지 마라.\n"
-            f"- 금지사항이 있으면 그게 최우선.")
+    head = f"## 🎚️ 강도: 작가 지정 = {label} — 이 수위가 **강도의 최우선 기준**이다.\n- {desc}\n"
+    if lvl and lvl >= 4:
+        tail = ("- 이 수위에 맞춰 **확실히 세게** 가라. (막 위치·'지난 화 대비 한 단계 이내' 같은 기본 억제보다 "
+                "이 강도 지시가 우선이다. 단 회차분배 사건 *순서*·개연성·금지사항은 지킨다.)")
+    elif lvl and lvl <= 2:
+        tail = "- 큰 사건·충격은 지양하고 조용한 감정 흐름 위주. 금지사항 우선."
+    else:
+        tail = "- 적당한 갈등과 훅. 회차분배 순서·개연성 유지, 금지사항 우선."
+    return head + tail
 
 
 def build_bible_block(bible: dict, target_episode: int | None = None,
