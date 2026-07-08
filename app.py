@@ -752,6 +752,14 @@ def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both") ->
                 bible = sheet.get(work)
             except Exception:
                 log.exception("feedback bible load failed")
+    # 강도 렌즈: '강도 1~5/전체' → 5관점, '강도 N' → 그 관점. 대본에서 지시 줄 제거.
+    if re.search(r"강도\s*(전체|전부|모두|비교|1\s*[~\-]\s*5|1to5)", q):
+        lens_levels = [1, 2, 3, 4, 5]
+    else:
+        ms = re.search(r"강도\s*([1-5])", q)
+        lens_levels = [int(ms.group(1))] if ms else None
+    q = re.sub(r"(?m)^\s*강도\s*(전체|전부|모두|비교|1\s*[~\-]\s*5|1to5|[1-5])[^\n]*$", "", q).strip()
+
     draft = q
     if len(draft) < 30:  # 대본 미첨부 → 스레드 직전 봇 대본/초안
         prior = [m["content"] for m in _thread_messages(channel, thread_ts) if m["role"] == "assistant"]
@@ -783,7 +791,16 @@ def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both") ->
         first = False
 
     if mode in ("fun", "both"):     # v2.1 점수제 재미 평가 (+ 코드로 종합점수 검증)
-        _run(prompts.fun_system(bible, target_episode=target), prompts.fun_user(draft), post_fn=_verify_fun_score)
+        if lens_levels:             # 강도 관점별 재미 (1개 또는 1~5개)
+            for lvl in lens_levels:
+                if _cancelled(channel, thread_ts, ph if first else None):
+                    return
+                b_lvl = _override_intensity(bible, f"강도 {lvl}")
+                _run(prompts.fun_system(b_lvl, target_episode=target),
+                     prompts.fun_user(draft, lens_level=lvl),
+                     post_fn=(lambda a, L=lvl: f"*🎚️ 강도 {L}단계 관점*\n\n" + _verify_fun_score(a)))
+        else:
+            _run(prompts.fun_system(bible, target_episode=target), prompts.fun_user(draft), post_fn=_verify_fun_score)
         if _cancelled(channel, thread_ts, ph if first else None):
             return
     if mode in ("logic", "both"):   # 개연성 지적

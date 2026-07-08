@@ -175,8 +175,13 @@ def fun_system(bible: dict | None = None, target_episode: int | None = None) -> 
     return s
 
 
-def fun_user(script: str) -> str:
-    return FUN_USER_TMPL.format(script=script)
+def fun_user(script: str, lens_level: int | None = None) -> str:
+    head = ""
+    if lens_level:
+        head = (f"## 평가 관점: 강도 {lens_level}단계 — {_INTENSITY_LEVELS.get(lens_level, '')}\n"
+                f"이 대본이 **강도 {lens_level} 수위를 목표로 한다고 가정**하고, 그 톤 기준으로 재밌는지 판단하라. "
+                f"목표보다 밋밋하면 '더 세게' 방향으로, 과하면 '덜어내라' 방향으로 지적.\n\n")
+    return head + FUN_USER_TMPL.format(script=script)
 
 
 FEEDBACK_HEAD = ("너는 숏폼 로맨스 드라마 대본 피드백 전문가다. 칭찬 나열 말고 고칠 것 위주로 "
