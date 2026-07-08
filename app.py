@@ -405,7 +405,7 @@ def _override_intensity(bible: dict | None, text: str) -> dict | None:
 
 
 DEFAULT_INTENSITY = 4   # [생성]·[재미] 기본 강도 (명시·시트값 없을 때)
-IDEA_INTENSITY = 3      # [아이디어] 기본 강도 — 담백하게 (막장·과몰입 방지)
+IDEA_INTENSITY = 2      # [아이디어] 기본 강도 — 담백하게 (막장·과몰입 방지)
 
 
 def _ensure_default_intensity(bible: dict | None, kind: str,
