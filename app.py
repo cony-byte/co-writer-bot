@@ -417,8 +417,30 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
     messages = _thread_messages(channel, thread_ts)
     if not messages:
         return
-    # 이번 요청을 명확한 지시로 정리(명령 구문 제거) + 사용자가 넣고 싶은 포인트 강조
+    # '강도 1~5 / 전체 / 비교' → 5단계 버전을 한 번에 뽑기
+    all_lvls = re.search(r"강도\s*(전체|전부|모두|비교|1\s*[~\-]\s*5|1to5)", path_line + " " + notes)
     what = " ".join(x for x in [mid, top] if x) or top
+    if all_lvls:
+        notes_c = re.sub(r"강도\s*(전체|전부|모두|비교|1\s*[~\-]\s*5|1to5)[^\n]*", "", notes).strip()
+        req = f"'{work}' {what}를 생성해줘." + (f"\n\n[반드시 반영할 포인트]\n{notes_c}" if notes_c else "")
+        _CANCEL.discard(thread_ts)
+        ph = _thinking(channel, thread_ts, f"{what} 강도 1~5단계 순서대로 뽑는 중이에요… (좀 걸려요)")
+        first = True
+        for lvl in range(1, 6):
+            if _cancelled(channel, thread_ts, ph if first else None):
+                return
+            b_lvl = dict(bible or {}, intensity_level=lvl, intensity_map={})
+            msgs = list(messages); msgs[-1] = {"role": "user", "content": req}
+            try:
+                ans = generator.generate(msgs, req, bible=b_lvl, target_episode=target, kind=top)
+            except Exception:
+                log.exception("generation failed (lvl %s)", lvl)
+                ans = "생성 오류"
+            _post_chunks(channel, thread_ts, f"*🎚️ 강도 {lvl}단계*\n\n{ans}", replace_ts=(ph if first else None))
+            first = False
+        return
+
+    # 이번 요청을 명확한 지시로 정리(명령 구문 제거) + 사용자가 넣고 싶은 포인트 강조
     req = f"'{work}' {what}를 생성해줘."
     if notes:
         req += f"\n\n[이번 생성에 반드시 반영할 포인트]\n{notes}"
