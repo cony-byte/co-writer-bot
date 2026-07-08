@@ -17,6 +17,10 @@ AGENT_MODEL = os.environ.get("COWRITER_AGENT_MODEL", "claude-sonnet-5")  # agent
 MAX_TOKENS = int(os.environ.get("COWRITER_MAX_TOKENS", "16000"))
 AGENT_TIMEOUT = int(os.environ.get("COWRITER_AGENT_TIMEOUT", "150"))  # agent 생성 최대 대기(초)
 
+# 생성 검증 관문(3단계 감사) 기본 ON. 끄려면 COWRITER_VERIFY_GATE=0.
+# 개별 요청은 '검증생략'/'빠르게' 플래그로 끄거나 '검증'으로 켤 수 있음.
+VERIFY_GATE = os.environ.get("COWRITER_VERIFY_GATE", "1") != "0"
+
 # 레퍼런스 DB — story-v1-scripts repo의 reference/ 디렉터리 (통합 DB v5: reference_db.json).
 # 사례 선별(retrieval)과 트렌드서치(v4_tagged 편)가 같은 단일 DB를 읽는다.
 # 기본값: 이 repo에 동기화된 사본(data/reference). scripts/sync_reference.py로 갱신.

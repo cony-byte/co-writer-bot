@@ -211,15 +211,62 @@ class TrendSearch:
         parts = [self.catharsis(flt), self.combos(flt), self.hooks(flt), self.top_clips(flt, n=2)]
         return "\n\n".join(parts)
 
-    # ---------------- 질문 라우팅 ----------------
-    def answer(self, question: str) -> str:
-        q = question.strip()
-        # 1) 카테고리 필터 감지
-        flt = None
+    # ---------------- 카테고리 필터 감지 ----------------
+    @staticmethod
+    def _alias_filter(q):
+        """alias 테이블 부분일치 (즉시·무료). 첫 매칭 반환, 없으면 None."""
         for kw, f in FILTER_ALIASES.items():
             if kw in q:
-                flt = f
-                break
+                return f
+        return None
+
+    def _llm_filter(self, q, llm):
+        """alias 미스 시 폴백 — LLM이 질문을 필터 코드 1개(또는 none)로 분류.
+        '회한·미련·뒤늦게 깨달음'처럼 사전에 없는 자연어도 잡기 위함.
+        llm: Callable[[system, user], str]. 실패·무관 판정 시 None(전체 트렌드로 진행)."""
+        cats, trps = [], []
+        for _, (kind, val) in FILTER_ALIASES.items():
+            (cats if kind == "catharsis" else trps).append(val)
+        cats = list(dict.fromkeys(cats))          # 순서 유지 dedup
+        trps = list(dict.fromkeys(trps))
+        system = (
+            "너는 숏드라마 트렌드 질문을 카테고리 코드 하나로 분류하는 라우터다.\n"
+            "작가의 질문이 아래 목록 중 무엇을 겨냥하는지 판단해 코드를 정확히 하나만 출력한다.\n"
+            "특정 카테고리를 겨냥하지 않는 포괄적 질문(예: '요즘 뭐가 유행이야')이면 none 을 출력한다.\n"
+            "코드 문자열 하나 또는 none 외의 다른 말·설명·기호·따옴표는 절대 출력하지 마라.\n\n"
+            "[정서 코드]\n" + "\n".join(f"- {v} ({CAT_KO.get(v, v)})" for v in cats) +
+            "\n\n[트로프 코드]\n" + "\n".join(f"- {v}" for v in trps) +
+            "\n\n[해당 없음]\n- none"
+        )
+        try:
+            raw = (llm(system, f"질문: {q}") or "").strip()
+        except Exception:
+            return None
+        if not raw:
+            return None
+        token = raw.splitlines()[0].strip().strip("`\"' ")
+        if token.lower() == "none":
+            return None
+        if token in cats:
+            return ("catharsis", token)
+        if token in trps:
+            return ("trope", token)
+        # 느슨한 폴백: 응답 안에 코드가 통째로 포함돼 있으면 인정 (영/한 겹침 없음)
+        for v in cats:
+            if v in raw:
+                return ("catharsis", v)
+        for v in trps:
+            if v in raw:
+                return ("trope", v)
+        return None
+
+    # ---------------- 질문 라우팅 ----------------
+    def answer(self, question: str, llm=None) -> str:
+        q = question.strip()
+        # 1) 카테고리 필터: alias 부분일치 먼저 → 미스면 LLM 폴백(있을 때만)
+        flt = self._alias_filter(q)
+        if flt is None and llm is not None:
+            flt = self._llm_filter(q, llm)
         # 2) 의도 감지 (구체적 의도 먼저, 없으면 전체)
         if re.search(r"엔딩|절단|끊|클리프|마무리", q):
             return self.cliffhangers(flt)

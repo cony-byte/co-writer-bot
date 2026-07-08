@@ -25,7 +25,7 @@ import urllib.request
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
-from bot import config, generator, prefs, prompts, reference
+from bot import config, generator, prefs, prompts, reference, verify
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("co-writer")
@@ -69,7 +69,8 @@ _HELP = (
     "[생성] <날혐남> 개요 / 11화     ← 다음 줄에 넣고 싶은 포인트 적으면 반영\n"
     "서아가 처음으로 반격하는 장면 꼭 넣어줘\n"
     "\n"
-    "[생성] <날혐남> 대본 / 24화     ← 24화 개요+바이블 참고해 생성\n"
+    "[생성] <날혐남> 대본 / 24화     ← 24화 개요+바이블 참고해 생성 (자동 검증 관문 ON)\n"
+    "[생성] <날혐남> 대본 / 24화 검증생략   ← 빠르게: 바이블 준수 자동검증 끄기\n"
     "[변환] (줄글 초안 붙여넣기)\n"
     "[트렌드] 요즘 뭐가 유행?          ← 쉬운 요약\n"
     "[아이디어] <날혐남> 서아 힘든 거 어떻게 보여주지?  ← 구체적 상황 제안\n"
@@ -120,6 +121,30 @@ def _thinking(channel: str, thread_ts: str, note: str = "생성 중이에요… 
         return r.get("ts")
     except Exception:
         return None
+
+
+def _update_note(channel: str, ts: str | None, note: str) -> None:
+    """진행 플레이스홀더 문구만 갱신 (검증 등 중간 단계 표시용). 실패는 무시."""
+    if not ts:
+        return
+    try:
+        app.client.chat_update(channel=channel, ts=ts, text=f"⏳ {note}")
+    except Exception:
+        pass
+
+
+# 검증 관문 on/off 플래그 (요청문에서). '검증생략'/'빠르게'=off, '검증'=on, 없으면 기본값.
+_VERIFY_OFF_RE = re.compile(r"검증\s*(생략|끄기|스킵|off)|빠르게|noverify", re.I)
+_VERIFY_ON_RE = re.compile(r"검증", re.I)
+_VERIFY_TOKENS_RE = re.compile(r"\s*(검증\s*(생략|끄기|스킵|off)?|빠르게|noverify)", re.I)
+
+
+def _verify_gate_on(text: str, default: bool) -> bool:
+    if _VERIFY_OFF_RE.search(text or ""):
+        return False
+    if _VERIFY_ON_RE.search(text or ""):
+        return True
+    return default
 
 
 def _do_stop(channel: str, thread_ts: str) -> None:
@@ -476,7 +501,11 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
     gen_lines = sm.group(2).splitlines()
     path_line = (gen_lines or [""])[0].strip()
     notes = "\n".join(gen_lines[1:]).strip()      # 경로 아래 줄 = 넣고 싶은 포인트/지시
-    directive = path_line + "\n" + notes          # 강도 지시 감지용(명령 줄 포함)
+    directive = path_line + "\n" + notes          # 강도/검증 지시 감지용(명령 줄 포함)
+    # 검증 관문 on/off 결정 후, 플래그 토큰은 생성 프롬프트 오염 방지 위해 제거
+    gate_on = _verify_gate_on(directive, config.VERIFY_GATE)
+    path_line = _VERIFY_TOKENS_RE.sub("", path_line).strip()
+    notes = _VERIFY_TOKENS_RE.sub("", notes).strip()
     # 강도 지시를 경로에서 떼어내 mid 오염 방지 (예: '개요/4화 강도 4' → '개요/4화')
     _INTPAT = r"강도\s*(전체|전부|모두|비교|1\s*[~\-]\s*5|1to5|[1-5])\S*"
     path_clean = re.sub(r"\s*" + _INTPAT, "", path_line).strip()
@@ -552,10 +581,43 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
     if _cancelled(channel, thread_ts, ph):
         return
 
+    # 3단계 검증 관문: 생성과 분리된 감사자가 바이블 준수 재검.
+    #  · 금지사항(이진 위반)만 자동 최소 교정, 나머지 위반은 ⚠️ 플래그로 알림만(작가가 직접 판단).
+    # 바이블 없으면(패턴·사례 기반 생성) 기준이 없어 건너뜀. '검증생략'/COWRITER_VERIFY_GATE=0로 off.
+    gate_note = ""
+    if gate_on and bible:
+        _update_note(channel, ph, f"{what} 초안 검증 중이에요… (바이블 준수 점검)")
+        v = verify.verify_draft(answer, bible, target_episode=target, kind=top,
+                                llm=generator.complete)
+        if v["checked"] and v["fails"]:
+            if _cancelled(channel, thread_ts, ph):
+                return
+            forbidden = [f for f in v["fails"] if f.get("name") == "금지사항"]
+            flagged = [f for f in v["fails"] if f.get("name") != "금지사항"]
+            if forbidden:   # 금지사항만 자동 교정 (지키거나 못 지키거나의 이진 규칙)
+                _update_note(channel, ph, f"{what} 금지사항 위반 교정 중이에요… ({len(forbidden)}건)")
+                answer = verify.correct_draft(answer, forbidden, bible, target_episode=target,
+                                              kind=top, llm=generator.complete)
+            parts = []
+            if forbidden:
+                names = ", ".join(f.get("name", "?") for f in forbidden)
+                parts.append(f"🔧 자동검증: 금지사항 {len(forbidden)}건 교정 ({names})")
+            if flagged:     # 나머지는 고치지 않고 플래그만 — 작가가 보고 판단
+                lines = "\n".join(f"  • *{f.get('name', '?')}*: {(f.get('reason') or '').strip()}"
+                                  for f in flagged)
+                parts.append(f"⚠️ 바이블 확인 필요 {len(flagged)}건 (자동 수정 안 함 — 직접 확인하세요)\n{lines}")
+            gate_note = "\n".join(parts)
+        elif v["checked"]:
+            gate_note = "✅ 자동검증: 바이블 준수 이상 없음"
+        if _cancelled(channel, thread_ts, ph):
+            return
+
     # 강도가 적용됐으면 답변 맨 앞에 표시
     _lvl = (bible.get("intensity_map") or {}).get(top) or bible.get("intensity_level") if bible else None
     if _lvl:
         answer = f"*🎚️ 강도 {_lvl}단계*\n\n" + answer
+    if gate_note:
+        answer += f"\n\n{gate_note}"
 
     # 슬랙은 초안 생성만. 시트 저장은 사람이 검토 후 [입력]/[수정]으로 직접.
     label = " / ".join(x for x in [top, mid, sub] if x)
@@ -648,7 +710,7 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
                                         _convo_text(messages))
         elif mode == "trend":
             trend = reference.load_trend()
-            raw = trend.answer(feedback) if trend else ""
+            raw = trend.answer(feedback, llm=_trend_filter_llm) if trend else ""
             sys = prompts.trend_system(bible)
             answer = generator.complete(sys, _convo_text(messages)
                                         + f"\n\n[측정 데이터 참고]\n{raw}")
@@ -916,6 +978,12 @@ def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both") ->
         _run(sys_text, f"[평가할 대본]\n{draft}")
 
 
+def _trend_filter_llm(system: str, user: str) -> str:
+    """트렌드 필터 분류용 단발 LLM 콜 (alias 미스 폴백). 짧은 타임아웃 — 분류가
+    트렌드 응답 전체를 지연시키지 않게. 실패해도 answer()가 None 처리 → 전체 트렌드."""
+    return generator.complete(system, user, timeout=30)
+
+
 def _do_trend(channel: str, thread_ts: str, rest: str) -> None:
     """[트렌드] — 측정 데이터를 근거로, 쉬운 말 요약 + (작품 지정 시) 맞춤 아이디어 제안."""
     trend = reference.load_trend()
@@ -936,7 +1004,7 @@ def _do_trend(channel: str, thread_ts: str, rest: str) -> None:
             except Exception:
                 log.exception("trend bible load failed")
     try:
-        raw = trend.answer(q or "트렌드")          # 집계 데이터 (참고용, 사용자엔 안 보임)
+        raw = trend.answer(q or "트렌드", llm=_trend_filter_llm)  # 집계 데이터 (참고용, 사용자엔 안 보임)
     except Exception:
         log.exception("trend agg failed")
         _reply(channel, thread_ts, "트렌드 집계 중 오류가 났어요.")
