@@ -883,7 +883,7 @@ def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both") ->
     def _run(sys_text: str, user_text: str, post_fn=None):
         nonlocal first
         try:
-            ans = generator.complete(sys_text, user_text).strip()
+            ans = generator.complete(sys_text, user_text, timeout=300).strip()  # 전체 대본 대비
         except Exception:
             log.exception("feedback failed")
             _post_chunks(channel, thread_ts, "피드백 생성 중 오류가 났어요. 잠시 후 다시 시도해 주세요.",
