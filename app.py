@@ -469,6 +469,11 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
     if _cancelled(channel, thread_ts, ph):
         return
 
+    # 강도가 적용됐으면 답변 맨 앞에 표시
+    _lvl = (bible.get("intensity_map") or {}).get(top) or bible.get("intensity_level") if bible else None
+    if _lvl:
+        answer = f"*🎚️ 강도 {_lvl}단계*\n\n" + answer
+
     # 슬랙은 초안 생성만. 시트 저장은 사람이 검토 후 [입력]/[수정]으로 직접.
     label = " / ".join(x for x in [top, mid, sub] if x)
     if label:
