@@ -31,14 +31,15 @@ def load(work: str) -> list[dict]:
 
 
 def add(work: str, sign: str, top: str, episode: int | None,
-        reason: str, excerpt: str) -> None:
-    """sign: '+'(좋아) / '-'(별로). excerpt=생성물 발췌(검색·주입용)."""
+        reason: str, excerpt: str, level: int | None = None) -> None:
+    """sign: '+'(좋아) / '-'(별로). level=그 생성물의 강도 단계(있으면 강도별 반영)."""
     PREF_DIR.mkdir(parents=True, exist_ok=True)
     items = load(work)
     items.append({
         "sign": sign,
         "top": top or "",
         "episode": episode,
+        "level": level,
         "reason": (reason or "").strip(),
         "excerpt": (excerpt or "").strip()[:600],
         "tags": sorted(retrieval.extract_tags(f"{reason} {excerpt}")),
@@ -46,10 +47,10 @@ def add(work: str, sign: str, top: str, episode: int | None,
     _path(work).write_text(json.dumps(items, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
-def retrieve(work: str, top: str, query: str,
+def retrieve(work: str, top: str, query: str, level: int | None = None,
              k_pos: int = 2, k_neg: int = 3) -> tuple[list[dict], list[dict]]:
-    """현재 요청(query)·타입(top)과 관련된 좋아/별로 피드백을 뽑는다.
-    점수 = 태그 겹침 + 같은 타입 가점 + 최근순."""
+    """현재 요청(query)·타입(top)·강도(level)와 관련된 좋아/별로 피드백을 뽑는다.
+    점수 = 강도 일치 + 태그 겹침 + 같은 타입 + 최근순."""
     items = load(work)
     if not items:
         return [], []
@@ -58,10 +59,11 @@ def retrieve(work: str, top: str, query: str,
 
     def score(i_it):
         i, it = i_it
+        same_level = 1 if (level and it.get("level") == level) else 0
         overlap = len(want & set(it.get("tags") or [])) if want else 0
         same_top = 1 if it.get("top") == top else 0
         recency = i / n            # 뒤(최근)일수록 ↑
-        return (overlap, same_top, recency)
+        return (same_level, overlap, same_top, recency)
 
     pos = [it for _, it in sorted(enumerate(items), key=score, reverse=True) if it["sign"] == "+"]
     neg = [it for _, it in sorted(enumerate(items), key=score, reverse=True) if it["sign"] == "-"]
@@ -72,12 +74,14 @@ def format_block(positives: list[dict], negatives: list[dict]) -> str:
     """검색된 선호 피드백 → 프롬프트 주입용 블록."""
     if not positives and not negatives:
         return ""
+    def _lv(it):
+        return f"[강도 {it['level']}] " if it.get("level") else ""
     lines = ["## 작가 선호 피드백 (지난 생성에 대한 반응 — 반드시 반영)"]
     for it in positives:
         r = f" — {it['reason']}" if it.get("reason") else ""
-        lines.append(f"- 👍 이런 방향 좋았음{r}\n  예: {it['excerpt'][:200]}")
+        lines.append(f"- 👍 {_lv(it)}이런 방향 좋았음{r}\n  예: {it['excerpt'][:200]}")
     for it in negatives:
         r = f" — {it['reason']}" if it.get("reason") else ""
-        lines.append(f"- 👎 이건 별로였음(피하라){r}\n  예: {it['excerpt'][:200]}")
+        lines.append(f"- 👎 {_lv(it)}이건 별로였음(피하라){r}\n  예: {it['excerpt'][:200]}")
     lines.append("→ 👍 방향은 살리고 👎 방향은 반복하지 마라.")
     return "\n".join(lines)

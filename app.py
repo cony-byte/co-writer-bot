@@ -415,11 +415,11 @@ def _thread_gen_context(messages: list[dict]) -> tuple:
     return work, top, episode, draft
 
 
-def _with_prefs(req: str, work: str | None, top: str) -> str:
-    """생성 요청에 관련 선호 피드백(좋아/별로)을 검색해 붙인다."""
+def _with_prefs(req: str, work: str | None, top: str, level: int | None = None) -> str:
+    """생성 요청에 관련 선호 피드백(좋아/별로, 강도 일치 우선)을 검색해 붙인다."""
     if not work:
         return req
-    pos, neg = prefs.retrieve(work, top, req)
+    pos, neg = prefs.retrieve(work, top, req, level=level)
     block = prefs.format_block(pos, neg)
     return (req + "\n\n" + block) if block else req
 
@@ -431,14 +431,22 @@ def _do_pref(channel: str, thread_ts: str, rest: str, sign: str) -> None:
     if not work or len(draft) < 30:
         _reply(channel, thread_ts, "생성물 스레드에서 `[좋아]`/`[별로]` (뒤에 이유 적어도 됨)로 눌러 주세요.")
         return
-    prefs.add(work, sign, top, episode, rest.strip(), draft)
+    reason = rest.strip()
+    # 강도 태깅: 이유에 '강도 N'/'N번'이 있으면 그 레벨, 없으면 생성물 배너의 강도
+    lm = re.search(r"강도\s*([1-5])", reason) or re.search(r"([1-5])\s*번", reason)
+    if not lm:
+        lm = re.search(r"강도\s*([1-5])\s*단계", draft)
+    level = int(lm.group(1)) if lm else None
+    prefs.add(work, sign, top, episode, reason, draft, level=level)
+    lv = f"강도 {level} " if level else ""
     if sign == "+":
-        _reply(channel, thread_ts, f"👍 저장했어요. 다음 {top or '생성'}부터 이 방향을 살립니다.")
+        _reply(channel, thread_ts, f"👍 {lv}저장했어요. 다음 {top or '생성'}부터 이 방향을 살립니다.")
         return
-    _reply(channel, thread_ts, "👎 저장했어요. 반영해서 다시 뽑을게요…")
-    if top:   # 같은 작품/타입/회차로 재생성 (누적 피드백 반영)
+    _reply(channel, thread_ts, f"👎 {lv}저장했어요. 반영해서 다시 뽑을게요…")
+    if top:   # 같은 작품/타입/회차(+강도)로 재생성 — 누적 피드백 반영
         ep = f"/{episode}화" if episode else ""
-        _do_generate(channel, thread_ts, f"<{work}> {top}{ep}")
+        lv_cmd = f" 강도 {level}" if level else ""
+        _do_generate(channel, thread_ts, f"<{work}> {top}{ep}{lv_cmd}")
 
 
 def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
@@ -489,7 +497,7 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
     if all_lvls:
         notes_c = re.sub(r"강도\s*(전체|전부|모두|비교|1\s*[~\-]\s*5|1to5)[^\n]*", "", notes).strip()
         req = f"'{work}' {what}를 생성해줘." + (f"\n\n[반드시 반영할 포인트]\n{notes_c}" if notes_c else "")
-        req = _with_prefs(req, work, top)
+        # prefs는 루프에서 강도별로 붙임
         _CANCEL.discard(thread_ts)
         ph = _thinking(channel, thread_ts, f"{what} 강도 1~5단계 순서대로 뽑는 중이에요… (좀 걸려요)")
         first = True
@@ -497,7 +505,8 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
             if _cancelled(channel, thread_ts, ph if first else None):
                 return
             b_lvl = dict(bible or {}, intensity_level=lvl, intensity_map={})
-            msgs = list(messages); msgs[-1] = {"role": "user", "content": req}
+            req_l = _with_prefs(req, work, top, level=lvl)   # 그 강도의 피드백 반영
+            msgs = list(messages); msgs[-1] = {"role": "user", "content": req_l}
             try:
                 ans = generator.generate(msgs, req, bible=b_lvl, target_episode=target, kind=top)
             except Exception:
@@ -511,7 +520,8 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
     req = f"'{work}' {what}를 생성해줘."
     if notes:
         req += f"\n\n[이번 생성에 반드시 반영할 포인트]\n{notes}"
-    req = _with_prefs(req, work, top)             # 관련 좋아/별로 피드백 주입
+    _eff_lvl = (bible.get("intensity_map") or {}).get(top) or bible.get("intensity_level") if bible else None
+    req = _with_prefs(req, work, top, level=_eff_lvl)   # 관련(강도 일치) 좋아/별로 피드백 주입
     messages[-1] = {"role": "user", "content": req}
     _CANCEL.discard(thread_ts)                    # 이전 취소 플래그 정리
     ph = _thinking(channel, thread_ts, f"{what} 초안 쓰는 중이에요…")
