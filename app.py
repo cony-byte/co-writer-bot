@@ -405,9 +405,11 @@ def _override_intensity(bible: dict | None, text: str) -> dict | None:
 
 
 DEFAULT_INTENSITY = 4   # [생성]·[재미] 기본 강도 (명시·시트값 없을 때)
+IDEA_INTENSITY = 3      # [아이디어] 기본 강도 — 담백하게 (막장·과몰입 방지)
 
 
-def _ensure_default_intensity(bible: dict | None, kind: str) -> dict | None:
+def _ensure_default_intensity(bible: dict | None, kind: str,
+                              default: int = DEFAULT_INTENSITY) -> dict | None:
     """강도가 명시/저장 안 됐으면 기본값으로 채운다 (이 kind 기준)."""
     if not bible:
         return bible
@@ -415,7 +417,7 @@ def _ensure_default_intensity(bible: dict | None, kind: str) -> dict | None:
     if eff:
         return bible
     b = dict(bible)
-    b["intensity_level"] = DEFAULT_INTENSITY
+    b["intensity_level"] = default
     b["intensity_map"] = {}
     return b
 
@@ -728,7 +730,8 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
 
     try:
         if mode == "idea":
-            answer = generator.complete(prompts.idea_system(bible, feedback, target_episode=target),
+            bible_i = _ensure_default_intensity(bible, "아이디어", default=IDEA_INTENSITY)
+            answer = generator.complete(prompts.idea_system(bible_i, feedback, target_episode=target),
                                         _convo_text(messages))
         elif mode == "trend":
             trend = reference.load_trend()
@@ -775,6 +778,8 @@ def _do_idea(channel: str, thread_ts: str, rest: str) -> None:
         return
     em = re.search(r"(\d+)\s*화", q)              # 질문에 회차가 있으면 그 화 흐름 앵커
     target = int(em.group(1)) if em else _progress_episode(bible, ["대본", "개요"])
+    bible = _override_intensity(bible, q)                       # 질문에 '강도 N' 있으면 반영
+    bible = _ensure_default_intensity(bible, "아이디어", default=IDEA_INTENSITY)  # 기본 강도 3
     system = prompts.idea_system(bible, q, target_episode=target)
     _CANCEL.discard(thread_ts)
     ph = _thinking(channel, thread_ts, "아이디어 짜는 중이에요…")
