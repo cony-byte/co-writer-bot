@@ -1093,6 +1093,17 @@ def _hwpx_text(raw: bytes) -> str:
     return "\n".join(chunks).strip()
 
 
+def _decode_text(data: bytes) -> str:
+    """첨부 텍스트 디코딩. 한글 .txt는 윈도우 저장 시 CP949/EUC-KR가 흔해
+    UTF-8만 쓰면 다 깨진다 → BOM·UTF-8 → CP949 → UTF-16 순으로 시도."""
+    for enc in ("utf-8-sig", "utf-8", "cp949", "euc-kr", "utf-16"):
+        try:
+            return data.decode(enc)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return data.decode("utf-8", "replace")   # 최후: 깨져도 최대한
+
+
 def _files_text(event: dict) -> tuple[str, int]:
     """메시지에 붙은 스니펫/텍스트/.hwpx 파일 내용을 봇 토큰으로 내려받아 합친다.
     반환: (내용, blocked) — blocked>0이면 권한 부족으로 로그인 HTML만 받은 것."""
@@ -1119,7 +1130,7 @@ def _files_text(event: dict) -> tuple[str, int]:
             else:
                 log.warning("hwpx 본문 추출 실패(빈 결과)")
             continue
-        body = data.decode("utf-8", "replace")
+        body = _decode_text(data)
         if body.lstrip()[:200].lower().find("<!doctype html") >= 0 or body.lstrip().lower().startswith("<html"):
             log.warning("첨부 다운로드가 로그인 HTML 반환 — files:read 권한 필요")
             blocked += 1
