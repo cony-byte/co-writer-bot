@@ -777,6 +777,11 @@ def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both") ->
         ms = re.search(r"강도\s*([1-5])", q)
         lens_levels = [int(ms.group(1))] if ms else None
     q = re.sub(r"(?m)^\s*강도\s*(전체|전부|모두|비교|1\s*[~\-]\s*5|1to5|[1-5])[^\n]*$", "", q).strip()
+    # 명령에 강도 없으면 시트에 저장된 재미/일반 강도를 관점으로 (있으면 라벨도 붙음)
+    if lens_levels is None and bible:
+        stored = (bible.get("intensity_map") or {}).get("재미") or bible.get("intensity_level")
+        if stored:
+            lens_levels = [stored]
 
     draft = q
     if len(draft) < 30:  # 대본 미첨부 → 스레드 직전 봇 대본/초안
