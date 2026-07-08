@@ -379,6 +379,22 @@ def _override_intensity(bible: dict | None, text: str) -> dict | None:
     return b
 
 
+DEFAULT_INTENSITY = 4   # [생성]·[재미] 기본 강도 (명시·시트값 없을 때)
+
+
+def _ensure_default_intensity(bible: dict | None, kind: str) -> dict | None:
+    """강도가 명시/저장 안 됐으면 기본값으로 채운다 (이 kind 기준)."""
+    if not bible:
+        return bible
+    eff = (bible.get("intensity_map") or {}).get(kind) or bible.get("intensity_level")
+    if eff:
+        return bible
+    b = dict(bible)
+    b["intensity_level"] = DEFAULT_INTENSITY
+    b["intensity_map"] = {}
+    return b
+
+
 def _progress_episode(bible: dict | None, prefer: list[str]) -> int | None:
     """회차 미지정 시 진행상태에서 기본 화를 고른다. prefer 타입(개요/대본/회차분배) 우선,
     없으면 아무 진행 화, 그것도 없으면 current_episode."""
@@ -516,6 +532,8 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
             first = False
         return
 
+    # 강도 명시 안 했으면 기본 4로 고정
+    bible = _ensure_default_intensity(bible, top)
     # 이번 요청을 명확한 지시로 정리(명령 구문 제거) + 사용자가 넣고 싶은 포인트 강조
     req = f"'{work}' {what}를 생성해줘."
     if notes:
@@ -842,11 +860,10 @@ def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both") ->
         ms = re.search(r"강도\s*([1-5])", q)
         lens_levels = [int(ms.group(1))] if ms else None
     q = re.sub(r"(?m)^\s*강도\s*(전체|전부|모두|비교|1\s*[~\-]\s*5|1to5|[1-5])[^\n]*$", "", q).strip()
-    # 명령에 강도 없으면 시트에 저장된 재미/일반 강도를 관점으로 (있으면 라벨도 붙음)
-    if lens_levels is None and bible:
-        stored = (bible.get("intensity_map") or {}).get("재미") or bible.get("intensity_level")
-        if stored:
-            lens_levels = [stored]
+    # 명령에 강도 없으면 시트 저장 강도, 그것도 없으면 기본 4 관점으로 (라벨 표시됨)
+    if lens_levels is None:
+        stored = ((bible.get("intensity_map") or {}).get("재미") or bible.get("intensity_level")) if bible else None
+        lens_levels = [stored or DEFAULT_INTENSITY]
 
     draft = q
     if len(draft) < 30:  # 대본 미첨부 → 스레드 직전 봇 대본/초안
