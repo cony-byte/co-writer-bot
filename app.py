@@ -20,6 +20,8 @@
 import json
 import logging
 import re
+import threading
+import time
 import urllib.request
 
 from slack_bolt import App
@@ -885,30 +887,42 @@ def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
     _CANCEL.discard(thread_ts)
     ph = _thinking(channel, thread_ts, f"{src} 정리해서 시트에 반영하는 중이에요…")
     try:
-        raw = generator.complete(prompts.SYNC_SYSTEM + content,
-                                 "위 문서를 스키마 JSON으로 변환하라.", timeout=600)
-    except Exception:
-        log.exception("sync parse failed")
-        _post_chunks(channel, thread_ts, "동기화 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
-        return
-    if _cancelled(channel, thread_ts, ph):
-        return
-    try:
-        data = _json_loads(raw)
-    except Exception:
-        log.exception("sync json parse failed: %s", raw[:200])
+        done, failed, summary = _sync_apply(sheet, work, content)
+    except ValueError:   # JSON 파싱 실패
         _post_chunks(channel, thread_ts,
                      "노션 내용을 구조로 못 읽었어요. 소제목(줄거리/등장인물/회차분배/개요)이 있으면 더 잘 됩니다.",
                      replace_ts=ph)
         return
+    except Exception:
+        log.exception("sync failed")
+        _post_chunks(channel, thread_ts, "동기화 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
+        return
+    if _cancelled(channel, thread_ts, ph):
+        return
+    if not done:
+        _post_chunks(channel, thread_ts,
+                     "동기화했지만 반영된 항목이 없어요. 노션 내용/소제목을 확인해 주세요.", replace_ts=ph)
+        return
+    msg = f"✅ *{work}* {src} 동기화 — {done}개 반영.\n· " + "\n· ".join(summary)
+    if failed:
+        msg += f"\n⚠️ {failed}개는 네트워크 문제로 실패 — 다시 `[동기화]` 하면 그 부분만 채워집니다."
+    _post_chunks(channel, thread_ts, msg, replace_ts=ph)
 
-    done, failed, summary = 0, 0, []
 
-    def _up(top, mid, sub, val):   # 실패 하나가 전체를 멈추지 않게 — 건너뛰고 카운트
+def _sync_apply(sheet, work: str, content: str) -> tuple[int, int, list]:
+    """동기화 소스 텍스트 → LLM 스키마 파싱 → 시트 upsert. 슬랙 무관(백그라운드 재사용).
+    반환 (done, failed, summary). JSON 파싱 실패 시 ValueError."""
+    from bot.sheet_bible import CHAR_SUBS
+    raw = generator.complete(prompts.SYNC_SYSTEM + content,
+                             "위 문서를 스키마 JSON으로 변환하라.", timeout=600)
+    data = _json_loads(raw)   # 실패 시 예외 → 호출부가 ValueError로 처리
+    done = failed = 0
+    summary: list = []
+
+    def _up(top, mid, sub, val):
         nonlocal done, failed
         try:
-            sheet.upsert(work, top, mid, sub, val)
-            done += 1
+            sheet.upsert(work, top, mid, sub, val); done += 1
         except Exception:
             failed += 1
             log.warning("sync upsert 실패: %s/%s/%s", top, mid, sub)
@@ -944,14 +958,7 @@ def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
         summary.append(f"대본 {len(scr)}화")
 
     sheet.invalidate(work)
-    if not done:
-        _post_chunks(channel, thread_ts,
-                     "동기화했지만 반영된 항목이 없어요. 노션 내용/소제목을 확인해 주세요.", replace_ts=ph)
-        return
-    msg = f"✅ *{work}* 노션 동기화 — {done}개 반영.\n· " + "\n· ".join(summary)
-    if failed:
-        msg += f"\n⚠️ {failed}개는 네트워크 문제로 실패 — 다시 `[동기화]` 하면 그 부분만 채워집니다."
-    _post_chunks(channel, thread_ts, msg, replace_ts=ph)
+    return done, failed, summary
 
 
 # [재미] 항목 가중치 (①훅 ②전개 ③감정 ④장면 ⑤엔딩 순)
@@ -1260,7 +1267,60 @@ def on_message(event, ack):
     _handle(event)
 
 
+_NOTION_POLL_SEC = 600                                   # 노션 변경 확인 주기(초)
+_NOTION_STATE = config.BASE_DIR / "data" / "notion_state.json"
+
+
+def _load_notion_state() -> dict:
+    try:
+        return json.loads(_NOTION_STATE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_notion_state(st: dict) -> None:
+    try:
+        _NOTION_STATE.parent.mkdir(parents=True, exist_ok=True)
+        _NOTION_STATE.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        log.warning("notion_state 저장 실패")
+
+
+def _notion_autosync_loop() -> None:
+    """등록된 작품의 노션 페이지를 주기적으로 확인해, 마지막 수정 시각이 바뀌었을 때만
+    전체 동기화 → 시트 반영. 실무자는 [동기화]를 안 쳐도 됨. (변경 없으면 LLM 안 돌림)"""
+    from bot import notion_sync
+    time.sleep(20)   # 기동 직후 소켓 안정될 때까지 대기
+    while True:
+        try:
+            sheet = reference.sheet()
+            if sheet and config.NOTION_TOKEN and config.NOTION_PAGES:
+                st = _load_notion_state()
+                for work, page_id in config.NOTION_PAGES.items():
+                    try:
+                        le = notion_sync.page_last_edited(page_id)
+                    except Exception:
+                        log.warning("노션 수정시각 조회 실패: %s", work)
+                        continue
+                    if le and le != st.get(work):
+                        log.info("노션 변경 감지 → 자동 동기화: %s", work)
+                        try:
+                            content = notion_sync.page_text(page_id)
+                            done, failed, _ = _sync_apply(sheet, work, content)
+                            st[work] = le
+                            _save_notion_state(st)
+                            log.info("자동 동기화 완료: %s (%d 반영, %d 실패)", work, done, failed)
+                        except Exception:
+                            log.exception("자동 동기화 실패: %s", work)
+        except Exception:
+            log.exception("autosync 루프 오류")
+        time.sleep(_NOTION_POLL_SEC)
+
+
 if __name__ == "__main__":
     generator.healthcheck()  # Anthropic 자격증명 확인 (내부 Claude Code 팀 로그인 or API 키)
     log.info("co-writer-bot 시작 (backend=%s, reference=%s)", config.BACKEND, config.REFERENCE_DIR)
+    if config.NOTION_TOKEN and config.NOTION_PAGES:
+        threading.Thread(target=_notion_autosync_loop, daemon=True).start()
+        log.info("노션 자동 동기화 ON (%d개 작품, %d초 주기)", len(config.NOTION_PAGES), _NOTION_POLL_SEC)
     SocketModeHandler(app, config.SLACK_APP_TOKEN).start()

@@ -96,3 +96,11 @@ def page_text(page_id: str, token: str | None = None) -> str:
     if not token:
         raise RuntimeError("NOTION_TOKEN 미설정")
     return _render(_children(page_id, token), token).strip()
+
+
+def page_last_edited(page_id: str, token: str | None = None) -> str:
+    """페이지 마지막 수정 시각(ISO). 변경 감지용 — 싼 단일 호출."""
+    token = token or config.NOTION_TOKEN
+    if not token:
+        raise RuntimeError("NOTION_TOKEN 미설정")
+    return (_get(f"pages/{page_id}", token) or {}).get("last_edited_time", "")
