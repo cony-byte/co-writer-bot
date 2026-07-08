@@ -134,11 +134,18 @@ def _cancelled(channel: str, thread_ts: str, ph: str | None) -> bool:
     return False
 
 
+def _mrkdwn(text: str) -> str:
+    """표준 마크다운 → 슬랙 mrkdwn. **볼드**→*볼드*, ## 헤더 → 굵은 줄."""
+    text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text or "")          # **x** → *x*
+    text = re.sub(r"(?m)^\s{0,3}#{1,6}\s*(.+?)\s*$", r"*\1*", text)  # # 헤더 → *굵은 줄*
+    return text
+
+
 def _post_chunks(channel: str, thread_ts: str, text: str, replace_ts: str | None = None) -> None:
     """슬랙 메시지 길이 제한(4000자) 대응 — 문단 경계로 분할 전송.
     replace_ts가 있으면 첫 청크로 그 플레이스홀더를 교체(update)한다."""
     chunk, chunks = "", []
-    for para in (text or "(빈 응답)").split("\n\n"):
+    for para in _mrkdwn(text or "(빈 응답)").split("\n\n"):
         if len(chunk) + len(para) + 2 > 3800:
             chunks.append(chunk)
             chunk = para
