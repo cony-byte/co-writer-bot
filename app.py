@@ -25,7 +25,7 @@ import urllib.request
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
-from bot import config, generator, prompts, reference
+from bot import config, generator, prefs, prompts, reference
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("co-writer")
@@ -49,6 +49,8 @@ CMD_FEEDBACK = {"피드백", "feedback", "평가", "리뷰", "review"}          
 CMD_FB_FUN = {"재미", "피드백 재미", "피드백재미", "fun"}                 # 재미만
 CMD_FB_LOGIC = {"개연성", "피드백 개연성", "피드백개연성", "논리", "logic"}  # 개연성만
 CMD_STOP = {"멈춰", "멈춤", "중지", "정지", "스톱", "그만", "stop", "cancel"}
+CMD_LIKE = {"좋아", "좋아요", "굿", "like", "👍"}
+CMD_DISLIKE = {"별로", "별로야", "싫어", "노", "dislike", "👎"}
 _CANCEL: set[str] = set()   # 취소 요청된 thread_ts (생성 결과를 버림)
 CMD_REFRESH = {"새로고침", "refresh"}
 CMD_RELOAD = {"리로드", "reload"}
@@ -73,6 +75,7 @@ _HELP = (
     "[아이디어] <날혐남> 서아 힘든 거 어떻게 보여주지?  ← 구체적 상황 제안\n"
     "[피드백] <날혐남> (대본)  ← 재미+개연성 / [재미]·[개연성]로 따로도 가능\n"
     "[동기화] <날혐남> (노션 내용 통째로 붙여넣기)  ← 노션→시트 반영\n"
+    "[좋아]/[별로] (생성물 스레드에서, 뒤에 이유)  ← 다음 생성에 학습 (별로는 바로 다시 뽑음)\n"
     "```\n"
     "• `[입력]` 새로 저장 / `[수정]` 기존 고침 / `[생성]` 초안 / `[아이디어]` 상황제안 / `[변환]` 촬영대본 / `[트렌드]` 조회 / `[멈춰]` 중지\n"
     "• 이름만: 로그라인·키워드·타겟층·핵심정서·줄거리·금지사항·진행상태 (뒤에 바로 내용)\n"
@@ -388,6 +391,56 @@ def _progress_episode(bible: dict | None, prefer: list[str]) -> int | None:
     return next(iter(prog.values()), None) or bible.get("current_episode")
 
 
+def _thread_gen_context(messages: list[dict]) -> tuple:
+    """스레드에서 마지막 [생성] 맥락(작품·타입·회차)과 마지막 생성물 초안을 추출."""
+    from bot.sheet_bible import parse_path
+    work = top = None
+    episode = None
+    draft = ""
+    for m in messages:
+        if m["role"] == "assistant" and len(m["content"]) > 60:
+            draft = m["content"]
+        elif m["role"] == "user":
+            cm = CMD_RE.match(m["content"])
+            if cm and cm.group(1).strip() in CMD_GEN:
+                sm = SUB_RE.match(cm.group(2))
+                if sm:
+                    work = sm.group(1).strip()
+                    pl = (sm.group(2).splitlines() or [""])[0]
+                    tp = parse_path(re.sub(r"\s*강도\s*\S+", "", pl).strip())
+                    if tp:
+                        top = tp[0]
+                    em = re.search(r"(\d+)\s*화", pl)
+                    episode = int(em.group(1)) if em else episode
+    return work, top, episode, draft
+
+
+def _with_prefs(req: str, work: str | None, top: str) -> str:
+    """생성 요청에 관련 선호 피드백(좋아/별로)을 검색해 붙인다."""
+    if not work:
+        return req
+    pos, neg = prefs.retrieve(work, top, req)
+    block = prefs.format_block(pos, neg)
+    return (req + "\n\n" + block) if block else req
+
+
+def _do_pref(channel: str, thread_ts: str, rest: str, sign: str) -> None:
+    """[좋아]/[별로] — 스레드의 생성물에 대한 반응 저장. 별로면 반영해 재생성."""
+    messages = _thread_messages(channel, thread_ts)
+    work, top, episode, draft = _thread_gen_context(messages)
+    if not work or len(draft) < 30:
+        _reply(channel, thread_ts, "생성물 스레드에서 `[좋아]`/`[별로]` (뒤에 이유 적어도 됨)로 눌러 주세요.")
+        return
+    prefs.add(work, sign, top, episode, rest.strip(), draft)
+    if sign == "+":
+        _reply(channel, thread_ts, f"👍 저장했어요. 다음 {top or '생성'}부터 이 방향을 살립니다.")
+        return
+    _reply(channel, thread_ts, "👎 저장했어요. 반영해서 다시 뽑을게요…")
+    if top:   # 같은 작품/타입/회차로 재생성 (누적 피드백 반영)
+        ep = f"/{episode}화" if episode else ""
+        _do_generate(channel, thread_ts, f"<{work}> {top}{ep}")
+
+
 def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
     """[생성] <작품> 경로(대본/N화 등) → 바이블 참고 생성 + 시트 저장."""
     from bot.sheet_bible import parse_path
@@ -436,6 +489,7 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
     if all_lvls:
         notes_c = re.sub(r"강도\s*(전체|전부|모두|비교|1\s*[~\-]\s*5|1to5)[^\n]*", "", notes).strip()
         req = f"'{work}' {what}를 생성해줘." + (f"\n\n[반드시 반영할 포인트]\n{notes_c}" if notes_c else "")
+        req = _with_prefs(req, work, top)
         _CANCEL.discard(thread_ts)
         ph = _thinking(channel, thread_ts, f"{what} 강도 1~5단계 순서대로 뽑는 중이에요… (좀 걸려요)")
         first = True
@@ -457,6 +511,7 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
     req = f"'{work}' {what}를 생성해줘."
     if notes:
         req += f"\n\n[이번 생성에 반드시 반영할 포인트]\n{notes}"
+    req = _with_prefs(req, work, top)             # 관련 좋아/별로 피드백 주입
     messages[-1] = {"role": "user", "content": req}
     _CANCEL.discard(thread_ts)                    # 이전 취소 플래그 정리
     ph = _thinking(channel, thread_ts, f"{what} 초안 쓰는 중이에요…")
@@ -944,6 +999,10 @@ def _handle(event: dict) -> None:
         _do_feedback(channel, thread_ts, rest_f, mode="logic")
     elif cmd in CMD_STOP:
         _do_stop(channel, thread_ts)
+    elif cmd in CMD_LIKE:
+        _do_pref(channel, thread_ts, rest, "+")
+    elif cmd in CMD_DISLIKE:
+        _do_pref(channel, thread_ts, rest, "-")
     elif cmd in CMD_INPUT:
         _do_input(channel, thread_ts, rest, mode="create")
     elif cmd in CMD_EDIT:
