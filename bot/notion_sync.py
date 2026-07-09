@@ -104,3 +104,69 @@ def page_last_edited(page_id: str, token: str | None = None) -> str:
     if not token:
         raise RuntimeError("NOTION_TOKEN 미설정")
     return (_get(f"pages/{page_id}", token) or {}).get("last_edited_time", "")
+
+
+# ── 쓰기: 페이지에 마크다운을 노션 블록으로 append ─────────────────────────
+
+def extract_page_id(url_or_id: str) -> str | None:
+    """노션 URL/ID에서 32자리 페이지 id 추출 (대시 유무·타이틀 슬러그 무관)."""
+    import re
+    m = re.search(r"([0-9a-fA-F]{32})", (url_or_id or "").replace("-", ""))
+    return m.group(1) if m else None
+
+
+def _rich(text: str) -> list:
+    """**볼드** 파싱 → rich_text 배열. 세그먼트당 2000자 제한 청킹."""
+    import re
+    out = []
+    for i, seg in enumerate(re.split(r"\*\*(.+?)\*\*", text)):
+        if not seg:
+            continue
+        bold = (i % 2 == 1)
+        for j in range(0, len(seg), 1900):
+            out.append({"type": "text", "text": {"content": seg[j:j + 1900]},
+                        "annotations": {"bold": bold}})
+    return out or [{"type": "text", "text": {"content": " "}}]
+
+
+def _md_to_blocks(md: str) -> list:
+    """간단 마크다운 → 노션 블록. ## 제목·- 불릿·나머지 문단. (기획안 구조용)"""
+    blocks = []
+    for line in (md or "").split("\n"):
+        s = line.rstrip()
+        if not s.strip():
+            continue
+        if s.startswith("### "):
+            blocks.append({"object": "block", "type": "heading_3",
+                           "heading_3": {"rich_text": _rich(s[4:])}})
+        elif s.startswith("## "):
+            blocks.append({"object": "block", "type": "heading_2",
+                           "heading_2": {"rich_text": _rich(s[3:])}})
+        elif s.startswith("# "):
+            blocks.append({"object": "block", "type": "heading_1",
+                           "heading_1": {"rich_text": _rich(s[2:])}})
+        elif s.lstrip()[:2] in ("- ", "* "):
+            blocks.append({"object": "block", "type": "bulleted_list_item",
+                           "bulleted_list_item": {"rich_text": _rich(s.lstrip()[2:])}})
+        else:
+            blocks.append({"object": "block", "type": "paragraph",
+                           "paragraph": {"rich_text": _rich(s)}})
+    return blocks
+
+
+def append_markdown(page_id: str, md: str, token: str | None = None) -> None:
+    """마크다운을 노션 블록으로 변환해 페이지 하위에 append. 100블록씩 나눠 PATCH.
+    권한/연결 부족 시 HTTPError를 그대로 올림(호출부에서 안내)."""
+    token = token or config.NOTION_TOKEN
+    if not token:
+        raise RuntimeError("NOTION_TOKEN 미설정")
+    blocks = _md_to_blocks(md)
+    for i in range(0, len(blocks), 100):
+        chunk = blocks[i:i + 100]
+        data = json.dumps({"children": chunk}).encode("utf-8")
+        req = urllib.request.Request(
+            f"{_API}blocks/{page_id}/children", data=data, method="PATCH",
+            headers={"Authorization": f"Bearer {token}", "Notion-Version": _VER,
+                     "Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            r.read()

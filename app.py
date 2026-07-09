@@ -939,6 +939,12 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
 def _do_plan(channel: str, thread_ts: str, rest: str) -> None:
     """[기획] 컨셉·로그라인 → 노션 기획안 구조 초안 (로그라인·타겟·인물·줄거리·회차분배). 초안만, 자동저장 X."""
     concept = rest.strip()
+    # 노션 페이지 링크가 있으면 → 생성 후 그 페이지에 기획안을 기록(append)
+    from bot import notion_sync
+    nm = re.search(r"https?://\S*notion\.\S+", concept)
+    write_page_id = notion_sync.extract_page_id(nm.group(0)) if nm else None
+    if nm:
+        concept = concept.replace(nm.group(0), "").strip()   # 링크는 컨셉에서 제거
     # 스레드에서 [기획]을 치면 그 스레드 대화(트렌드·아이디어 논의 등)를 근거로 삼는다.
     messages = _thread_messages(channel, thread_ts)
     thread_ctx = _convo_text(messages) if len(messages) > 1 else ""
@@ -973,8 +979,17 @@ def _do_plan(channel: str, thread_ts: str, rest: str) -> None:
         return
     if _cancelled(channel, thread_ts, ph):
         return
-    answer += "\n\n_📝 기획안 초안입니다. 다듬어서 노션에 넣고 `[생성]`으로 개요·대본을 뽑으세요._"
-    _post_chunks(channel, thread_ts, answer or "(빈 응답)", replace_ts=ph)
+    # 링크가 주어졌으면 그 노션 페이지에 기획안 본문을 기록
+    footer = "\n\n_📝 기획안 초안입니다. 다듬어서 `[생성]`으로 개요·대본을 뽑으세요._"
+    if write_page_id and config.NOTION_TOKEN:
+        try:
+            notion_sync.append_markdown(write_page_id, answer)
+            footer = "\n\n_✅ 위 기획안을 노션 페이지에 기록했어요. (초안 — 다듬어 쓰세요)_"
+        except Exception:
+            log.exception("notion append failed")
+            footer = ("\n\n_⚠️ 노션 기록 실패 — 통합에 '콘텐츠 삽입/업데이트' 권한이 있고 "
+                      "그 페이지가 통합에 연결됐는지 확인해 주세요. (초안은 위에 있어요)_")
+    _post_chunks(channel, thread_ts, (answer or "(빈 응답)") + footer, replace_ts=ph)
 
 
 def _do_idea(channel: str, thread_ts: str, rest: str) -> None:
