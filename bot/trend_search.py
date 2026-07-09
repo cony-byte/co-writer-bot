@@ -89,12 +89,10 @@ class TrendSearch:
         return any(t.lower() in hay for t in terms)
 
     def _passes_quality(self, x):
+        # 주의: require_script·min_script_chars는 '뷰어'용 규칙이라 트렌드에는 적용 안 함.
+        # 트렌드는 태그·지표로 집계하므로 대본 유무와 무관 — 적용하면 유효 데이터가 깎여
+        # 풀이 92→58로 줄어드는 회귀(필터복구 핸드오프의 92편 기준과 어긋남). 진짜 배제만 적용.
         vr = self._view_rules
-        if vr.get("require_script") and not x.get("script"):
-            return False
-        mn = vr.get("min_script_chars") or 0
-        if mn and len(self._field_text(x, "script")) < mn:
-            return False
         if vr.get("hide_needs_review") and x.get("needs_review"):
             return False
         terms = self._excl.get("any") or []
