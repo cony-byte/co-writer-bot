@@ -961,17 +961,18 @@ def _sync_apply(sheet, work: str, content: str) -> tuple[int, int, list]:
     return done, failed, summary
 
 
-# [재미] 6기준 (①몰입 ②명확 ③기대 ④속도 ⑤주체 ⑥강약) — 동일 가중, 평균×10
+# [재미] 6기준 (①몰입 ②명확 ③기대 ④속도 ⑤주체 ⑥강약) + 가중치(합 125 → 100 환산)
 _FUN_LABELS = ["몰입", "명확", "기대", "속도", "주체", "강약"]
+_FUN_WEIGHTS = [25, 20, 25, 20, 10, 25]
 
 
 def _verify_fun_score(text: str) -> str:
-    """LLM이 매긴 6개 항목 점수를 코드로 평균내 종합점수를 맨 위에 붙인다(산수 오류 방지)."""
+    """LLM이 매긴 6개 항목 점수를 코드로 가중합·환산해 종합점수를 맨 위에 붙인다(산수 오류 방지)."""
     scores = re.findall(r"(\d+)\s*/\s*10", text)   # '[8/10]' 또는 '점수 8/10' 모두
     if len(scores) < 6:
         return text
     s = [int(x) for x in scores[:6]]
-    total = sum(s) / len(s) * 10
+    total = sum(a * b for a, b in zip(s, _FUN_WEIGHTS)) / sum(_FUN_WEIGHTS) * 10
     # 실무자 핵심 질문: "시청자가 봤을 때 재밌을까?" → 한눈 판정
     fun = ("🔥 재밌음" if total >= 75 else
            "🙂 볼 만함" if total >= 60 else
