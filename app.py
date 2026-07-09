@@ -317,6 +317,9 @@ def _parse_outline_records(content: str, seed: str | None = None) -> list[tuple[
 
 
 _DRAFT_FOOT_RE = re.compile(r"(확정하려면|초안입니다|수정하고 싶은 부분|저장하세요|📝 초안|_✅|_⚠️|다듬어서)")
+_IDEA_INTENT_RE = re.compile(
+    r"아이디어|브레인스토|떠올려|뭐하지|뭐 하지|뭐가 좋을까|어떻게 (할까|하지|풀|가)"
+    r"|뭘 넣|무슨 사건|사건.{0,4}(뭐|무엇|어떤|없)|제안 좀|뭐 없을까|어떤 게 좋")
 _CONFIRM_RE = re.compile(
     r"^\s*(?:(?:오|아|음|응|엉|네|넵|예|그래|자|ok|okay|오케이?|오케|굿|good|좋아|좋아요|ㅇㅋ|ㅇㅇ|그럼)[\s,.!~]*)*"
     r"(?:이(?:거|걸|것|그거|걸로|거로)?\s*)?(?:확정|입력|저장|반영)"
@@ -337,8 +340,18 @@ def _strip_draft_footer(text: str) -> str:
 
 
 def _last_assistant_draft(channel: str, thread_ts: str) -> str:
-    """스레드에서 가장 최근의 봇 초안 본문 (안내 꼬리말 제거). 없으면 ''."""
-    for m in reversed(_thread_messages(channel, thread_ts)):
+    """스레드에서 가장 최근의 '실제 초안' 본문. 오류·확정 안내 텍스트에 안 흔들리게,
+    초안 꼬리말(초안입니다·확정하려면·[입력] …)이 붙은 메시지를 우선으로 찾는다."""
+    msgs = _thread_messages(channel, thread_ts)
+    # 1) 초안 꼬리말이 있는 봇 메시지 = 진짜 생성 초안 (에러/확정성공 메시지엔 꼬리말 없음)
+    for m in reversed(msgs):
+        if m["role"] != "assistant" or not _DRAFT_FOOT_RE.search(m["content"]):
+            continue
+        t = _strip_draft_footer(m["content"])
+        if len(t) >= 20:
+            return t
+    # 2) 폴백: 가장 최근의 충분히 긴 봇 메시지
+    for m in reversed(msgs):
         if m["role"] != "assistant":
             continue
         t = _strip_draft_footer(m["content"])
@@ -358,8 +371,25 @@ def _draft_save_cmd(channel: str, thread_ts: str) -> str | None:
     return None
 
 
+def _push_section_to_notion(work: str, top: str, mid: str, content: str) -> bool:
+    """개요/대본/줄거리를 작품의 노션 페이지에 섹션 업서트(있으면 교체·없으면 추가). 반영되면 True."""
+    if top not in ("개요", "대본", "줄거리") or not content.strip() or not config.NOTION_TOKEN:
+        return False
+    pid = works.page_of(work)
+    if not pid:
+        return False
+    from bot import notion_sync
+    heading = "줄거리" if top == "줄거리" else f"{top} {mid}".strip()
+    try:
+        notion_sync.upsert_section(pid, heading, content)
+        return True
+    except Exception:
+        log.exception("notion 섹션 업서트 실패: %s / %s", work, heading)
+        return False
+
+
 def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
-    """[입력](신규) / [수정](기존) / 'save'(확정 저장) — <작품> 경로 + 내용 → 시트 저장.
+    """[입력](신규) / [수정](기존) / 'save'(확정 저장) — <작품> 경로 + 내용 → 시트 저장 + 노션 반영.
     내용이 비고 개요/대본/줄거리면 스레드 직전 봇 초안을 자동으로 가져와 저장.
     mode='create': 이미 있으면 거부 / 'update': 없으면 거부 / 'save': 게이트 없이 upsert."""
     from bot.sheet_bible import parse_path, split_command, TABLE_SUBS
@@ -384,10 +414,12 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
         return
     top, mid, sub = triple
     # 내용을 안 적었고 서사 항목이면 → 스레드 직전 봇 초안을 확정 저장 (사람이 "이걸로 확정" 하는 흐름)
+    captured = False
     if not content.strip() and top in ("개요", "대본", "줄거리"):
         draft = _last_assistant_draft(channel, thread_ts)
         if draft:
             content = draft
+            captured = True
             mode = "save"                # 초안 확정 = 덮어쓰기 (빈 행/기존값 있어도 저장)
         else:
             _reply(channel, thread_ts,
@@ -440,7 +472,8 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
     # 개요·대본: 경로에 화가 없거나 'N화' 헤더가 있으면 여러 화를 한 번에
     if top in ("개요", "대본"):
         records = _parse_outline_records(content, seed=mid or None)
-        multi = (not mid) or len(records) > 1        # 단순 케이스(경로+단일 내용)는 기존 흐름에 맡김
+        # 화(mid)가 지정됐는데 초안 캡처면 통째로 그 화에 저장 (초안 안에 'N화'가 있어도 쪼개지 않음)
+        multi = (not mid) or (len(records) > 1 and not captured)
         if multi:
             if not records:
                 _reply(channel, thread_ts,
@@ -449,14 +482,18 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
                 return
             verb = "수정" if mode == "update" else "저장"
             icon = "✏️" if mode == "update" else "✅"
+            pushed = 0
             for hwa, body in records:
                 r = sheet.upsert(work, top, hwa, "", body)
                 if isinstance(r, dict) and r.get("error"):
                     _reply(channel, thread_ts, f"⚠️ {hwa} {verb} 실패: {r['error']}")
                     return
+                if _push_section_to_notion(work, top, hwa, body):
+                    pushed += 1
             sheet.invalidate(work)
             names = ", ".join(hwa for hwa, _ in records)
-            _reply(channel, thread_ts, f"{icon} *{work}* / {top} — {names} {verb}했어요.")
+            note = " · 노션에도 반영" if pushed else ""
+            _reply(channel, thread_ts, f"{icon} *{work}* / {top} — {names} {verb}했어요.{note}")
             return
 
     # 내용이 없어도 분류(경로)만 유효하면 빈 칸으로 저장 (나중에 채우기)
@@ -475,9 +512,10 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
             _reply(channel, thread_ts, f"⚠️ 저장 못 했어요: {res['error']}")
             return
         sheet.invalidate(work)
+        note = " · 노션에도 반영" if _push_section_to_notion(work, top, mid, content) else ""
         verb = "수정" if mode == "update" else "저장"
         icon = "✏️" if mode == "update" else "✅"
-        _reply(channel, thread_ts, f"{icon} *{work}* / {label} {verb}했어요.")
+        _reply(channel, thread_ts, f"{icon} *{work}* / {label} {verb}했어요.{note}")
     except Exception:
         log.exception("input upsert failed")
         _reply(channel, thread_ts, "⚠️ 시트 저장에 실패했어요. 잠시 후 다시 시도해 주세요.")
@@ -1234,6 +1272,9 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
 
     bible = _override_intensity(bible, feedback)   # '강도 N으로 바꿔' → 이번 수정만 그 레벨로 재보정
     mode = _thread_origin_mode(messages)
+    # 답글이 '아이디어 떠올려줘 / 사건 뭐하지?' 류면 직전 활동과 무관하게 아이디어 모드로
+    if _IDEA_INTENT_RE.search(feedback):
+        mode = "idea"
     _CANCEL.discard(thread_ts)
     # 스토리보드 스레드: 지금 설계안(plan) 단계인지 상세(detail) 단계인지에 따라 후속 처리가 다름
     sb_stage = _sb_stage(messages) if mode == "sb" else None

@@ -257,19 +257,52 @@ def replace_from_section(page_id: str, new_md: str, section_idx: int, token: str
         append_markdown(page_id, tail, token)
 
 
-def append_markdown(page_id: str, md: str, token: str | None = None) -> None:
+def append_markdown(page_id: str, md: str, token: str | None = None,
+                    after: str | None = None) -> None:
     """마크다운을 노션 블록으로 변환해 페이지 하위에 append. 100블록씩 나눠 PATCH.
-    권한/연결 부족 시 HTTPError를 그대로 올림(호출부에서 안내)."""
+    after: 그 블록 '바로 뒤'에 삽입(첫 청크만). 권한/연결 부족 시 HTTPError 그대로 올림."""
     token = token or config.NOTION_TOKEN
     if not token:
         raise RuntimeError("NOTION_TOKEN 미설정")
     blocks = _md_to_blocks(md)
     for i in range(0, len(blocks), 100):
         chunk = blocks[i:i + 100]
-        data = json.dumps({"children": chunk}).encode("utf-8")
+        body: dict = {"children": chunk}
+        if after and i == 0:
+            body["after"] = after
+        data = json.dumps(body).encode("utf-8")
         req = urllib.request.Request(
             f"{_API}blocks/{page_id}/children", data=data, method="PATCH",
             headers={"Authorization": f"Bearer {token}", "Notion-Version": _VER,
                      "Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=30) as r:
             r.read()
+
+
+def upsert_section(page_id: str, heading: str, body_md: str, token: str | None = None) -> None:
+    """'## <heading>' 섹션을 업서트. 같은 제목 heading_2가 있으면 그 아래 내용만 교체,
+    없으면 페이지 끝에 '## heading' + 내용 추가. (개요/대본/줄거리를 노션에 중복 없이 반영)"""
+    import re
+    token = token or config.NOTION_TOKEN
+    if not token:
+        raise RuntimeError("NOTION_TOKEN 미설정")
+    norm = lambda s: re.sub(r"\s+", "", s or "").lower()
+    tgt = norm(heading)
+    children = _children(page_id, token)
+    hidx = None
+    for i, b in enumerate(children):
+        if b.get("type") == "heading_2" and norm(_rt((b.get("heading_2") or {}).get("rich_text"))) == tgt:
+            hidx = i
+            break
+    if hidx is None:                                  # 없으면 끝에 새 섹션
+        append_markdown(page_id, f"## {heading}\n{body_md}", token)
+        return
+    hid = children[hidx]["id"]                         # 있으면 그 heading 아래~다음 heading_2 전까지 비우고 교체
+    for b in children[hidx + 1:]:
+        if b.get("type") == "heading_2":
+            break
+        try:
+            _patch(f"blocks/{b['id']}", {"archived": True}, token)
+        except Exception:
+            log.warning("섹션 블록 archive 실패: %s", b.get("id"))
+    append_markdown(page_id, body_md, token, after=hid)
