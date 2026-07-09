@@ -813,13 +813,18 @@ def _do_storyboard(channel: str, thread_ts: str, rest: str, stage: int = 1) -> N
             return
         prior_conti = _last_assistant_with(msgs, ["[2단계]"])
         ph = _thinking(channel, thread_ts, "상세 콘티(GPT 이미지용) 만드는 중이에요… (몇 초~1분)")
-        base = _convo_text(msgs) + ref_block + f"\n\n[확정 씬 설계안]\n{prior_plan}"
+        # ※ 1단계 수정은 '바뀐 씬만' 나오므로, 마지막 설계안 조각만 쓰면 나머지가 샌다.
+        #    대화 전체(최초 전체 설계안 + 이후 수정들)를 주고 '최종 씬 구성'을 재구성하게 한다.
+        base = _convo_text(msgs) + ref_block
+        recon = ("위 대화에는 '씬 설계안' 전체본과 그 뒤 부분 수정('바꾼 점' + 바뀐 씬)들이 섞여 있다. "
+                 "이 둘을 합쳐 **최종 씬 구성(씬 수·순서·각 씬 시간)** 을 스스로 재구성하라. "
+                 "(수정된 씬은 최신본으로, 안 바뀐 씬은 최초본대로.)")
         if prior_conti and instr:         # 이미 콘티가 있고 수정 지시 → 바뀐 부분만
             user = base + (f"\n\n(위 상세 콘티를 이 요청대로 고쳐라: '{instr}'. "
                            "바뀐 샷/구간만, 맨 위 '바꾼 점:' 한 줄. 대본 내용 불변. 전체 재출력 금지.)")
         else:
-            user = base + ("\n\n(위 [확정 씬 설계안]의 씬 순서·시간을 지켜, [원본 대본]을 영상문법가이드 정본 예시처럼 "
-                           "샷 단위 상세 콘티로 전개하라. 대본의 사건·행동·대사는 하나도 바꾸지 마라.)")
+            user = base + (f"\n\n({recon} 그 최종 구성의 씬 순서·시간을 지켜, [원본 대본]을 "
+                           "영상문법가이드 정본 예시처럼 샷 단위 상세 콘티로 전개하라. 대본의 사건·행동·대사는 하나도 바꾸지 마라.)")
         try:
             ans = generator.complete(prompts.storyboard_system(bible, target_episode=target),
                                      user, timeout=300)
