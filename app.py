@@ -134,6 +134,25 @@ def _thread_messages(channel: str, thread_ts: str) -> list[dict]:
     return messages
 
 
+def _work_from_thread(joined: str) -> str | None:
+    """스레드 텍스트에서 작품 회수: ①노션 링크 → 등록 작품 ②<작품> 토큰(URL 제외).
+    슬랙이 감싼 링크 `<https://…>`를 작품명으로 오인하지 않게 함."""
+    lm = re.search(r"https?://\S*notion\.\S+", joined or "")
+    if lm:
+        from bot import notion_sync
+        pid = notion_sync.extract_page_id(lm.group(0))
+        if pid:
+            w = works.work_by_page(pid)
+            if w:
+                return w
+    for w in re.findall(r"<\s*([^>]+?)\s*>", joined or ""):
+        w = w.strip()
+        if w.startswith("http") or "notion." in w:
+            continue
+        return w
+    return None
+
+
 def _thinking(channel: str, thread_ts: str, note: str = "생성 중이에요… (몇 초~1분)") -> str | None:
     """진행 표시용 플레이스홀더 메시지. 완료되면 _post_chunks(replace_ts=...)로 교체됨."""
     try:
@@ -822,10 +841,9 @@ def _do_storyboard(channel: str, thread_ts: str, rest: str, stage: int = 1) -> N
         q = wm.group(2).strip()
     msgs = _thread_messages(channel, thread_ts)
     joined = "\n".join(m["content"] for m in msgs)
-    # 작품: rest → 스레드에서 <작품> 회수
+    # 작품: rest → 스레드에서 회수 (노션 링크/·<작품>, URL 오인 방지)
     if not work:
-        wm2 = re.search(r"<\s*([^>]+?)\s*>", joined)
-        work = wm2.group(1).strip() if wm2 else None
+        work = _work_from_thread(joined)
     if work:
         work = works.resolve(work) or work          # 별칭 → 정식 작품명
         sheet = reference.sheet()
@@ -934,8 +952,7 @@ def _do_storyboard_images(channel: str, thread_ts: str, rest: str) -> None:
     msgs = _thread_messages(channel, thread_ts)
     joined = "\n".join(m["content"] for m in msgs)
     if not work:
-        wm2 = re.search(r"<\s*([^>]+?)\s*>", joined)
-        work = wm2.group(1).strip() if wm2 else None
+        work = _work_from_thread(joined)
     bible = None
     if work:
         sheet = reference.sheet()
@@ -1135,8 +1152,7 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
         _reply(channel, thread_ts, _HELP)
         return
     joined = "\n".join(m["content"] for m in messages)
-    wm = re.search(r"<\s*([^>]+?)\s*>", joined)
-    work = wm.group(1).strip() if wm else None
+    work = _work_from_thread(joined)
     work = (works.resolve(work) or work) if work else None    # 별칭 → 정식 작품명
     em = re.search(r"(\d+)\s*화", feedback) or re.search(r"(\d+)\s*화", joined)
     target = int(em.group(1)) if em else None
@@ -1485,8 +1501,10 @@ _SYNC_SINGLE = {
 
 
 def _alias_clean(tok: str) -> str:
-    """별칭 토큰에서 자연어 꼬리·따옴표·괄호 제거. 예: '코니테스트라고 불러줘' → '코니테스트'."""
+    """별칭 토큰에서 자연어 앞머리·꼬리·따옴표·괄호 제거.
+    예: '이제부터 코니로 불러줘' → '코니', '코니테스트라고 불러줘' → '코니테스트'."""
     t = (tok or "").strip().strip("\"'`<>[]（）()「」《》 ").strip()
+    t = re.sub(r"^(?:이제부터|이제|앞으로|그냥|부터|우리|얘를?|이거를?|이걸|작품을?)\s*", "", t).strip()
     t = re.sub(r"\s*(?:이?라고|으?로)?\s*(?:불러줘|불러|부를게|불러라|해줘|해|하자|할게|등록해?줘?|등록)?$", "", t).strip()
     return t
 
@@ -1507,9 +1525,7 @@ def _do_alias(channel: str, thread_ts: str, rest: str) -> None:
             work, txt = parts[0].strip(), parts[1].strip()
     if not work:                                             # 3) 스레드에서 다룬 작품 회수
         joined = "\n".join(m["content"] for m in _thread_messages(channel, thread_ts))
-        w2 = re.search(r"<\s*([^>]+?)\s*>", joined)
-        if w2:
-            work = w2.group(1).strip()
+        work = _work_from_thread(joined)
     work = (works.resolve(work) or work) if work else None
     aliases = [_alias_clean(a) for a in re.split(r"[,、/]| 그리고 ", txt) if _alias_clean(a)]
     if not work:
@@ -1537,11 +1553,11 @@ def _do_check(channel: str, thread_ts: str, rest: str) -> None:
     if wm:
         work = works.resolve(wm.group(1).strip()) or wm.group(1).strip()
         q = wm.group(2).strip()
-    if not work:                                   # 스레드에서 <작품> 회수
+    if not work:                                   # 스레드에서 작품 회수 (노션 링크/·<작품>)
         joined = "\n".join(m["content"] for m in _thread_messages(channel, thread_ts))
-        w2 = re.search(r"<\s*([^>]+?)\s*>", joined)
+        w2 = _work_from_thread(joined)
         if w2:
-            work = works.resolve(w2.group(1).strip()) or w2.group(1).strip()
+            work = works.resolve(w2) or w2
     if not work:                                   # 등록 작품이 하나뿐이면 그걸로
         reg = works.all_works()
         if len(reg) == 1:

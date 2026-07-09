@@ -117,12 +117,14 @@ def character_refs(work: str | None, names: list[str]) -> list[str]:
 
 
 def generate(prompt: str, *, model: str | None = None, aspect_ratio: str | None = None,
-             refs: list[str] | None = None, timeout: int = 180) -> tuple[bytes, float]:
+             refs: list[str] | None = None, timeout: int | None = None) -> tuple[bytes, float]:
     """이미지 1장 생성 → (PNG bytes, cost$). 실패 시 예외.
 
     refs: 참조 이미지 URL 리스트(캐릭터 일관성용, 선택 — input_references로 전달)."""
     if not config.OPENROUTER_API_KEY:
         raise RuntimeError("OPENROUTER_API_KEY 미설정 — 이미지 생성 불가")
+    if timeout is None:
+        timeout = config.OPENROUTER_IMG_TIMEOUT
     payload: dict = {
         "model": model or config.OPENROUTER_IMAGE_MODEL,
         "prompt": prompt,
