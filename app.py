@@ -45,7 +45,8 @@ CMD_EDIT = {"수정", "편집", "edit"}
 CMD_GEN = {"생성", "generate", "gen"}
 CMD_PLAN = {"기획", "기획안", "작품생성", "plan"}                          # 컨셉 → 기획안 초안(노션 구조)
 CMD_CONVERT = {"변환", "포맷", "대본변환"}
-CMD_STORYBOARD = {"스토리보드", "스보", "storyboard"}                     # 대본 → 씬 스토리보드
+CMD_STORYBOARD = {"스토리보드", "스토리보드1", "스보", "스보1", "씬설계", "storyboard", "storyboard1"}   # 1단계 씬 설계
+CMD_STORYBOARD2 = {"스토리보드2", "스보2", "콘티", "상세콘티", "storyboard2"}                             # 2단계 상세 콘티
 # 스토리보드 스레드에서 이 말이 오면 1단계(씬 설계) → 2단계(상세 콘티)로 넘어감
 SB_GEN_RE = re.compile(r"^\s*(생성|생성해|생성해줘|콘티|상세\s*콘티|만들어|만들어줘|ㄱㄱ|고고)\s*$")
 # 단계 배지 (출력 맨 위에 붙여 슬랙에서 어느 단계인지·다음에 뭘 칠지 보이게). 마커([1단계]/[2단계])는 _sb_stage가 씀.
@@ -81,14 +82,16 @@ _HELP = (
     "[생성] <날혐남> 대본 / 24화     ← 24화 개요+바이블 참고해 생성 (자동 검증 관문 ON)\n"
     "[생성] <날혐남> 대본 / 24화 검증생략   ← 빠르게: 바이블 준수 자동검증 끄기\n"
     "[변환] 휴대폰 보는 연우, 화내며 나감   ← 줄글 상황 → 드라마 대본식 지문으로\n"
-    "[스토리보드] <날혐남> 3화   ← 노션 대본 자동 인식 → 씬 설계 → 「생성」이면 GPT 이미지용 상세 콘티\n"
+    "[스토리보드1] <날혐남> 3화   ← 노션 대본 자동 인식 → 씬 설계(분할·시간)\n"
+    "[스토리보드2] <날혐남>       ← 스레드의 씬 설계를 읽어 GPT 이미지용 상세 콘티\n"
+    "  (수정: 같은 명령 뒤에 지시 — 예 `[스토리보드1] <날혐남> 씬3 8초로` / `[스토리보드2] <날혐남> 씬3 더 세게`)\n"
     "[트렌드] 요즘 뭐가 유행?          ← 쉬운 요약\n"
     "[아이디어] <날혐남> 서아 힘든 거 어떻게 보여주지?  ← 구체적 상황 제안\n"
     "[피드백] <날혐남> (대본)  ← 재미+개연성 / [재미]·[개연성]로 따로도 가능\n"
     "[동기화] <날혐남> (노션 내용 통째로 붙여넣기)  ← 노션→시트 반영\n"
     "[좋아]/[별로] (생성물 스레드에서, 뒤에 이유)  ← 다음 생성에 학습 (별로는 바로 다시 뽑음)\n"
     "```\n"
-    "• `[입력]` 새로 저장 / `[수정]` 기존 고침 / `[생성]` 초안 / `[아이디어]` 상황제안 / `[변환]` 줄글→대본식지문 / `[스토리보드]` 대본→씬 설계→상세 콘티 / `[트렌드]` 조회 / `[멈춰]` 중지\n"
+    "• `[입력]` 새로 저장 / `[수정]` 기존 고침 / `[생성]` 초안 / `[아이디어]` 상황제안 / `[변환]` 줄글→대본식지문 / `[스토리보드1]` 씬 설계·`[스토리보드2]` 상세 콘티 / `[트렌드]` 조회 / `[멈춰]` 중지\n"
     "• 이름만: 로그라인·키워드·타겟층·핵심정서·줄거리·금지사항·진행상태 (뒤에 바로 내용)\n"
     "• 인물/회차분배: 소분류 하나 `인물/강태혁/성별 남` 또는 여러 개를 줄마다 `소분류: 값`\n"
     "  인물 소분류 = 성별·나이·포지션·설정·핵심대사·설명 / 회차분배 = 구간·화수·핵심사건\n"
@@ -728,55 +731,107 @@ def _sb_script_from_bible(bible: dict | None, episode: int | None) -> str:
     return ((bible.get("scripts") or {}).get(f"{episode}화") or "").strip()
 
 
-def _do_storyboard(channel: str, thread_ts: str, rest: str) -> None:
-    """[스토리보드] 1단계 = 씬 설계 (씬 분할 + 시간 배치)만 낸다.
-    상세 스토리보드는 이 스레드에서 씬 설계를 손본 뒤 「생성」이라고 하면 2단계로 만든다.
-    입력 우선순위: 붙여넣은 대본 → 시트(노션) 그 화 대본 → 스레드 직전 봇 출력."""
+def _last_assistant_with(messages: list[dict], markers: list[str]) -> str:
+    """스레드에서 markers 중 하나를 포함하는 '가장 최근 봇 메시지' 본문. 없으면 ''."""
+    for m in reversed(messages):
+        if m["role"] == "assistant" and any(k in m["content"] for k in markers):
+            return m["content"]
+    return ""
+
+
+def _do_storyboard(channel: str, thread_ts: str, rest: str, stage: int = 1) -> None:
+    """스토리보드 — 단계를 '명령'으로 지정하고, 스레드 내용을 직접 읽어 이어간다.
+      [스토리보드1] = 1단계 씬 설계(분할·시간)
+      [스토리보드2] = 2단계 상세 콘티(GPT 이미지용)
+    rest 안에 <작품>·N화·(선택)수정지시를 넣을 수 있다. 대본은 시트(노션)→스레드 순으로 확보.
+    두 단계 모두 스레드를 읽으므로, 재시작·맥락 유실에도 흐름이 끊기지 않는다."""
     q = rest.strip()
     work, bible = None, None
     wm = SUB_RE.match(q)
-    if wm:                              # <작품> 지정 시 시트 바이블(대본·인물 등) 참고
+    if wm:
         work = wm.group(1).strip()
         q = wm.group(2).strip()
+    msgs = _thread_messages(channel, thread_ts)
+    joined = "\n".join(m["content"] for m in msgs)
+    # 작품: rest → 스레드에서 <작품> 회수
+    if not work:
+        wm2 = re.search(r"<\s*([^>]+?)\s*>", joined)
+        work = wm2.group(1).strip() if wm2 else None
+    if work:
         sheet = reference.sheet()
         if sheet:
             try:
                 bible = sheet.get(work)
             except Exception:
                 log.exception("storyboard bible load failed")
-    # 대상 화: 명령에 'N화'가 있으면 그 화, 없으면 바이블 진행상태(대본→개요) 화
-    epm = re.search(r"(\d+)\s*화", q[:200])
+    # 대상 화: rest → 스레드
+    epm = re.search(r"(\d+)\s*화", q) or re.search(r"(\d+)\s*화", joined)
     target = int(epm.group(1)) if epm else _progress_episode(bible, ["대본", "개요"])
-    draft = q
-    src_note = ""
-    if len(draft) < 10:                 # 붙여넣기 없음 → 시트(노션) 그 화 대본 → 스레드 직전 봇 출력
-        sheet_script = _sb_script_from_bible(bible, target)
-        if sheet_script:
-            draft = sheet_script
-            src_note = f"{target}화 대본을 시트(노션)에서 불러와 "
-        else:
-            prior = [m["content"] for m in _thread_messages(channel, thread_ts)
-                     if m["role"] == "assistant"]
-            draft = prior[-1] if prior else ""
-    if len(draft) < 5:
-        _reply(channel, thread_ts,
-               "대본을 못 찾았어요. 아래 중 하나로 주세요:\n"
-               "• `[스토리보드] <날혐남> 3화` — 노션(시트)에 저장된 그 화 대본을 자동으로 불러와요\n"
-               "• `[스토리보드] <날혐남>` 뒤에 대본을 직접 붙여넣기\n"
-               "• 대본을 방금 뽑은 스레드에서 `[스토리보드]`만 치기")
-        return
+    instr = re.sub(r"(\d+)\s*화", "", q).strip()          # 수정 지시/추가 포인트(있으면)
+    script = _sb_script_from_bible(bible, target)
+    ref_block = (f"\n\n[원본 대본 — 사건·행동·대사 하나도 바꾸지 마라]\n{script}" if script else "")
+    prior_plan = _last_assistant_with(msgs, ["[1단계]", "씬 설계안"])
     _CANCEL.discard(thread_ts)
-    ph = _thinking(channel, thread_ts, src_note + "씬을 어떻게 나눌지(분할·시간) 설계하는 중이에요…")
-    try:
-        answer = generator.complete(prompts.storyboard_plan_system(bible, target_episode=target),
-                                    prompts.storyboard_plan_user(draft), timeout=300).strip()
-    except Exception:
-        log.exception("storyboard plan failed")
-        _post_chunks(channel, thread_ts, "씬 설계 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
-        return
+
+    if stage == 1:
+        # 대본 확보: 시트 → rest에 붙여넣은 본문 → 스레드 직전 봇 출력(설계안/콘티 제외)
+        draft = script
+        if not draft:
+            if len(q) >= 20 and not wm:
+                draft = q
+            else:
+                prior = [m["content"] for m in msgs if m["role"] == "assistant"
+                         and "[1단계]" not in m["content"] and "[2단계]" not in m["content"]]
+                draft = prior[-1] if prior else ""
+        if not draft and not prior_plan:
+            _reply(channel, thread_ts,
+                   "대본을 못 찾았어요:\n"
+                   "• `[스토리보드1] <날혐남> 3화` — 노션(시트) 그 화 대본을 자동으로 불러와요\n"
+                   "• 또는 `[스토리보드1] <날혐남>` 뒤에 대본을 붙여넣기")
+            return
+        ph = _thinking(channel, thread_ts,
+                       (f"{target}화 대본으로 " if script else "") + "씬 설계 중이에요…")
+        try:
+            if prior_plan and instr:      # 스레드에 설계안이 이미 있고 수정 지시가 오면 → 수정
+                ans = generator.complete(
+                    prompts.storyboard_plan_system(bible, target_episode=target),
+                    _convo_text(msgs) + ref_block
+                    + f"\n\n(이번은 씬 설계안 수정 요청이다: '{instr}'. 바뀐 씬만, 맨 위 '바꾼 점:' 한 줄. 전체 재출력 금지.)")
+            else:
+                ans = generator.complete(prompts.storyboard_plan_system(bible, target_episode=target),
+                                         prompts.storyboard_plan_user(draft), timeout=300)
+        except Exception:
+            log.exception("storyboard plan failed")
+            _post_chunks(channel, thread_ts, "씬 설계 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
+            return
+        answer = SB_BADGE_PLAN + ans.strip()
+    else:  # stage 2 — 상세 콘티
+        if not prior_plan:
+            _reply(channel, thread_ts,
+                   "먼저 `[스토리보드1] <날혐남> 3화` 로 씬 설계부터 해주세요. "
+                   "(이 스레드에 씬 설계안이 있어야 상세 콘티를 만들어요.)")
+            return
+        prior_conti = _last_assistant_with(msgs, ["[2단계]"])
+        ph = _thinking(channel, thread_ts, "상세 콘티(GPT 이미지용) 만드는 중이에요… (몇 초~1분)")
+        base = _convo_text(msgs) + ref_block + f"\n\n[확정 씬 설계안]\n{prior_plan}"
+        if prior_conti and instr:         # 이미 콘티가 있고 수정 지시 → 바뀐 부분만
+            user = base + (f"\n\n(위 상세 콘티를 이 요청대로 고쳐라: '{instr}'. "
+                           "바뀐 샷/구간만, 맨 위 '바꾼 점:' 한 줄. 대본 내용 불변. 전체 재출력 금지.)")
+        else:
+            user = base + ("\n\n(위 [확정 씬 설계안]의 씬 순서·시간을 지켜, [원본 대본]을 영상문법가이드 정본 예시처럼 "
+                           "샷 단위 상세 콘티로 전개하라. 대본의 사건·행동·대사는 하나도 바꾸지 마라.)")
+        try:
+            ans = generator.complete(prompts.storyboard_system(bible, target_episode=target),
+                                     user, timeout=300)
+        except Exception:
+            log.exception("storyboard conti failed")
+            _post_chunks(channel, thread_ts, "상세 콘티 생성 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
+            return
+        answer = SB_BADGE_BOARD + ans.strip()
+
     if _cancelled(channel, thread_ts, ph):
         return
-    _post_chunks(channel, thread_ts, SB_BADGE_PLAN + (answer or "(빈 응답)"), replace_ts=ph)
+    _post_chunks(channel, thread_ts, answer or "(빈 응답)", replace_ts=ph)
 
 
 def _thread_origin_mode(messages: list[dict]) -> str:
@@ -1520,7 +1575,9 @@ def _handle(event: dict) -> None:
     elif cmd in CMD_CONVERT:
         _do_convert(channel, thread_ts, rest_f)
     elif cmd in CMD_STORYBOARD:
-        _do_storyboard(channel, thread_ts, rest_f)
+        _do_storyboard(channel, thread_ts, rest_f, stage=1)
+    elif cmd in CMD_STORYBOARD2:
+        _do_storyboard(channel, thread_ts, rest_f, stage=2)
     elif cmd in CMD_TREND:
         _do_trend(channel, thread_ts, rest)
     elif cmd in CMD_SYNC:
