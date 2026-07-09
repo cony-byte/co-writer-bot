@@ -1618,6 +1618,15 @@ def _do_check(channel: str, thread_ts: str, rest: str) -> None:
     if not q:
         _reply(channel, thread_ts, f"뭘 확인할까요? 예: `[확인] <{work}> 지금 캐릭터 누구 있지?`")
         return
+    # 별칭/작품명 질문은 바이블이 아니라 등록소에서 바로 답
+    if re.search(r"별칭|별명|약칭|닉네임|뭐라고\s*(부|불)|어떻게\s*(부|불)|무슨\s*이름|이름.*(뭐|무엇)", q):
+        al = (works.all_works().get(work, {}).get("aliases")) or []
+        if al:
+            _reply(channel, thread_ts, f"*{work}* 의 별칭: " + ", ".join(al))
+        else:
+            _reply(channel, thread_ts,
+                   f"*{work}* 은 아직 별칭이 없어요. `[별칭] 짧은이름` 으로 추가할 수 있어요.")
+        return
     sheet = reference.sheet()
     bible = None
     if sheet:
