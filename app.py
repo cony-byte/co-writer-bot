@@ -44,7 +44,7 @@ CMD_INPUT = {"입력", "저장", "input"}
 CMD_EDIT = {"수정", "편집", "edit"}
 CMD_GEN = {"생성", "generate", "gen"}
 CMD_CONVERT = {"변환", "포맷", "대본변환"}
-CMD_STORYBOARD = {"스토리보드", "스보", "storyboard"}                     # 대본 → 컷 스토리보드
+CMD_STORYBOARD = {"스토리보드", "스보", "storyboard"}                     # 대본 → 씬 스토리보드
 CMD_TREND = {"트렌드", "trend"}
 CMD_IDEA = {"아이디어", "아이디어 제시", "아이디어제시", "제안", "idea"}
 CMD_SYNC = {"동기화", "노션동기화", "sync"}                              # 노션 붙여넣기 → 시트
@@ -75,14 +75,14 @@ _HELP = (
     "[생성] <날혐남> 대본 / 24화     ← 24화 개요+바이블 참고해 생성 (자동 검증 관문 ON)\n"
     "[생성] <날혐남> 대본 / 24화 검증생략   ← 빠르게: 바이블 준수 자동검증 끄기\n"
     "[변환] 휴대폰 보는 연우, 화내며 나감   ← 줄글 상황 → 드라마 대본식 지문으로\n"
-    "[스토리보드] <날혐남> (대본 붙여넣기)   ← 대본 → 영상문법가이드 기준 컷 스토리보드 (스레드서 대본 뽑았으면 명령만)\n"
+    "[스토리보드] <날혐남> (대본 붙여넣기)   ← 대본 → 영상문법가이드 기준 씬 스토리보드(90초·씬 단위) (스레드서 대본 뽑았으면 명령만)\n"
     "[트렌드] 요즘 뭐가 유행?          ← 쉬운 요약\n"
     "[아이디어] <날혐남> 서아 힘든 거 어떻게 보여주지?  ← 구체적 상황 제안\n"
     "[피드백] <날혐남> (대본)  ← 재미+개연성 / [재미]·[개연성]로 따로도 가능\n"
     "[동기화] <날혐남> (노션 내용 통째로 붙여넣기)  ← 노션→시트 반영\n"
     "[좋아]/[별로] (생성물 스레드에서, 뒤에 이유)  ← 다음 생성에 학습 (별로는 바로 다시 뽑음)\n"
     "```\n"
-    "• `[입력]` 새로 저장 / `[수정]` 기존 고침 / `[생성]` 초안 / `[아이디어]` 상황제안 / `[변환]` 줄글→대본식지문 / `[스토리보드]` 대본→컷 스토리보드 / `[트렌드]` 조회 / `[멈춰]` 중지\n"
+    "• `[입력]` 새로 저장 / `[수정]` 기존 고침 / `[생성]` 초안 / `[아이디어]` 상황제안 / `[변환]` 줄글→대본식지문 / `[스토리보드]` 대본→씬 스토리보드 / `[트렌드]` 조회 / `[멈춰]` 중지\n"
     "• 이름만: 로그라인·키워드·타겟층·핵심정서·줄거리·금지사항·진행상태 (뒤에 바로 내용)\n"
     "• 인물/회차분배: 소분류 하나 `인물/강태혁/성별 남` 또는 여러 개를 줄마다 `소분류: 값`\n"
     "  인물 소분류 = 성별·나이·포지션·설정·핵심대사·설명 / 회차분배 = 구간·화수·핵심사건\n"
@@ -735,7 +735,7 @@ def _do_storyboard(channel: str, thread_ts: str, rest: str) -> None:
                "예: `[스토리보드] <날혐남> (대본 붙여넣기)` — 또는 대본을 방금 뽑은 스레드에서 `[스토리보드]`만 쳐도 돼요.")
         return
     _CANCEL.discard(thread_ts)
-    ph = _thinking(channel, thread_ts, "영상문법가이드로 컷 스토리보드 짜는 중이에요… (몇 초~1분)")
+    ph = _thinking(channel, thread_ts, "영상문법가이드로 씬 스토리보드 짜는 중이에요… (몇 초~1분)")
     try:
         answer = generator.complete(prompts.storyboard_system(bible),
                                     prompts.storyboard_user(draft), timeout=300).strip()
@@ -1263,8 +1263,10 @@ def _handle(event: dict) -> None:
     rest_f = (rest + "\n" + ft) if ft else rest
 
     if cmd in CMD_RELOAD:
+        pulled = _reference_pull()               # 형제 repo에서 최신 받아오기 (있으면)
         reference.reload()
-        _reply(channel, thread_ts, "레퍼런스 DB·템플릿을 다시 불러왔어요.")
+        _reply(channel, thread_ts,
+               ("최신 레퍼런스를 받아 " if pulled else "") + "레퍼런스 DB·템플릿을 다시 불러왔어요.")
     elif cmd in CMD_REFRESH:
         sheet = reference.sheet()
         if sheet:
@@ -1342,12 +1344,46 @@ def _save_notion_state(st: dict) -> None:
         log.warning("notion_state 저장 실패")
 
 
+def _reference_pull() -> bool:
+    """레퍼런스 소스 repo(story-v1-scripts)를 git pull. HEAD가 바뀌면 캐시 리로드 후 True.
+    봇은 사본이 아니라 이 repo의 reference/를 직접 읽으므로, pull만 하면 최신이 반영됨."""
+    import subprocess
+    repo = config.REFERENCE_DIR.parent            # .../story-v1-scripts/reference → repo 루트
+    if not (repo / ".git").exists():
+        return False
+
+    def _head() -> str:
+        try:
+            return subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
+                                  capture_output=True, text=True, timeout=15).stdout.strip()
+        except Exception:
+            return ""
+
+    before = _head()
+    try:
+        subprocess.run(["git", "-C", str(repo), "pull", "--ff-only"],
+                       capture_output=True, text=True, timeout=60)
+    except Exception:
+        log.warning("레퍼런스 git pull 실패")
+        return False
+    after = _head()
+    if before and after and before != after:      # HEAD 변경 = 실제 갱신 (locale 무관)
+        reference.reload()
+        log.info("레퍼런스 갱신 → 리로드 (%s→%s)", before[:7], after[:7])
+        return True
+    return False
+
+
 def _notion_autosync_loop() -> None:
-    """등록된 작품의 노션 페이지를 주기적으로 확인해, 마지막 수정 시각이 바뀌었을 때만
-    전체 동기화 → 시트 반영. 실무자는 [동기화]를 안 쳐도 됨. (변경 없으면 LLM 안 돌림)"""
+    """배경 루프: ①레퍼런스 repo pull(갱신 시 리로드) ②등록 작품 노션 변경 감지→동기화.
+    변경 없으면 아무것도 안 함(LLM 미사용). 실무자는 [동기화]도 안 쳐도 됨."""
     from bot import notion_sync
     time.sleep(20)   # 기동 직후 소켓 안정될 때까지 대기
     while True:
+        try:
+            _reference_pull()                     # 레퍼런스 DB 최신화 (사본 없이 직접)
+        except Exception:
+            log.exception("레퍼런스 pull 오류")
         try:
             sheet = reference.sheet()
             if sheet and config.NOTION_TOKEN and config.NOTION_PAGES:
@@ -1376,7 +1412,11 @@ def _notion_autosync_loop() -> None:
 if __name__ == "__main__":
     generator.healthcheck()  # Anthropic 자격증명 확인 (내부 Claude Code 팀 로그인 or API 키)
     log.info("co-writer-bot 시작 (backend=%s, reference=%s)", config.BACKEND, config.REFERENCE_DIR)
-    if config.NOTION_TOKEN and config.NOTION_PAGES:
+    _ref_is_repo = (config.REFERENCE_DIR.parent / ".git").exists()
+    if _ref_is_repo:
+        _reference_pull()   # 기동 시 최신 레퍼런스 확보 (사본 없이 repo 직접 읽음)
+    if (config.NOTION_TOKEN and config.NOTION_PAGES) or _ref_is_repo:
         threading.Thread(target=_notion_autosync_loop, daemon=True).start()
-        log.info("노션 자동 동기화 ON (%d개 작품, %d초 주기)", len(config.NOTION_PAGES), _NOTION_POLL_SEC)
+        log.info("배경 동기화 ON (레퍼런스 pull=%s · 노션 %d작품 · %d초 주기)",
+                 _ref_is_repo, len(config.NOTION_PAGES or {}), _NOTION_POLL_SEC)
     SocketModeHandler(app, config.SLACK_APP_TOKEN).start()
