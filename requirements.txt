@@ -1,3 +1,4 @@
 slack-bolt>=1.20.0
 claude-agent-sdk>=0.1.0   # agent 백엔드 (기본) — Claude Code 팀 로그인 재사용
 anthropic>=0.92.0         # api 백엔드 (COWRITER_BACKEND=api일 때만 사용)
+Pillow>=10.0.0            # [이미지] 스토리보드 그리드 합성·캡션 렌더

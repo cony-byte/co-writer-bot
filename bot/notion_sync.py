@@ -98,6 +98,60 @@ def page_text(page_id: str, token: str | None = None) -> str:
     return _render(_children(page_id, token), token).strip()
 
 
+def _post(path: str, body: dict, token: str) -> dict:
+    data = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(
+        _API + path, data=data, method="POST",
+        headers={"Authorization": f"Bearer {token}", "Notion-Version": _VER,
+                 "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+def _page_title(page: dict) -> str:
+    """페이지 객체 → 제목(작품명). properties 중 type=='title' 인 것의 평문."""
+    for prop in (page.get("properties") or {}).values():
+        if prop.get("type") == "title":
+            return _rt(prop.get("title")).strip()
+    return ""
+
+
+def page_title(page_id: str, token: str | None = None) -> str:
+    """페이지 제목 = 작품명 후보. 읽기 성공 = 통합(MCP) 연결됨 확인도 겸함."""
+    token = token or config.NOTION_TOKEN
+    if not token:
+        raise RuntimeError("NOTION_TOKEN 미설정")
+    return _page_title(_get(f"pages/{page_id}", token) or {})
+
+
+def search_pages(token: str | None = None) -> list[dict]:
+    """통합(토큰)에 연결·공유된 모든 페이지 → [{id, title, last_edited}].
+    실무자가 노션 페이지를 통합에 연결하면 여기 잡힘 = 자동 작품 후보.
+    (DB·아카이브·제목 없는 페이지는 제외)"""
+    token = token or config.NOTION_TOKEN
+    if not token:
+        raise RuntimeError("NOTION_TOKEN 미설정")
+    out, cur = [], None
+    while True:
+        body = {"filter": {"property": "object", "value": "page"}, "page_size": 100}
+        if cur:
+            body["start_cursor"] = cur
+        d = _post("search", body, token)
+        for pg in d.get("results", []):
+            if pg.get("archived") or pg.get("in_trash"):
+                continue
+            title = _page_title(pg)
+            if not title:
+                continue
+            out.append({"id": (pg.get("id") or "").replace("-", ""),
+                        "title": title, "last_edited": pg.get("last_edited_time", "")})
+        if d.get("has_more"):
+            cur = d.get("next_cursor")
+        else:
+            break
+    return out
+
+
 def page_last_edited(page_id: str, token: str | None = None) -> str:
     """페이지 마지막 수정 시각(ISO). 변경 감지용 — 싼 단일 호출."""
     token = token or config.NOTION_TOKEN

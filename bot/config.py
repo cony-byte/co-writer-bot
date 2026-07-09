@@ -54,6 +54,10 @@ except Exception:
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_IMAGE_MODEL = os.environ.get("OPENROUTER_IMAGE_MODEL", "openai/gpt-image-2")  # = "GPT 이미지 2.0"
 OPENROUTER_IMAGE_ASPECT = os.environ.get("OPENROUTER_IMAGE_ASPECT", "9:16")
+# 스토리보드 그리드 패널 비율 (예시 콘택트시트가 가로형이라 기본 16:9). 바꾸려면 이 값만.
+OPENROUTER_PANEL_ASPECT = os.environ.get("OPENROUTER_PANEL_ASPECT", "16:9")
+OPENROUTER_GRID_COLS = int(os.environ.get("OPENROUTER_GRID_COLS", "6"))     # 그리드 열 수
+OPENROUTER_IMG_WORKERS = int(os.environ.get("OPENROUTER_IMG_WORKERS", "4"))  # 이미지 병렬 생성 수
 # 캐릭터 일관성용 참조 이미지 폴더: <refs>/<작품>/<인물>.(png|jpg|jpeg|webp)
 # 여기 넣어두면 그 인물이 나오는 컷 생성 시 input_references(data URL)로 자동 첨부됨.
 OPENROUTER_REFS_DIR = Path(os.environ.get("OPENROUTER_REFS_DIR", BASE_DIR / "data" / "refs"))

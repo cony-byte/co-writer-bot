@@ -445,7 +445,41 @@ def storyboard_plan_user(draft: str) -> str:
     return STORYBOARD_PLAN_USER_TMPL.format(draft=draft)
 
 
-FEEDBACK_HEAD = ("너는 숏폼 로맨스 드라마 대본 피드백 전문가다. 칭찬 나열 말고 고칠 것 위주로 "
+# ── [이미지] 상세 콘티 → GPT 이미지 생성용 '샷 리스트'(JSON) ───────────────────
+STORYBOARD_SHOTS_ROLE = """너는 완성된 '상세 콘티'를 GPT 이미지 생성용 **샷 리스트**로 변환한다.
+콘티를 이미지 한 장씩 그릴 수 있는 샷으로 잘게 나누고, 각 샷을 아래 JSON 객체로 만든다.
+
+각 샷 객체:
+- "n": 샷 번호(1부터, 정수)
+- "caption": 그 컷을 설명하는 **짧은 한국어**(콘티 문장 그대로 또는 축약, 1~2줄). 스토리보드 그리드 밑에 붙는 캡션.
+- "characters": 그 컷 **화면에 실제로 보이는 인물 이름** 목록(한국어). 콘티의 '(프레임에 잡히는 것)' 기준. 인물이 화면에 없으면 [].
+- "prompt": 그 컷을 그릴 **영어** 이미지 프롬프트. photorealistic, cinematic. 프레임에 누가/무엇이 어떻게 잡히는지(close-up/medium/insert, 앵글)·표정·동작·조명·톤을 영어로. 인물 외형·얼굴은 참조 이미지로 유지되니 상세 묘사 말고 who is in frame + framing + action + mood 중심. 9:16/16:9 같은 비율 문구는 넣지 마라(시스템이 따로 지정).
+
+규칙:
+- **대본/콘티 내용 불변**: 콘티에 없는 사건·인물·행동을 지어내지 마라. 캡션은 콘티 표현을 살려라.
+- 나레이션 컷은 인물이 입을 벌려 말하는 그림이 되지 않게(prompt에 speaking mouth 넣지 마라).
+- 순수 JSON 배열만 출력. 설명·머리말·마크다운 코드펜스 금지."""
+
+STORYBOARD_SHOTS_USER_TMPL = """아래 [상세 콘티]를 샷 리스트(JSON 배열)로 변환하라. 각 샷 = 이미지 한 장.
+
+[상세 콘티]
+{conti}"""
+
+
+def storyboard_shots_system(bible: dict | None = None) -> str:
+    """[이미지]용: 상세 콘티 → 샷 리스트(JSON). 인물 이름은 바이블 인물명에 맞춘다."""
+    s = STORYBOARD_SHOTS_ROLE
+    if bible and bible.get("characters"):
+        names = ", ".join(bible["characters"].keys())
+        s += f"\n\n[이 작품 인물 이름 — characters/캡션에 이 이름을 쓴다]\n{names}"
+    return s
+
+
+def storyboard_shots_user(conti: str) -> str:
+    return STORYBOARD_SHOTS_USER_TMPL.format(conti=conti)
+
+
+FEEDBACK_HEAD =("너는 숏폼 로맨스 드라마 대본 피드백 전문가다. 칭찬 나열 말고 고칠 것 위주로 "
                  "짧고 구체적으로. 슬랙 mrkdwn(굵게 *별표1개*, 불릿 '- '). 아래 지정된 항목만 평가하고 잡설 금지.")
 
 FEEDBACK_FUN = """*시청자 재미* — 스크롤 넘기려는 숏폼 시청자 입장에서 냉정하게. 아래 5개 항목을 각각 `✅/⚠️/❌ + 한 줄`로 평가한다.

@@ -7,3 +7,6 @@ data/notion_state.json
 
 # 캐릭터 참조 이미지 (개인 에셋, 용량)
 data/refs/
+
+.DS_Store
+**/.DS_Store

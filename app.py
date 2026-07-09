@@ -27,7 +27,7 @@ import urllib.request
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
-from bot import config, generator, prefs, prompts, reference, verify
+from bot import config, generator, prefs, prompts, reference, verify, works
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("co-writer")
@@ -47,6 +47,7 @@ CMD_PLAN = {"기획", "기획안", "작품생성", "plan"}                      
 CMD_CONVERT = {"변환", "포맷", "대본변환"}
 CMD_STORYBOARD = {"스토리보드", "스토리보드1", "스보", "스보1", "씬설계", "storyboard", "storyboard1"}   # 1단계 씬 설계
 CMD_STORYBOARD2 = {"스토리보드2", "스보2", "콘티", "상세콘티", "storyboard2"}                             # 2단계 상세 콘티
+CMD_STORYBOARD_IMG = {"이미지", "스토리보드3", "스보3", "그리드", "image", "storyboard3"}                  # 3단계 이미지 그리드
 # 스토리보드 스레드에서 이 말이 오면 1단계(씬 설계) → 2단계(상세 콘티)로 넘어감
 SB_GEN_RE = re.compile(r"^\s*(생성|생성해|생성해줘|콘티|상세\s*콘티|만들어|만들어줘|ㄱㄱ|고고)\s*$")
 # 단계 배지 (출력 맨 위에 붙여 슬랙에서 어느 단계인지·다음에 뭘 칠지 보이게). 마커([1단계]/[2단계])는 _sb_stage가 씀.
@@ -84,6 +85,7 @@ _HELP = (
     "[변환] 휴대폰 보는 연우, 화내며 나감   ← 줄글 상황 → 드라마 대본식 지문으로\n"
     "[스토리보드1] <날혐남> 3화   ← 노션 대본 자동 인식 → 씬 설계(분할·시간)\n"
     "[스토리보드2] <날혐남>       ← 스레드의 씬 설계를 읽어 GPT 이미지용 상세 콘티\n"
+    "[이미지] <날혐남>            ← 스레드의 상세 콘티 → 컷별 GPT 이미지 → 그리드 1장 (참조로 얼굴 유지)\n"
     "  (수정: 같은 명령 뒤에 지시 — 예 `[스토리보드1] <날혐남> 씬3 8초로` / `[스토리보드2] <날혐남> 씬3 더 세게`)\n"
     "[트렌드] 요즘 뭐가 유행?          ← 쉬운 요약\n"
     "[아이디어] <날혐남> 서아 힘든 거 어떻게 보여주지?  ← 구체적 상황 제안\n"
@@ -305,7 +307,7 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
     if not sm:
         _reply(channel, thread_ts, _HELP)
         return
-    work = sm.group(1).strip()
+    work = works.resolve(sm.group(1).strip()) or sm.group(1).strip()
     after = sm.group(2).splitlines()
     first = after[0].strip() if after else ""
     path_line, inline = split_command(first)        # 한 줄에 붙여쓴 내용도 인식
@@ -476,7 +478,7 @@ def _thread_gen_context(messages: list[dict]) -> tuple:
             if cm and cm.group(1).strip() in CMD_GEN:
                 sm = SUB_RE.match(cm.group(2))
                 if sm:
-                    work = sm.group(1).strip()
+                    work = works.resolve(sm.group(1).strip()) or sm.group(1).strip()
                     pl = (sm.group(2).splitlines() or [""])[0]
                     tp = parse_path(re.sub(r"\s*강도\s*\S+", "", pl).strip())
                     if tp:
@@ -543,7 +545,7 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "") 
     if not sm:
         _reply(channel, thread_ts, "형식: `[생성] <작품> 대본 / 24화`\n예: `[생성] <날혐남> 대본 / 24화`")
         return
-    work = sm.group(1).strip()
+    work = works.resolve(sm.group(1).strip()) or sm.group(1).strip()   # 별칭 → 정식 작품명
     gen_lines = sm.group(2).splitlines()
     path_line = (gen_lines or [""])[0].strip()
     notes = "\n".join(gen_lines[1:]).strip()      # 경로 아래 줄 = 넣고 싶은 포인트/지시
@@ -690,7 +692,7 @@ def _do_convert(channel: str, thread_ts: str, rest: str) -> None:
     work, bible = None, None
     wm = SUB_RE.match(q)
     if wm:                              # <작품> 지정 시 인물 이름·호칭 참고
-        work = wm.group(1).strip()
+        work = works.resolve(wm.group(1).strip()) or wm.group(1).strip()
         q = wm.group(2).strip()
         sheet = reference.sheet()
         if sheet:
@@ -758,6 +760,7 @@ def _do_storyboard(channel: str, thread_ts: str, rest: str, stage: int = 1) -> N
         wm2 = re.search(r"<\s*([^>]+?)\s*>", joined)
         work = wm2.group(1).strip() if wm2 else None
     if work:
+        work = works.resolve(work) or work          # 별칭 → 정식 작품명
         sheet = reference.sheet()
         if sheet:
             try:
@@ -839,6 +842,122 @@ def _do_storyboard(channel: str, thread_ts: str, rest: str, stage: int = 1) -> N
     _post_chunks(channel, thread_ts, answer or "(빈 응답)", replace_ts=ph)
 
 
+def _parse_json_array(text: str) -> list:
+    t = str(text).strip()
+    s, e = t.find("["), t.rfind("]")
+    if s == -1 or e == -1 or e < s:
+        raise ValueError("응답에서 JSON 배열([...])을 찾지 못했습니다.")
+    return json.loads(t[s:e + 1])
+
+
+def _do_storyboard_images(channel: str, thread_ts: str, rest: str) -> None:
+    """[이미지] 스레드의 상세 콘티 → 컷별 GPT 이미지(참조로 얼굴 유지) → 그리드 1장 슬랙 업로드."""
+    from bot import openrouter_image as oi, storyboard_grid as grid
+    if not oi.available():
+        _reply(channel, thread_ts,
+               "이미지 기능이 꺼져 있어요 — `.env`에 `OPENROUTER_API_KEY`를 넣고 봇을 재시작하세요.")
+        return
+    ok, msg = grid.available()
+    if not ok:
+        _reply(channel, thread_ts, msg)
+        return
+    q = rest.strip()
+    wm = SUB_RE.match(q)
+    work = wm.group(1).strip() if wm else None
+    msgs = _thread_messages(channel, thread_ts)
+    joined = "\n".join(m["content"] for m in msgs)
+    if not work:
+        wm2 = re.search(r"<\s*([^>]+?)\s*>", joined)
+        work = wm2.group(1).strip() if wm2 else None
+    bible = None
+    if work:
+        sheet = reference.sheet()
+        if sheet:
+            try:
+                bible = sheet.get(work)
+            except Exception:
+                log.exception("image bible load failed")
+    conti = _last_assistant_with(msgs, ["[2단계]"])
+    if not conti:
+        _reply(channel, thread_ts,
+               "먼저 `[스토리보드2] <작품>` 로 상세 콘티를 만든 뒤, 이 스레드에서 `[이미지]`를 쳐주세요.")
+        return
+
+    _CANCEL.discard(thread_ts)
+    ph = _thinking(channel, thread_ts, "콘티를 컷(샷) 리스트로 나누는 중이에요…")
+    # 1) 콘티 → 샷 리스트(JSON)
+    try:
+        raw = generator.complete(prompts.storyboard_shots_system(bible),
+                                 prompts.storyboard_shots_user(conti), timeout=300)
+        shots = [s for s in _parse_json_array(raw) if isinstance(s, dict) and s.get("prompt")]
+    except Exception as e:
+        log.exception("shots split failed")
+        _post_chunks(channel, thread_ts, f"컷 분해 중 오류가 났어요: {e}", replace_ts=ph)
+        return
+    if not shots:
+        _post_chunks(channel, thread_ts, "컷을 만들지 못했어요. 콘티를 다시 확인해 주세요.", replace_ts=ph)
+        return
+
+    n = len(shots)
+    _update_note(channel, ph, f"컷 {n}개 이미지 생성 중이에요… (몇 분 걸려요) 0/{n}")
+    # 2) 컷별 이미지 생성 (병렬, 순서 보존)
+    import concurrent.futures as cf
+    results: list[bytes | None] = [None] * n
+    total_cost = 0.0
+    done = 0
+
+    def _one(i: int, s: dict):
+        refs = oi.character_refs(work, s.get("characters") or [])
+        png, cost = oi.generate(s["prompt"], aspect_ratio=config.OPENROUTER_PANEL_ASPECT, refs=refs)
+        return i, png, cost
+
+    with cf.ThreadPoolExecutor(max_workers=config.OPENROUTER_IMG_WORKERS) as ex:
+        futs = [ex.submit(_one, i, s) for i, s in enumerate(shots)]
+        for fut in cf.as_completed(futs):
+            try:
+                i, png, cost = fut.result()
+                results[i] = png
+                total_cost += cost
+            except Exception:
+                log.exception("image gen failed (한 컷)")
+            done += 1
+            if done % 3 == 0 or done == n:
+                _update_note(channel, ph, f"컷 이미지 생성 중… {done}/{n}")
+
+    panels = [(results[i], shots[i].get("n") or (i + 1), shots[i].get("caption") or "")
+              for i in range(n) if results[i]]
+    if not panels:
+        _post_chunks(channel, thread_ts,
+                     "이미지 생성이 모두 실패했어요. (OpenRouter 키/모델/쿼터를 확인해 주세요)", replace_ts=ph)
+        return
+
+    # 3) 그리드 합성
+    _update_note(channel, ph, f"{len(panels)}컷을 그리드로 합치는 중이에요…")
+    try:
+        grid_png = grid.build_grid(panels, cols=config.OPENROUTER_GRID_COLS)
+    except Exception as e:
+        log.exception("grid build failed")
+        _post_chunks(channel, thread_ts, f"그리드 합성 중 오류가 났어요: {e}", replace_ts=ph)
+        return
+
+    # 4) 슬랙 업로드
+    miss = n - len(panels)
+    cost_s = f" · 생성비 ~${total_cost:.2f}" if total_cost else ""
+    caption = (f"🖼️ 스토리보드 그리드 — {len(panels)}컷"
+               + (f" ({miss}컷 실패)" if miss else "") + cost_s)
+    try:
+        app.client.files_upload_v2(
+            channel=channel, thread_ts=thread_ts, file=grid_png,
+            filename=f"storyboard_{work or 'ep'}.png",
+            title=f"스토리보드 {len(panels)}컷", initial_comment=caption)
+        _update_note(channel, ph, "✅ 스토리보드 그리드 완성 (아래 이미지)")
+    except Exception as e:
+        log.exception("slack upload failed")
+        _post_chunks(channel, thread_ts,
+                     f"이미지는 만들었는데 슬랙 업로드에서 막혔어요: {e}\n(앱에 files:write 권한 필요)",
+                     replace_ts=ph)
+
+
 def _thread_origin_mode(messages: list[dict]) -> str:
     """스레드를 시작한 명령이 뭔지 → 후속 답글을 그 모드로 이어가기 위함."""
     for m in messages:
@@ -913,6 +1032,19 @@ def _first_changed_section(prev_md: str, new_md: str) -> int | None:
     return None
 
 
+def _plan_changed_view(prev_md: str, new_md: str) -> str | None:
+    """직전 대비 실제로 바뀐 섹션들만 뽑아 슬랙용 뷰로. 변화 없으면 None.
+    (부분수정 시 슬랙에 전체 기획안 대신 바뀐 섹션만 보여줌 — 노션 갱신과 일관)"""
+    norm = lambda s: re.sub(r"[*#>\-\s]+", " ", s or "").strip().lower()
+    ps, ns = _plan_sections(prev_md), _plan_sections(new_md)
+    idxs = [i for i in range(len(ns)) if norm(ns[i]) != norm(ps[i] if i < len(ps) else "")]
+    if not idxs:
+        return None
+    labels = "·".join(str(i + 1) for i in idxs)
+    body = "\n\n".join(ns[i] for i in idxs)
+    return f"🔧 *수정된 섹션 {labels}*\n\n{body}"
+
+
 def _trend_orient(text: str) -> str | None:
     """텍스트에서 트렌드 성향(BL/GL/로맨스) 감지 — 스레드 후속에 성향 이어붙이기용."""
     if re.search(r"(?<![a-z])bl(?![a-z])", text or "", re.I):
@@ -938,6 +1070,7 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
     joined = "\n".join(m["content"] for m in messages)
     wm = re.search(r"<\s*([^>]+?)\s*>", joined)
     work = wm.group(1).strip() if wm else None
+    work = (works.resolve(work) or work) if work else None    # 별칭 → 정식 작품명
     em = re.search(r"(\d+)\s*화", feedback) or re.search(r"(\d+)\s*화", joined)
     target = int(em.group(1)) if em else None
     bible = None
@@ -1102,16 +1235,17 @@ def _do_plan(channel: str, thread_ts: str, rest: str, files_text: str = "") -> N
                              replace_ts=ph)
                 return
             idx = _first_changed_section(current_md, answer)
-            if idx is None:
-                foot = "\n\n_(노션: 바뀐 섹션이 없어 그대로 뒀어요)_"
-            else:
-                try:
-                    notion_sync.replace_from_section(write_page_id, answer, idx)
-                    foot = f"\n\n_✅ 노션 페이지의 {idx + 1}번째 섹션부터 수정했어요._"
-                except Exception:
-                    log.exception("plan revise replace failed")
-                    foot = "\n\n_⚠️ 노션 수정 실패 — 권한/연결 확인. (수정본은 위에 있어요)_"
-            _post_chunks(channel, thread_ts, (answer or "(빈 응답)") + foot, replace_ts=ph)
+            view = _plan_changed_view(current_md, answer)   # 슬랙엔 바뀐 섹션만
+            if idx is None or view is None:
+                _post_chunks(channel, thread_ts, "🔧 요청 반영했지만 기존과 달라진 섹션이 없어요.", replace_ts=ph)
+                return
+            try:
+                notion_sync.replace_from_section(write_page_id, answer, idx)
+                foot = f"\n\n_✅ 노션 페이지에 반영했어요 ({idx + 1}번째 섹션부터)._"
+            except Exception:
+                log.exception("plan revise replace failed")
+                foot = "\n\n_⚠️ 노션 수정 실패 — 권한/연결 확인._"
+            _post_chunks(channel, thread_ts, view + foot, replace_ts=ph)
             return
 
     # 스레드에서 [기획]을 치면 그 스레드 대화(트렌드·아이디어 논의 등)를 근거로 삼는다.
@@ -1170,7 +1304,7 @@ def _do_idea(channel: str, thread_ts: str, rest: str) -> None:
     work, bible = None, None
     wm = SUB_RE.match(q)
     if wm:
-        work = wm.group(1).strip()
+        work = works.resolve(wm.group(1).strip()) or wm.group(1).strip()
         q = wm.group(2).strip()
         sheet = reference.sheet()
         if sheet:
@@ -1224,41 +1358,127 @@ _SYNC_SINGLE = {
 }
 
 
+_NOTION_LINK = re.compile(r"https?://\S*notion\.\S+")
+
+
+def _autosync_link(channel: str, thread_ts: str, url: str, explicit: str | None = None) -> str | None:
+    """노션 링크 → (필요시) 새 작품 등록 + 시트 동기화. 반환: 정식 작품명(실패 시 None).
+    명령어(예: [생성])에 처음 보는 링크가 섞였을 때 '먼저 등록·동기화' 용."""
+    from bot import notion_sync, works
+    sheet = reference.sheet()
+    if not sheet or not config.NOTION_TOKEN:
+        return None
+    pid = notion_sync.extract_page_id(url)
+    if not pid:
+        return None
+    existing = works.work_by_page(pid)
+    try:                                              # 읽기 성공 = MCP(통합) 연결 확인
+        title = notion_sync.page_title(pid)
+        content = notion_sync.page_text(pid)
+    except Exception:
+        log.exception("autosync link fetch failed")
+        _reply(channel, thread_ts,
+               "노션 링크를 못 읽었어요. 그 페이지 `•••` → *연결* → 통합(MCP) 추가 후 다시 시도해 주세요.")
+        return existing            # 이미 등록된 작품이면 옛 바이블로라도 진행
+    work = explicit or existing or works.sanitize(title) or "제목없음"
+    works.register(work, pid)
+    ph = _thinking(channel, thread_ts, f"노션 '{work}' 동기화하는 중이에요…")
+    try:
+        done, failed, summary = _sync_apply(sheet, work, content)
+    except Exception:
+        log.exception("autosync link apply failed")
+        _post_chunks(channel, thread_ts,
+                     f"'{work}' 노션 동기화 중 오류가 났어요 (명령은 계속 진행).", replace_ts=ph)
+        return work if existing else None
+    tag = "🆕 새 작품 " if (existing is None and not explicit) else "🔄 "
+    _post_chunks(channel, thread_ts,
+                 f"{tag}*{work}* 노션 동기화 완료 — {done}개 반영. 이어서 요청 처리할게요…", replace_ts=ph)
+    return work
+
+
 def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
-    """[동기화] <작품> (노션 내용 붙여넣기) → LLM이 스키마로 파싱 → 시트 upsert."""
+    """[동기화] — 노션 링크만 주면: ①MCP 연결 확인 ②처음 보는 페이지면 제목으로 새 작품(시트) 생성.
+    링크 대신 `<작품>` + 내용 붙여넣기도 지원. LLM이 스키마로 파싱 → 시트 upsert."""
     from bot.sheet_bible import CHAR_SUBS
+    from bot import notion_sync, works
     sheet = reference.sheet()
     if not sheet:
         _reply(channel, thread_ts, "시트가 아직 연결 안 됐어요 (SHEET_WEBAPP_URL 미설정).")
         return
-    sm = SUB_RE.match(rest.strip())
-    if not sm:
-        _reply(channel, thread_ts, "형식: `[동기화] <작품>` 하고 아래에 노션 내용을 통째로 붙여넣어 주세요.")
+    raw = rest.strip()
+    if not raw:
+        _reply(channel, thread_ts,
+               "형식: `[동기화] <노션링크>` (링크만 주면 페이지 제목으로 새 작품이 만들어져요)\n"
+               "또는 `[동기화] <작품>` 하고 아래에 노션 내용을 통째로 붙여넣기.")
         return
-    work = sm.group(1).strip()
-    content = sm.group(2).strip()
     src = "붙여넣은 내용"
-    # 붙여넣기 없으면 → 등록된 노션 페이지를 토큰으로 직접 읽는다.
-    page_id = (config.NOTION_PAGES or {}).get(work)
-    if len(content) < 50 and config.NOTION_TOKEN and page_id:
+    new_work = False
+    # 선택적 <작품> 지정 파싱 (없으면 링크/제목에서 작품명을 얻는다)
+    sm = SUB_RE.match(raw)
+    _raw_work = sm.group(1).strip() if sm else ""
+    if _raw_work.startswith("http") or "notion." in _raw_work:   # <https://…> = 슬랙이 감싼 링크, 작품명 아님
+        _raw_work = ""
+    explicit = (works.resolve(_raw_work) or _raw_work) if _raw_work else None
+    body = (sm.group(2) if sm else raw).strip()
+    nm = re.search(r"https?://\S*notion\.\S+", raw)     # 링크는 <작품> 앞뒤 어디에 있어도 인식
+    if nm:
+        pid = notion_sync.extract_page_id(nm.group(0))
+        if not pid:
+            _reply(channel, thread_ts, "노션 링크에서 페이지 ID를 못 찾았어요. 링크를 다시 확인해 주세요.")
+            return
+        if not config.NOTION_TOKEN:
+            _reply(channel, thread_ts, "노션 토큰이 설정 안 돼서 링크를 못 읽어요. `<작품>` + 내용 붙여넣기로 해주세요.")
+            return
         _CANCEL.discard(thread_ts)
-        ph0 = _thinking(channel, thread_ts, "노션 페이지 읽는 중이에요…")
-        try:
-            from bot import notion_sync
-            content = notion_sync.page_text(page_id)
+        ph0 = _thinking(channel, thread_ts, "노션 페이지 읽는 중이에요… (연결 확인)")
+        try:                                            # ① 읽기 성공 = MCP(통합) 연결 확인
+            title = notion_sync.page_title(pid)
+            content = notion_sync.page_text(pid)
             src = "노션 페이지"
         except Exception:
             log.exception("notion page fetch failed")
             _post_chunks(channel, thread_ts,
-                         "노션 페이지를 못 읽었어요. 페이지가 통합에 연결됐는지 확인해 주세요.", replace_ts=ph0)
+                         "이 페이지를 못 읽었어요. 노션에서 그 페이지 `•••` → *연결* → 통합(MCP)을 추가한 뒤 다시 시도해 주세요.",
+                         replace_ts=ph0)
             return
-    if len(content) < 50:
-        hint = "" if page_id else "\n(또는 이 작품 노션 페이지를 등록하면 `[동기화] <작품>`만으로 자동 반영돼요.)"
-        _reply(channel, thread_ts,
-               "동기화할 노션 내용을 `<작품>` 뒤에 붙여넣어 주세요 (줄거리·인물·회차분배·개요 등)." + hint)
-        return
+        # ② 작품명 결정: 명시 > 이미 등록된 id > 페이지 제목(=신규 작품)
+        existing = works.work_by_page(pid)
+        work = explicit or existing or works.sanitize(title) or "제목없음"
+        new_work = existing is None and not explicit
+        works.register(work, pid)                       # 신규면 등록, 기존이면 매핑 갱신
+        ph = ph0
+    else:
+        # 링크 없음 → <작품> 필수 + 붙여넣은 내용/등록된 페이지 사용
+        if not explicit:
+            _reply(channel, thread_ts,
+                   "노션 링크를 주거나, `[동기화] <작품>` 뒤에 노션 내용을 붙여넣어 주세요.")
+            return
+        work = explicit
+        content = body
+        page_id = works.page_of(work) or (config.NOTION_PAGES or {}).get(work)
+        if len(content) < 50 and config.NOTION_TOKEN and page_id:
+            _CANCEL.discard(thread_ts)
+            ph0 = _thinking(channel, thread_ts, "등록된 노션 페이지 읽는 중이에요…")
+            try:
+                content = notion_sync.page_text(page_id)
+                src = "노션 페이지"
+            except Exception:
+                log.exception("notion page fetch failed")
+                _post_chunks(channel, thread_ts,
+                             "노션 페이지를 못 읽었어요. 페이지가 통합에 연결됐는지 확인해 주세요.", replace_ts=ph0)
+                return
+        if len(content) < 50:
+            hint = "" if page_id else "\n(처음이면 `[동기화] <노션링크>` 로 페이지를 등록하세요 — 이후엔 자동 반영.)"
+            _reply(channel, thread_ts,
+                   "동기화할 노션 내용을 `<작품>` 뒤에 붙여넣거나 노션 링크를 주세요 (줄거리·인물·회차분배·개요 등)." + hint)
+            return
+        ph = None
     _CANCEL.discard(thread_ts)
-    ph = _thinking(channel, thread_ts, f"{src} 정리해서 시트에 반영하는 중이에요…")
+    note = f"{src} 정리해서 시트에 반영하는 중이에요…"
+    if ph:
+        _update_note(channel, ph, note)            # 읽는 중 플레이스홀더 재사용
+    else:
+        ph = _thinking(channel, thread_ts, note)
     try:
         done, failed, summary = _sync_apply(sheet, work, content)
     except ValueError:   # JSON 파싱 실패
@@ -1276,7 +1496,10 @@ def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
         _post_chunks(channel, thread_ts,
                      "동기화했지만 반영된 항목이 없어요. 노션 내용/소제목을 확인해 주세요.", replace_ts=ph)
         return
-    msg = f"✅ *{work}* {src} 동기화 — {done}개 반영.\n· " + "\n· ".join(summary)
+    head = f"🆕 새 작품 *{work}* 등록 + " if new_work else f"✅ *{work}* "
+    msg = f"{head}{src} 동기화 — {done}개 반영.\n· " + "\n· ".join(summary)
+    if new_work:
+        msg += f"\n(이제 `[생성] <{work}> ...` 로 바로 쓸 수 있어요. 노션 수정하면 자동 반영돼요.)"
     if failed:
         msg += f"\n⚠️ {failed}개는 네트워크 문제로 실패 — 다시 `[동기화]` 하면 그 부분만 채워집니다."
     _post_chunks(channel, thread_ts, msg, replace_ts=ph)
@@ -1364,7 +1587,7 @@ def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both") ->
     work, bible = None, None
     wm = SUB_RE.match(q)
     if wm:
-        work = wm.group(1).strip()
+        work = works.resolve(wm.group(1).strip()) or wm.group(1).strip()
         q = wm.group(2).strip()
         sheet = reference.sheet()
         if sheet:
@@ -1465,7 +1688,7 @@ def _do_trend(channel: str, thread_ts: str, rest: str) -> None:
     work, bible = None, None
     wm = SUB_RE.match(q)
     if wm:
-        work = wm.group(1).strip()
+        work = works.resolve(wm.group(1).strip()) or wm.group(1).strip()
         q = wm.group(2).strip()
         sheet = reference.sheet()
         if sheet:
@@ -1577,6 +1800,10 @@ def _handle(event: dict) -> None:
 
     m = CMD_RE.match(query)
     if not m:
+        # 명령어 없이 노션 링크만 붙여도 → 자동 등록/동기화 (신규 페이지면 새 작품 생성)
+        if config.NOTION_TOKEN and re.search(r"https?://\S*notion\.\S+", query):
+            _do_sync(channel, thread_ts, query)
+            return
         # 스레드 안의 후속 메시지(명령 없음) → 이전 초안 수정 지시로 처리
         in_thread = bool(event.get("thread_ts")) and event.get("thread_ts") != event.get("ts")
         if in_thread and query.strip():
@@ -1594,6 +1821,24 @@ def _handle(event: dict) -> None:
         return
     rest_f = (rest + "\n" + ft) if ft else rest
 
+    # 바이블을 쓰는 명령에 노션 링크가 섞였으면 → 먼저 등록·동기화한 뒤 그 명령을 실행.
+    # (동기화·기획은 제외: 동기화는 자체 처리, 기획의 링크는 '쓸 대상'이라 읽어오면 안 됨)
+    _WORK_CMDS = (CMD_GEN | CMD_FEEDBACK | CMD_FB_FUN | CMD_FB_LOGIC
+                  | CMD_IDEA | CMD_CONVERT | CMD_STORYBOARD | CMD_STORYBOARD2 | CMD_STORYBOARD_IMG)
+    if cmd in _WORK_CMDS and config.NOTION_TOKEN:
+        rest = re.sub(r"<(https?://[^>|]+)(?:\|[^>]*)?>", r"\1", rest)   # 슬랙 <url|label> 언랩
+        lm = _NOTION_LINK.search(rest)
+        if lm:
+            no_link = _NOTION_LINK.sub("", rest).strip()
+            _sm = SUB_RE.match(no_link)
+            _exp = (works.resolve(_sm.group(1).strip()) or _sm.group(1).strip()) if _sm else None
+            w = _autosync_link(channel, thread_ts, lm.group(0), explicit=_exp)
+            rest = no_link
+            rest_f = _NOTION_LINK.sub("", rest_f).strip()
+            if w and not SUB_RE.match(rest):           # <작품> 없이 링크만 준 경우 → 동기화된 작품명 주입
+                rest = f"<{w}> {rest}".strip()
+                rest_f = f"<{w}> {rest_f}".strip()
+
     if cmd in CMD_RELOAD:
         pulled = _reference_pull()               # 형제 repo에서 최신 받아오기 (있으면)
         reference.reload()
@@ -1610,6 +1855,8 @@ def _handle(event: dict) -> None:
         _do_storyboard(channel, thread_ts, rest_f, stage=1)
     elif cmd in CMD_STORYBOARD2:
         _do_storyboard(channel, thread_ts, rest_f, stage=2)
+    elif cmd in CMD_STORYBOARD_IMG:
+        _do_storyboard_images(channel, thread_ts, rest_f)
     elif cmd in CMD_TREND:
         _do_trend(channel, thread_ts, rest)
     elif cmd in CMD_SYNC:
@@ -1712,7 +1959,7 @@ def _reference_pull() -> bool:
 
 def _notion_autosync_loop() -> None:
     """배경 루프: ①레퍼런스 repo pull(갱신 시 리로드) ②등록 작품 노션 변경 감지→동기화.
-    변경 없으면 아무것도 안 함(LLM 미사용). 실무자는 [동기화]도 안 쳐도 됨."""
+    변경 없으면 아무것도 안 함(LLM 미사용). 봇에 링크가 등록된 작품만 대상."""
     from bot import notion_sync
     time.sleep(20)   # 기동 직후 소켓 안정될 때까지 대기
     while True:
@@ -1721,10 +1968,15 @@ def _notion_autosync_loop() -> None:
         except Exception:
             log.exception("레퍼런스 pull 오류")
         try:
+            from bot import works
             sheet = reference.sheet()
-            if sheet and config.NOTION_TOKEN and config.NOTION_PAGES:
+            registry = works.all_works() if config.NOTION_TOKEN else {}   # 봇에 등록된 링크만
+            if sheet and registry:
                 st = _load_notion_state()
-                for work, page_id in config.NOTION_PAGES.items():
+                for work, entry in registry.items():
+                    page_id = entry.get("page")
+                    if not page_id:
+                        continue
                     try:
                         le = notion_sync.page_last_edited(page_id)
                     except Exception:
@@ -1751,8 +2003,10 @@ if __name__ == "__main__":
     _ref_is_repo = (config.REFERENCE_DIR.parent / ".git").exists()
     if _ref_is_repo:
         _reference_pull()   # 기동 시 최신 레퍼런스 확보 (사본 없이 repo 직접 읽음)
-    if (config.NOTION_TOKEN and config.NOTION_PAGES) or _ref_is_repo:
+    from bot import works
+    _n_works = len(works.all_works()) if config.NOTION_TOKEN else 0
+    if (config.NOTION_TOKEN and _n_works) or _ref_is_repo:
         threading.Thread(target=_notion_autosync_loop, daemon=True).start()
         log.info("배경 동기화 ON (레퍼런스 pull=%s · 노션 %d작품 · %d초 주기)",
-                 _ref_is_repo, len(config.NOTION_PAGES or {}), _NOTION_POLL_SEC)
+                 _ref_is_repo, _n_works, _NOTION_POLL_SEC)
     SocketModeHandler(app, config.SLACK_APP_TOKEN).start()
