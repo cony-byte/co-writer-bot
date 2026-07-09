@@ -47,3 +47,10 @@ try:
     NOTION_PAGES = json.loads(os.environ.get("NOTION_PAGES", "{}"))
 except Exception:
     NOTION_PAGES = {}
+
+# OpenRouter 이미지 생성 — 상세 콘티 → GPT 이미지(9:16)로 스토리보드 스틸 생성.
+# Unified Image API: POST https://openrouter.ai/api/v1/images (data[].b64_json)
+# 키 없으면 이미지 기능 비활성(콘티까지만 동작).
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+OPENROUTER_IMAGE_MODEL = os.environ.get("OPENROUTER_IMAGE_MODEL", "openai/gpt-image-2")  # = "GPT 이미지 2.0"
+OPENROUTER_IMAGE_ASPECT = os.environ.get("OPENROUTER_IMAGE_ASPECT", "9:16")
