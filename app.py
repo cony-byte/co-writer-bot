@@ -886,6 +886,18 @@ def _plan_sections(md: str) -> list[str]:
     return [p.strip() for p in re.split(r"(?m)(?=^##\s)", md or "") if p.strip()]
 
 
+def _is_valid_plan(md: str) -> bool:
+    """진짜 기획안인지(섹션 2개+) 판별 — 에러 문구·타임아웃·빈 텍스트를 노션에 쓰거나 수정 원본으로 삼지 않게."""
+    if not md or len(md.strip()) < 60:
+        return False
+    bad = ("⏱️", "이어가는 중 오류", "기획안 생성 중 오류", "수정 중 오류", "오류가 났어요",
+           "원본 기획안", "현재 기획안 내용이", "(빈 응답)")
+    head = md.strip()[:80]
+    if any(b in head for b in bad):
+        return False
+    return len(re.findall(r"(?m)^##\s", md)) >= 2
+
+
 def _first_changed_section(prev_md: str, new_md: str) -> int | None:
     """직전 기획안 대비 처음으로 바뀐 '## 섹션' 인덱스. 변화 없으면 None.
     노션에서 읽어온 텍스트는 볼드(**)·불릿(-) 마커가 없으므로, 마커 무시하고 내용만 비교."""
@@ -993,7 +1005,9 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
             if nmv:
                 from bot import notion_sync
                 pid = notion_sync.extract_page_id(nmv.group(0))
-            if pid and config.NOTION_TOKEN and prev_md:
+            if pid and config.NOTION_TOKEN and prev_md and not _is_valid_plan(answer):
+                answer += "\n\n_⚠️ 결과가 기획안 형식이 아니라 노션엔 안 썼어요._"
+            elif pid and config.NOTION_TOKEN and prev_md:
                 idx = _first_changed_section(prev_md, answer)
                 if idx is None:
                     answer += "\n\n_(노션: 바뀐 섹션이 없어 그대로 둠)_"
@@ -1059,7 +1073,7 @@ def _do_plan(channel: str, thread_ts: str, rest: str, files_text: str = "") -> N
             current_md = notion_sync.page_text(write_page_id)
         except Exception:
             current_md = ""
-        if len(current_md) > 80:                       # 기존 기획안 존재
+        if _is_valid_plan(current_md):                 # 진짜 기획안이 있을 때만 '부분 수정'
             if len(concept) < 2:
                 _reply(channel, thread_ts,
                        "그 페이지엔 이미 기획안이 있어요. 고칠 내용을 함께 적어주세요.\n"
@@ -1077,6 +1091,11 @@ def _do_plan(channel: str, thread_ts: str, rest: str, files_text: str = "") -> N
                 _post_chunks(channel, thread_ts, "수정 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
                 return
             if _cancelled(channel, thread_ts, ph):
+                return
+            if not _is_valid_plan(answer):             # 결과가 기획안 형식이 아니면 노션 오염 방지 위해 안 씀
+                _post_chunks(channel, thread_ts,
+                             (answer or "(빈 응답)") + "\n\n_⚠️ 결과가 기획안 형식이 아니라 노션엔 안 썼어요. 다시 시도해 주세요._",
+                             replace_ts=ph)
                 return
             idx = _first_changed_section(current_md, answer)
             if idx is None:
@@ -1128,7 +1147,9 @@ def _do_plan(channel: str, thread_ts: str, rest: str, files_text: str = "") -> N
         return
     # 링크가 주어졌으면 그 노션 페이지에 기획안 본문을 기록
     footer = "\n\n_📝 기획안 초안입니다. 다듬어서 `[생성]`으로 개요·대본을 뽑으세요._"
-    if write_page_id and config.NOTION_TOKEN:
+    if write_page_id and config.NOTION_TOKEN and not _is_valid_plan(answer):
+        footer = "\n\n_⚠️ 결과가 기획안 형식이 아니라 노션엔 안 썼어요. 다시 시도해 주세요._"
+    elif write_page_id and config.NOTION_TOKEN:
         try:
             notion_sync.append_markdown(write_page_id, answer)
             footer = "\n\n_✅ 위 기획안을 노션 페이지에 기록했어요. (초안 — 다듬어 쓰세요)_"
