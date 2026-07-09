@@ -46,11 +46,11 @@ CMD_GEN = {"생성", "generate", "gen"}
 CMD_PLAN = {"기획", "기획안", "작품생성", "plan"}                          # 컨셉 → 기획안 초안(노션 구조)
 CMD_CONVERT = {"변환", "포맷", "대본변환"}
 CMD_STORYBOARD = {"스토리보드", "스보", "storyboard"}                     # 대본 → 씬 스토리보드
-# 스토리보드 스레드에서 이 말이 오면 1단계(씬 설계) → 2단계(상세 스토리보드)로 넘어감
-SB_GEN_RE = re.compile(r"^\s*(생성|생성해|생성해줘|상세\s*생성|만들어|만들어줘|ㄱㄱ|고고)\s*$")
-# 단계 배지 (출력 맨 위에 붙여 슬랙에서 어느 단계인지·다음에 뭘 칠지 보이게). 마커([1/3]/[2/3])는 _sb_stage가 씀.
-SB_BADGE_PLAN = "🎬 *[1/3단계] 씬 설계* — 씬 나누기·시간 고칠 것 있으면 말해주세요. 좋으면 「생성」\n\n"
-SB_BADGE_BOARD = "🎬 *[2/3단계] 작가 확인용 스토리보드* — 대본 그대로예요. 고칠 것 있으면 말해주세요. (씨댄스 변환은 준비 중)\n\n"
+# 스토리보드 스레드에서 이 말이 오면 1단계(씬 설계) → 2단계(상세 콘티)로 넘어감
+SB_GEN_RE = re.compile(r"^\s*(생성|생성해|생성해줘|콘티|상세\s*콘티|만들어|만들어줘|ㄱㄱ|고고)\s*$")
+# 단계 배지 (출력 맨 위에 붙여 슬랙에서 어느 단계인지·다음에 뭘 칠지 보이게). 마커([1단계]/[2단계])는 _sb_stage가 씀.
+SB_BADGE_PLAN = "🎬 *[1단계] 씬 설계* — 씬 나누기·시간 고칠 것 있으면 말해주세요. 좋으면 「생성」\n\n"
+SB_BADGE_BOARD = "🎬 *[2단계] 상세 콘티* — 이 콘티를 GPT 이미지에 넣으면 그림 콘티가 나와요. 고칠 것 있으면 말해주세요.\n\n"
 CMD_TREND = {"트렌드", "trend"}
 CMD_IDEA = {"아이디어", "아이디어 제시", "아이디어제시", "제안", "idea"}
 CMD_SYNC = {"동기화", "노션동기화", "sync"}                              # 노션 붙여넣기 → 시트
@@ -81,14 +81,14 @@ _HELP = (
     "[생성] <날혐남> 대본 / 24화     ← 24화 개요+바이블 참고해 생성 (자동 검증 관문 ON)\n"
     "[생성] <날혐남> 대본 / 24화 검증생략   ← 빠르게: 바이블 준수 자동검증 끄기\n"
     "[변환] 휴대폰 보는 연우, 화내며 나감   ← 줄글 상황 → 드라마 대본식 지문으로\n"
-    "[스토리보드] <날혐남> (대본 붙여넣기)   ← 대본 → 영상문법가이드 기준 씬 스토리보드(90초·씬 단위) (스레드서 대본 뽑았으면 명령만)\n"
+    "[스토리보드] <날혐남> 3화   ← 노션 대본 자동 인식 → 씬 설계 → 「생성」이면 GPT 이미지용 상세 콘티\n"
     "[트렌드] 요즘 뭐가 유행?          ← 쉬운 요약\n"
     "[아이디어] <날혐남> 서아 힘든 거 어떻게 보여주지?  ← 구체적 상황 제안\n"
     "[피드백] <날혐남> (대본)  ← 재미+개연성 / [재미]·[개연성]로 따로도 가능\n"
     "[동기화] <날혐남> (노션 내용 통째로 붙여넣기)  ← 노션→시트 반영\n"
     "[좋아]/[별로] (생성물 스레드에서, 뒤에 이유)  ← 다음 생성에 학습 (별로는 바로 다시 뽑음)\n"
     "```\n"
-    "• `[입력]` 새로 저장 / `[수정]` 기존 고침 / `[생성]` 초안 / `[아이디어]` 상황제안 / `[변환]` 줄글→대본식지문 / `[스토리보드]` 대본→씬 스토리보드 / `[트렌드]` 조회 / `[멈춰]` 중지\n"
+    "• `[입력]` 새로 저장 / `[수정]` 기존 고침 / `[생성]` 초안 / `[아이디어]` 상황제안 / `[변환]` 줄글→대본식지문 / `[스토리보드]` 대본→씬 설계→상세 콘티 / `[트렌드]` 조회 / `[멈춰]` 중지\n"
     "• 이름만: 로그라인·키워드·타겟층·핵심정서·줄거리·금지사항·진행상태 (뒤에 바로 내용)\n"
     "• 인물/회차분배: 소분류 하나 `인물/강태혁/성별 남` 또는 여러 개를 줄마다 `소분류: 값`\n"
     "  인물 소분류 = 성별·나이·포지션·설정·핵심대사·설명 / 회차분배 = 구간·화수·핵심사건\n"
@@ -808,9 +808,9 @@ def _sb_stage(messages: list[dict]) -> str:
         if m["role"] != "assistant":
             continue
         c = m["content"]
-        if "[2/3단계]" in c or "화면(쉽게)" in c:   # 작가 확인용 스토리보드 (배지 우선, 본문 마커 폴백)
+        if "[2단계]" in c:                          # 상세 콘티 (배지로 감지)
             return "detail"
-        if "[1/3단계]" in c or "씬 설계안" in c:   # 씬 설계안
+        if "[1단계]" in c or "씬 설계안" in c:      # 씬 설계안
             return "plan"
     return "plan"
 
@@ -821,8 +821,9 @@ def _plan_sections(md: str) -> list[str]:
 
 
 def _first_changed_section(prev_md: str, new_md: str) -> int | None:
-    """직전 기획안 대비 처음으로 바뀐 '## 섹션' 인덱스. 변화 없으면 None."""
-    norm = lambda s: re.sub(r"\s+", " ", s or "").strip()
+    """직전 기획안 대비 처음으로 바뀐 '## 섹션' 인덱스. 변화 없으면 None.
+    노션에서 읽어온 텍스트는 볼드(**)·불릿(-) 마커가 없으므로, 마커 무시하고 내용만 비교."""
+    norm = lambda s: re.sub(r"[*#>\-\s]+", " ", s or "").strip().lower()
     ps, ns = _plan_sections(prev_md), _plan_sections(new_md)
     for i in range(len(ns)):
         if norm(ns[i]) != norm(ps[i] if i < len(ps) else ""):
@@ -881,29 +882,29 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
             "plan": "기획안 다듬는 중이에요…",
             "sb": "씬 설계 다듬는 중이에요…"}.get(mode, "수정하는 중이에요…")
     if sb_generate:
-        note = "확정한 씬 설계로 작가 확인용 스토리보드 만드는 중이에요… (몇 초~1분)"
+        note = "확정한 씬 설계로 상세 콘티(GPT 이미지용) 만드는 중이에요… (몇 초~1분)"
     elif sb_stage == "detail":
-        note = "스토리보드 고치는 중이에요…"
+        note = "상세 콘티 고치는 중이에요…"
     ph = _thinking(channel, thread_ts, note)
 
     try:
         if mode == "sb" and sb_generate:
-            # 1단계→2단계: 확정된 '씬 설계안'의 씬 수·순서·시간을 그대로 지켜, 각 씬을 6칸 작가 확인용으로.
+            # 1단계→2단계: 확정된 '씬 설계안'의 씬 순서·시간을 지켜, 대본을 샷 단위 '상세 콘티'로 전개.
             answer = generator.complete(
                 prompts.storyboard_system(bible, target_episode=target),
                 _convo_text(messages) + sb_ref_block
-                + "\n\n(위 대화에서 마지막으로 확정된 '씬 설계안'의 씬 수·순서·각 씬 시간을 그대로 지켜라. "
-                  "각 씬을 6칸(제목·길이·장소·등장·화면(쉽게)·대사) 작가 확인용 스토리보드로 전개하되, "
-                  "[원본 대본]의 사건·행동·대사는 하나도 바꾸지 마라. 카메라·조명은 넣지 마라.)",
+                + "\n\n(위 대화에서 마지막으로 확정된 '씬 설계안'의 씬 순서·시간 배분을 지켜라. "
+                  "[원본 대본]을 영상문법가이드 정본 예시처럼 **샷 단위 상세 콘티**(프레임에 잡히는 것·카메라·대사·나레이션 처리·연기 뉘앙스 명시)로 전개하되, "
+                  "대본의 사건·행동·대사는 하나도 바꾸지 마라.)",
                 timeout=300)
             answer = SB_BADGE_BOARD + answer
         elif mode == "sb" and sb_stage == "detail":
-            # 스토리보드가 이미 나온 뒤의 후속 피드백 → 바뀐 씬만 6칸 블록으로 재출력
+            # 상세 콘티가 이미 나온 뒤의 후속 피드백 → 바뀐 샷/구간만 재출력
             answer = generator.complete(
                 prompts.storyboard_system(bible, target_episode=target),
                 _convo_text(messages) + sb_ref_block
-                + "\n\n(위 스토리보드에서 마지막 작가 요청대로 **바뀐 씬만** 6칸 블록으로 내라 "
-                  "— 안 바뀐 씬은 다시 쓰지 말고, 맨 위에 '바꾼 점:' 한 줄. [원본 대본]과 어긋나지 않게, 대본 내용은 바꾸지 마라. 전체 재출력 금지.)",
+                + "\n\n(위 상세 콘티에서 마지막 작가 요청대로 **바뀐 샷/구간만** 내라 "
+                  "— 안 바뀐 데는 다시 쓰지 말고, 맨 위에 '바꾼 점:' 한 줄. [원본 대본]과 어긋나지 않게, 대본 내용은 바꾸지 마라. 전체 재출력 금지.)",
                 timeout=300)
             answer = SB_BADGE_BOARD + answer
         elif mode == "sb":
@@ -978,6 +979,45 @@ def _do_plan(channel: str, thread_ts: str, rest: str) -> None:
     write_page_id = notion_sync.extract_page_id(nm.group(0)) if nm else None
     if nm:
         concept = concept.replace(nm.group(0), "").strip()   # 링크는 컨셉에서 제거
+
+    # 링크 페이지에 이미 기획안이 있으면 → '부분 수정' 모드: 그 페이지를 읽어 고치고 바뀐 섹션만 교체
+    if write_page_id and config.NOTION_TOKEN:
+        try:
+            current_md = notion_sync.page_text(write_page_id)
+        except Exception:
+            current_md = ""
+        if len(current_md) > 80:                       # 기존 기획안 존재
+            if len(concept) < 2:
+                _reply(channel, thread_ts,
+                       "그 페이지엔 이미 기획안이 있어요. 고칠 내용을 함께 적어주세요.\n"
+                       "예: `[기획] <링크> 여주를 더 능동적으로, 회차분배 5막으로`")
+                return
+            _CANCEL.discard(thread_ts)
+            ph = _thinking(channel, thread_ts, "기획안 부분 수정 중이에요…")
+            user_msg = (f"[현재 기획안]\n{current_md}\n\n[요청]\n{concept}\n"
+                        "위 기획안에서 요청대로만 고치고, 같은 구조로 전체 기획안을 다시 내라. "
+                        "안 바뀐 부분은 그대로 유지.")
+            try:
+                answer = generator.complete(prompts.plan_system(concept), user_msg).strip()
+            except Exception:
+                log.exception("plan revise failed")
+                _post_chunks(channel, thread_ts, "수정 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
+                return
+            if _cancelled(channel, thread_ts, ph):
+                return
+            idx = _first_changed_section(current_md, answer)
+            if idx is None:
+                foot = "\n\n_(노션: 바뀐 섹션이 없어 그대로 뒀어요)_"
+            else:
+                try:
+                    notion_sync.replace_from_section(write_page_id, answer, idx)
+                    foot = f"\n\n_✅ 노션 페이지의 {idx + 1}번째 섹션부터 수정했어요._"
+                except Exception:
+                    log.exception("plan revise replace failed")
+                    foot = "\n\n_⚠️ 노션 수정 실패 — 권한/연결 확인. (수정본은 위에 있어요)_"
+            _post_chunks(channel, thread_ts, (answer or "(빈 응답)") + foot, replace_ts=ph)
+            return
+
     # 스레드에서 [기획]을 치면 그 스레드 대화(트렌드·아이디어 논의 등)를 근거로 삼는다.
     messages = _thread_messages(channel, thread_ts)
     thread_ctx = _convo_text(messages) if len(messages) > 1 else ""
