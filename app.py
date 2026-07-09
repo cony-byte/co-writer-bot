@@ -57,6 +57,7 @@ CMD_TREND = {"트렌드", "trend"}
 CMD_IDEA = {"아이디어", "아이디어 제시", "아이디어제시", "제안", "idea"}
 CMD_SYNC = {"동기화", "노션동기화", "sync"}                              # 노션 붙여넣기 → 시트
 CMD_CHECK = {"확인", "조회", "check"}                                    # 바이블 한 줄 조회
+CMD_ALIAS = {"별칭", "별명", "약칭", "닉네임", "alias"}                   # 작품에 부를 이름 추가
 CMD_FEEDBACK = {"피드백", "feedback", "평가", "리뷰", "review"}          # 둘 다
 CMD_FB_FUN = {"재미", "피드백 재미", "피드백재미", "fun"}                 # 재미만
 CMD_FB_LOGIC = {"개연성", "피드백 개연성", "피드백개연성", "논리", "logic"}  # 개연성만
@@ -538,16 +539,81 @@ def _notes_block(notes: str) -> str:
     )
 
 
+_GEN_INTPAT = r"강도\s*(?:전체|전부|모두|비교|1\s*[~\-]\s*5|1to5|[1-5])\S*"
+
+
+def _gen_episodes_in(s: str) -> list[int]:
+    """구절에서 회차 뽑기. 'N~M' 범위 우선, 없으면 개별 숫자들. (강도 숫자는 미리 제거)"""
+    s = re.sub(_GEN_INTPAT, "", s or "")
+    m = re.search(r"(\d+)\s*[~\-–]\s*(\d+)", s)     # 1~3, 에피1~3, 1-3화
+    if m:
+        a, b = int(m.group(1)), int(m.group(2))
+        if a <= b and b - a <= 100:
+            return list(range(a, b + 1))
+    return [int(n) for n in re.findall(r"\d+", s)]
+
+
+def _parse_gen_jobs(text: str) -> list[tuple[str, int | None]]:
+    """자연어 생성 요청 → [(종류, 회차|None)]. 예:
+      '전체 줄거리랑, 에피1~3의 대본' → [('줄거리',None),('대본',1),('대본',2),('대본',3)]
+      '1화 개요 좀 작성해줘'          → [('개요',1)]"""
+    text = _VERIFY_TOKENS_RE.sub("", re.sub(_GEN_INTPAT, "", text or ""))
+    jobs: list[tuple[str, int | None]] = []
+    # 절 분리: 랑/과/그리고/및/또 + (뒤에 숫자 없는)쉼표  — '1,2,3화' 같은 숫자목록은 안 쪼갬
+    for clause in re.split(r"\s*(?:랑|이랑|과|와|하고|및|그리고|또는|또|,(?!\s*\d))\s*", text):
+        types = []
+        if re.search(r"줄거리|시놉시스|시놉|전체\s*스토리|전체\s*줄거리", clause):
+            types.append("줄거리")
+        if "개요" in clause:
+            types.append("개요")
+        if re.search(r"대본|스크립트|각본", clause):
+            types.append("대본")
+        if not types:
+            continue
+        eps = _gen_episodes_in(clause)
+        for t in types:
+            if t == "줄거리":
+                jobs.append(("줄거리", None))          # 줄거리는 전체 스토리(회차 무관)
+            elif eps:
+                jobs += [(t, e) for e in eps]
+            else:
+                jobs.append((t, None))                 # 회차 안 적음 → 진행 화 사용
+    out, seen = [], set()
+    for j in jobs:
+        if j not in seen:
+            seen.add(j); out.append(j)
+    return out
+
+
 def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "") -> None:
-    """[생성] <작품> 경로(대본/N화 등) → 바이블 참고 생성 + 시트 저장.
+    """[생성] <작품> 경로(대본/N화 등) 또는 자연어('에피1~3 대본 써줘') → 바이블 참고 생성 + 시트 저장.
     files_text: 첨부 파일 내용(있으면) — 명령 파싱과 분리해 '참고 자료'로 주입."""
     from bot.sheet_bible import parse_path
     sm = SUB_RE.match(rest)
     if not sm:
-        _reply(channel, thread_ts, "형식: `[생성] <작품> 대본 / 24화`\n예: `[생성] <날혐남> 대본 / 24화`")
+        _reply(channel, thread_ts,
+               "형식: `[생성] <작품> 대본 / 24화` (또는 자연어로 `[생성] <작품> 1~3화 대본 써줘`)")
         return
     work = works.resolve(sm.group(1).strip()) or sm.group(1).strip()   # 별칭 → 정식 작품명
-    gen_lines = sm.group(2).splitlines()
+    raw_gen = sm.group(2)
+
+    # ── 자연어 모드: 여러 종류/회차를 한 문장에 요청하면 각각을 표준 경로로 재구성해 순차 생성 ──
+    jobs = _parse_gen_jobs(raw_gen)
+    _first_line = (raw_gen.splitlines() or [""])[0]
+    _pl = re.sub(r"\s*" + _GEN_INTPAT, "", _VERIFY_TOKENS_RE.sub("", _first_line)).strip()
+    _strict_ok = parse_path(_pl) is not None
+    if len(jobs) >= 2 or (len(jobs) == 1 and not _strict_ok):
+        _im = re.search(_GEN_INTPAT, raw_gen)
+        strength = " " + _im.group(0) if _im else ""
+        _reply(channel, thread_ts,
+               "요청 확인: " + ", ".join(
+                   (t if e is None else f"{e}화 {t}") for t, e in jobs) + " 순서대로 만들게요.")
+        for top, ep in jobs:
+            path = f"<{work}> {top}" + (f" / {ep}화" if ep is not None else "") + strength
+            _do_generate(channel, thread_ts, path, files_text=files_text)
+        return
+
+    gen_lines = raw_gen.splitlines()
     path_line = (gen_lines or [""])[0].strip()
     notes = "\n".join(gen_lines[1:]).strip()      # 경로 아래 줄 = 넣고 싶은 포인트/지시
     directive = path_line + "\n" + notes          # 강도/검증 지시 감지용(명령 줄 포함)
@@ -1270,6 +1336,9 @@ def _do_plan(channel: str, thread_ts: str, rest: str, files_text: str = "", in_t
                     foot = (f"\n\n_✅ 노션 페이지를 수정본으로 교체했어요. 원본은 *{work}* 시트에 백업"
                             + ("(새 작품 등록). " if new_work else ". ")
                             + "이어서 이 스레드에 답글로 고치면 바뀐 부분만 반영해요._")
+                    if new_work:
+                        foot += (f"\n\n📌 작품명은 *<{work}>* 이에요! → `[생성] <{work}> 3화` "
+                                 "(답글 `[별칭] 짧은이름`으로 줄일 수 있어요.)")
                 except Exception:
                     log.exception("plan replace_markdown failed")
                     foot = "\n\n_⚠️ 노션 교체 실패 — 통합 연결/권한 확인 (원본은 시트에 백업)._"
@@ -1415,6 +1484,51 @@ _SYNC_SINGLE = {
 }
 
 
+def _alias_clean(tok: str) -> str:
+    """별칭 토큰에서 자연어 꼬리·따옴표·괄호 제거. 예: '코니테스트라고 불러줘' → '코니테스트'."""
+    t = (tok or "").strip().strip("\"'`<>[]（）()「」《》 ").strip()
+    t = re.sub(r"\s*(?:이?라고|으?로)?\s*(?:불러줘|불러|부를게|불러라|해줘|해|하자|할게|등록해?줘?|등록)?$", "", t).strip()
+    return t
+
+
+def _do_alias(channel: str, thread_ts: str, rest: str) -> None:
+    """[별칭] — 작품에 부를 이름 추가. 자연스러운 형태 지원:
+      · [별칭] <작품> 코니테스트, 테스트      · [별칭] cony 테스트 작품 = 코니테스트
+      · (스레드에서) [별칭] 코니테스트          ← 그 스레드가 다룬 작품에 자동 연결"""
+    txt = rest.strip()
+    work = None
+    wm = SUB_RE.match(txt)                                   # 1) <작품> 명시
+    if wm:
+        work = wm.group(1).strip()
+        txt = wm.group(2).strip()
+    if not work:                                             # 2) 'A = B' / 'A: B' / 'A -> B'
+        parts = re.split(r"\s*(?:=|:|→|->|⇒)\s*", txt, maxsplit=1)
+        if len(parts) == 2 and parts[0].strip() and parts[1].strip():
+            work, txt = parts[0].strip(), parts[1].strip()
+    if not work:                                             # 3) 스레드에서 다룬 작품 회수
+        joined = "\n".join(m["content"] for m in _thread_messages(channel, thread_ts))
+        w2 = re.search(r"<\s*([^>]+?)\s*>", joined)
+        if w2:
+            work = w2.group(1).strip()
+    work = (works.resolve(work) or work) if work else None
+    aliases = [_alias_clean(a) for a in re.split(r"[,、/]| 그리고 ", txt) if _alias_clean(a)]
+    if not work:
+        known = ", ".join(works.all_works().keys()) or "(없음)"
+        _reply(channel, thread_ts,
+               f"어느 작품의 별칭인가요? `[별칭] <작품> 짧은이름` 형식으로요.\n등록된 작품: {known}")
+        return
+    if not works.resolve(work):
+        _reply(channel, thread_ts, f"'{work}' 라는 작품을 아직 못 찾았어요. 먼저 노션 링크로 등록해 주세요.")
+        return
+    if not aliases:
+        _reply(channel, thread_ts, f"`{work}`을(를) 뭐라고 부를까요? 예: `[별칭] <{work}> 코니테스트`")
+        return
+    canon = works.add_aliases(work, aliases)
+    nice = ", ".join(f"`{a}`" for a in aliases)
+    _reply(channel, thread_ts,
+           f"✅ 이제 *{canon}* 을(를) {nice} (으)로도 부를 수 있어요!\n예: `[생성] <{aliases[0]}> 3화`")
+
+
 def _do_check(channel: str, thread_ts: str, rest: str) -> None:
     """[확인] <작품> 질문 → 바이블 근거로 한 문장만 답. (작품명·캐릭터 등 빠른 조회)"""
     q = rest.strip()
@@ -1494,9 +1608,14 @@ def _autosync_link(channel: str, thread_ts: str, url: str, explicit: str | None 
         _post_chunks(channel, thread_ts,
                      f"'{work}' 노션 동기화 중 오류가 났어요 (명령은 계속 진행).", replace_ts=ph)
         return work if existing else None
-    tag = "🆕 새 작품 " if (existing is None and not explicit) else "🔄 "
-    _post_chunks(channel, thread_ts,
-                 f"{tag}*{work}* 노션 동기화 완료 — {done}개 반영. 이어서 요청 처리할게요…", replace_ts=ph)
+    if existing is None and not explicit:
+        _post_chunks(channel, thread_ts,
+                     f"🆕 새 작품 *<{work}>* 등록·동기화 완료 — {done}개 반영. "
+                     f"이렇게 부르면 돼요 → `[생성] <{work}> 3화` (답글 `[별칭] 짧은이름`으로 줄일 수 있어요). "
+                     "이어서 요청 처리할게요…", replace_ts=ph)
+    else:
+        _post_chunks(channel, thread_ts,
+                     f"🔄 *{work}* 노션 동기화 완료 — {done}개 반영. 이어서 요청 처리할게요…", replace_ts=ph)
     return work
 
 
@@ -1603,7 +1722,8 @@ def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
     head = f"🆕 새 작품 *{work}* 등록 + " if new_work else f"✅ *{work}* "
     msg = f"{head}{src} 동기화 — {done}개 반영.\n· " + "\n· ".join(summary)
     if new_work:
-        msg += f"\n(이제 `[생성] <{work}> ...` 로 바로 쓸 수 있어요. 노션 수정하면 자동 반영돼요.)"
+        msg += (f"\n\n📌 작품명은 *<{work}>* 이에요! 이렇게 부르면 돼요 → `[생성] <{work}> 3화`\n"
+                f"이름이 길면 답글로 `[별칭] 짧은이름` 만 치면 짧게도 부를 수 있어요. 노션 수정하면 자동 반영돼요.")
     if failed:
         msg += f"\n⚠️ {failed}개는 네트워크 문제로 실패 — 다시 `[동기화]` 하면 그 부분만 채워집니다."
     _post_chunks(channel, thread_ts, msg, replace_ts=ph)
@@ -1967,6 +2087,8 @@ def _handle(event: dict) -> None:
         _do_sync(channel, thread_ts, rest_f)
     elif cmd in CMD_CHECK:
         _do_check(channel, thread_ts, rest)
+    elif cmd in CMD_ALIAS:
+        _do_alias(channel, thread_ts, rest)
     elif cmd in CMD_IDEA:
         _do_idea(channel, thread_ts, rest)
     elif cmd in CMD_PLAN:
