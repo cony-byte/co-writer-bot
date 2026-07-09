@@ -939,13 +939,18 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
 def _do_plan(channel: str, thread_ts: str, rest: str) -> None:
     """[기획] 컨셉·로그라인 → 노션 기획안 구조 초안 (로그라인·타겟·인물·줄거리·회차분배). 초안만, 자동저장 X."""
     concept = rest.strip()
-    if len(concept) < 3:
+    # 스레드에서 [기획]을 치면 그 스레드 대화(트렌드·아이디어 논의 등)를 근거로 삼는다.
+    messages = _thread_messages(channel, thread_ts)
+    thread_ctx = _convo_text(messages) if len(messages) > 1 else ""
+    if len(concept) < 3 and not thread_ctx:
         _reply(channel, thread_ts,
                "형식: `[기획] <컨셉/로그라인/키워드>`\n"
-               "예: `[기획] 라이벌 아이돌 룸메이트 BL, 스캔들 나면 끝장`")
+               "예: `[기획] 라이벌 아이돌 룸메이트 BL, 스캔들 나면 끝장`\n"
+               "(트렌드·아이디어 스레드에서 `[기획]`만 쳐도 위 대화로 기획안을 짭니다.)")
         return
+    seed = concept if len(concept) >= 3 else " ".join(m["content"] for m in messages)[:300]
     trend_ctx = ""
-    orient = _trend_orient(concept)               # 성향(BL/GL/로맨스) 있으면 트렌드 근거 참고
+    orient = _trend_orient(concept) or _trend_orient(seed)   # 성향(BL/GL/로맨스)이면 트렌드 근거
     if orient:
         trend = reference.load_trend()
         if trend:
@@ -953,11 +958,15 @@ def _do_plan(channel: str, thread_ts: str, rest: str) -> None:
                 trend_ctx = trend.answer(orient)
             except Exception:
                 log.exception("plan trend ctx failed")
+    if thread_ctx:
+        user_msg = (f"{thread_ctx}\n\n[요청]\n위 대화 흐름·아이디어를 바탕으로 기획안 초안을 만들어줘."
+                    + (f" 특히 이 방향으로: {concept}" if len(concept) >= 3 else ""))
+    else:
+        user_msg = f"이 컨셉으로 기획안 초안을 만들어줘:\n{concept}"
     _CANCEL.discard(thread_ts)
     ph = _thinking(channel, thread_ts, "기획안 초안 짜는 중이에요… (몇 초~1분)")
     try:
-        answer = generator.complete(prompts.plan_system(concept, trend_ctx),
-                                    f"이 컨셉으로 기획안 초안을 만들어줘:\n{concept}").strip()
+        answer = generator.complete(prompts.plan_system(seed, trend_ctx), user_msg).strip()
     except Exception:
         log.exception("plan failed")
         _post_chunks(channel, thread_ts, "기획안 생성 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
