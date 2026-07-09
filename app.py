@@ -75,13 +75,14 @@ _HELP = (
     "[생성] <날혐남> 대본 / 24화     ← 24화 개요+바이블 참고해 생성 (자동 검증 관문 ON)\n"
     "[생성] <날혐남> 대본 / 24화 검증생략   ← 빠르게: 바이블 준수 자동검증 끄기\n"
     "[변환] 휴대폰 보는 연우, 화내며 나감   ← 줄글 상황 → 드라마 대본식 지문으로\n"
+    "[스토리보드] <날혐남> (대본 붙여넣기)   ← 대본 → 영상문법가이드 기준 컷 스토리보드 (스레드서 대본 뽑았으면 명령만)\n"
     "[트렌드] 요즘 뭐가 유행?          ← 쉬운 요약\n"
     "[아이디어] <날혐남> 서아 힘든 거 어떻게 보여주지?  ← 구체적 상황 제안\n"
     "[피드백] <날혐남> (대본)  ← 재미+개연성 / [재미]·[개연성]로 따로도 가능\n"
     "[동기화] <날혐남> (노션 내용 통째로 붙여넣기)  ← 노션→시트 반영\n"
     "[좋아]/[별로] (생성물 스레드에서, 뒤에 이유)  ← 다음 생성에 학습 (별로는 바로 다시 뽑음)\n"
     "```\n"
-    "• `[입력]` 새로 저장 / `[수정]` 기존 고침 / `[생성]` 초안 / `[아이디어]` 상황제안 / `[변환]` 줄글→대본식지문 / `[트렌드]` 조회 / `[멈춰]` 중지\n"
+    "• `[입력]` 새로 저장 / `[수정]` 기존 고침 / `[생성]` 초안 / `[아이디어]` 상황제안 / `[변환]` 줄글→대본식지문 / `[스토리보드]` 대본→컷 스토리보드 / `[트렌드]` 조회 / `[멈춰]` 중지\n"
     "• 이름만: 로그라인·키워드·타겟층·핵심정서·줄거리·금지사항·진행상태 (뒤에 바로 내용)\n"
     "• 인물/회차분배: 소분류 하나 `인물/강태혁/성별 남` 또는 여러 개를 줄마다 `소분류: 값`\n"
     "  인물 소분류 = 성별·나이·포지션·설정·핵심대사·설명 / 회차분배 = 구간·화수·핵심사건\n"
@@ -708,6 +709,45 @@ def _do_convert(channel: str, thread_ts: str, rest: str) -> None:
     _post_chunks(channel, thread_ts, answer or "(빈 응답)", replace_ts=ph)
 
 
+def _do_storyboard(channel: str, thread_ts: str, rest: str) -> None:
+    """[스토리보드]: 대본/줄글 → 영상문법가이드 기준 컷 단위 스토리보드 (슬랙 답글).
+    본문이 없으면 스레드 직전 봇 출력(방금 쓴 대본)을 그대로 스토리보드화한다."""
+    q = rest.strip()
+    work, bible = None, None
+    wm = SUB_RE.match(q)
+    if wm:                              # <작품> 지정 시 인물 이름·호칭 참고(주어에 반영)
+        work = wm.group(1).strip()
+        q = wm.group(2).strip()
+        sheet = reference.sheet()
+        if sheet:
+            try:
+                bible = sheet.get(work)
+            except Exception:
+                log.exception("storyboard bible load failed")
+    draft = q
+    if len(draft) < 10:                 # 본문 거의 없음 → 스레드 직전 봇 출력을 스토리보드화
+        prior = [m["content"] for m in _thread_messages(channel, thread_ts)
+                 if m["role"] == "assistant"]
+        draft = prior[-1] if prior else ""
+    if len(draft) < 5:
+        _reply(channel, thread_ts,
+               "대본이나 줄글 상황을 `[스토리보드]` 뒤에 붙이면 컷 단위 스토리보드로 바꿔드려요.\n"
+               "예: `[스토리보드] <날혐남> (대본 붙여넣기)` — 또는 대본을 방금 뽑은 스레드에서 `[스토리보드]`만 쳐도 돼요.")
+        return
+    _CANCEL.discard(thread_ts)
+    ph = _thinking(channel, thread_ts, "영상문법가이드로 컷 스토리보드 짜는 중이에요… (몇 초~1분)")
+    try:
+        answer = generator.complete(prompts.storyboard_system(bible),
+                                    prompts.storyboard_user(draft), timeout=300).strip()
+    except Exception:
+        log.exception("storyboard failed")
+        _post_chunks(channel, thread_ts, "스토리보드 생성 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
+        return
+    if _cancelled(channel, thread_ts, ph):
+        return
+    _post_chunks(channel, thread_ts, answer or "(빈 응답)", replace_ts=ph)
+
+
 def _thread_origin_mode(messages: list[dict]) -> str:
     """스레드를 시작한 명령이 뭔지 → 후속 답글을 그 모드로 이어가기 위함."""
     for m in messages:
@@ -1012,23 +1052,30 @@ def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both") ->
         stored = ((bible.get("intensity_map") or {}).get("재미") or bible.get("intensity_level")) if bible else None
         lens_levels = [stored or DEFAULT_INTENSITY]
 
-    ep_cmd = re.search(r"(\d+)\s*화", q)          # 명령에 'N화'가 있으면 그 화
+    ep_cmd = re.search(r"(\d+)\s*화", q)                 # 명령에 'N화'가 있으면 그 화
+    want_outline = ("개요" in q) and ("대본" not in q)   # '개요' 명시 → 개요, 기본은 대본
+    src_kind = ""
     draft = q
     if len(draft) < 30:  # 대본 미첨부 → 스레드 직전 봇 대본/초안
         prior = [m["content"] for m in _thread_messages(channel, thread_ts) if m["role"] == "assistant"]
         draft = prior[-1] if prior else ""
-    if len(draft) < 30 and bible and ep_cmd:      # 그래도 없으면 → 시트에 저장된 그 화 대본 사용
-        stored = (bible.get("scripts") or {}).get(f"{ep_cmd.group(1)}화", "")
-        if len(stored.strip()) >= 30:
-            draft = stored
+    if len(draft) < 30 and bible and ep_cmd:            # 그래도 없으면 → 시트 저장본(개요/대본) 사용
+        key = "outlines" if want_outline else "scripts"
+        saved = (bible.get(key) or {}).get(f"{ep_cmd.group(1)}화", "")
+        if len(saved.strip()) >= 30:
+            draft = saved
+            src_kind = f"시트의 {ep_cmd.group(1)}화 {'개요' if want_outline else '대본'}"
     if len(draft) < 30:
         _reply(channel, thread_ts,
-               "형식: `[피드백] <작품> (대본 붙여넣기)` 또는 `[피드백] <작품> N화` (시트에 저장된 그 화 대본을 읽어요).")
+               "형식: `[피드백] <작품> (대본 붙여넣기)` 또는 `[피드백] <작품> N화`"
+               " (시트 저장본으로 평가 · 기본 대본, `N화 개요`라 쓰면 개요).")
         return
     em = re.search(r"(\d+)\s*화", draft[:200])   # 대본 앞부분에 회차가 있으면 그 흐름 앵커
     target = (ep_cmd and int(ep_cmd.group(1))) or (int(em.group(1)) if em else _progress_episode(bible, ["대본", "개요"]))
     _CANCEL.discard(thread_ts)
     note = {"fun": "재미 보는 중이에요…", "logic": "개연성 보는 중이에요…"}.get(mode, "대본 보는 중이에요…")
+    if src_kind:
+        note = f"{src_kind} 읽고 {note}"
     ph = _thinking(channel, thread_ts, note)
     first = True
 
