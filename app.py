@@ -47,6 +47,9 @@ CMD_CONVERT = {"변환", "포맷", "대본변환"}
 CMD_STORYBOARD = {"스토리보드", "스보", "storyboard"}                     # 대본 → 씬 스토리보드
 # 스토리보드 스레드에서 이 말이 오면 1단계(씬 설계) → 2단계(상세 스토리보드)로 넘어감
 SB_GEN_RE = re.compile(r"^\s*(생성|생성해|생성해줘|상세\s*생성|만들어|만들어줘|ㄱㄱ|고고)\s*$")
+# 단계 배지 (출력 맨 위에 붙여 슬랙에서 어느 단계인지·다음에 뭘 칠지 보이게). 마커([1/3]/[2/3])는 _sb_stage가 씀.
+SB_BADGE_PLAN = "🎬 *[1/3단계] 씬 설계* — 씬 나누기·시간 고칠 것 있으면 말해주세요. 좋으면 「생성」\n\n"
+SB_BADGE_BOARD = "🎬 *[2/3단계] 작가 확인용 스토리보드* — 대본 그대로예요. 고칠 것 있으면 말해주세요. (씨댄스 변환은 준비 중)\n\n"
 CMD_TREND = {"트렌드", "trend"}
 CMD_IDEA = {"아이디어", "아이디어 제시", "아이디어제시", "제안", "idea"}
 CMD_SYNC = {"동기화", "노션동기화", "sync"}                              # 노션 붙여넣기 → 시트
@@ -752,7 +755,7 @@ def _do_storyboard(channel: str, thread_ts: str, rest: str) -> None:
         return
     if _cancelled(channel, thread_ts, ph):
         return
-    _post_chunks(channel, thread_ts, answer or "(빈 응답)", replace_ts=ph)
+    _post_chunks(channel, thread_ts, SB_BADGE_PLAN + (answer or "(빈 응답)"), replace_ts=ph)
 
 
 def _thread_origin_mode(messages: list[dict]) -> str:
@@ -788,9 +791,9 @@ def _sb_stage(messages: list[dict]) -> str:
         if m["role"] != "assistant":
             continue
         c = m["content"]
-        if "화면(쉽게)" in c:                       # 작가 확인용 스토리보드 마커
+        if "[2/3단계]" in c or "화면(쉽게)" in c:   # 작가 확인용 스토리보드 (배지 우선, 본문 마커 폴백)
             return "detail"
-        if "씬 설계안" in c:                       # 씬 설계안 마커
+        if "[1/3단계]" in c or "씬 설계안" in c:   # 씬 설계안
             return "plan"
     return "plan"
 
@@ -856,6 +859,7 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
                   "각 씬을 6칸(제목·길이·장소·등장·화면(쉽게)·대사) 작가 확인용 스토리보드로 전개하되, "
                   "대본의 사건·행동·대사는 하나도 바꾸지 마라. 카메라·조명은 넣지 마라.)",
                 timeout=300)
+            answer = SB_BADGE_BOARD + answer
         elif mode == "sb" and sb_stage == "detail":
             # 스토리보드가 이미 나온 뒤의 후속 피드백 → 바뀐 씬만 6칸 블록으로 재출력
             answer = generator.complete(
@@ -864,6 +868,7 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
                 + "\n\n(위 스토리보드에서 마지막 작가 요청대로 **바뀐 씬만** 6칸 블록으로 내라 "
                   "— 안 바뀐 씬은 다시 쓰지 말고, 맨 위에 '바꾼 점:' 한 줄. 대본 내용은 바꾸지 마라. 전체 재출력 금지.)",
                 timeout=300)
+            answer = SB_BADGE_BOARD + answer
         elif mode == "sb":
             # 설계안 단계: 씬 설계안만 피드백대로 수정 (상세로 넘어가지 않음). 바뀐 씬만 출력.
             answer = generator.complete(
@@ -871,6 +876,7 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
                 _convo_text(messages)
                 + "\n\n(이번은 '씬 설계안 수정' 요청이다. 위에 이미 낸 설계안에서 **바뀐 씬만** 내라 "
                   "— 안 바뀐 씬은 다시 쓰지 말고, 맨 위에 '바꾼 점:' 한 줄. 전체 설계안 재출력 금지.)")
+            answer = SB_BADGE_PLAN + answer
         elif mode == "idea":
             bible_i = _idea_intensity(bible, feedback)   # 아이디어 기본 강도 3 고정
             answer = generator.complete(prompts.idea_system(bible_i, feedback, target_episode=target),
