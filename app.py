@@ -56,6 +56,7 @@ SB_BADGE_BOARD = "🎬 *[2단계] 상세 콘티* — 이 콘티를 GPT 이미지
 CMD_TREND = {"트렌드", "trend"}
 CMD_IDEA = {"아이디어", "아이디어 제시", "아이디어제시", "제안", "idea"}
 CMD_SYNC = {"동기화", "노션동기화", "sync"}                              # 노션 붙여넣기 → 시트
+CMD_CHECK = {"확인", "조회", "check"}                                    # 바이블 한 줄 조회
 CMD_FEEDBACK = {"피드백", "feedback", "평가", "리뷰", "review"}          # 둘 다
 CMD_FB_FUN = {"재미", "피드백 재미", "피드백재미", "fun"}                 # 재미만
 CMD_FB_LOGIC = {"개연성", "피드백 개연성", "피드백개연성", "논리", "logic"}  # 개연성만
@@ -1358,6 +1359,53 @@ _SYNC_SINGLE = {
 }
 
 
+def _do_check(channel: str, thread_ts: str, rest: str) -> None:
+    """[확인] <작품> 질문 → 바이블 근거로 한 문장만 답. (작품명·캐릭터 등 빠른 조회)"""
+    q = rest.strip()
+    work = None
+    wm = SUB_RE.match(q)
+    if wm:
+        work = works.resolve(wm.group(1).strip()) or wm.group(1).strip()
+        q = wm.group(2).strip()
+    if not work:                                   # 스레드에서 <작품> 회수
+        joined = "\n".join(m["content"] for m in _thread_messages(channel, thread_ts))
+        w2 = re.search(r"<\s*([^>]+?)\s*>", joined)
+        if w2:
+            work = works.resolve(w2.group(1).strip()) or w2.group(1).strip()
+    if not work:                                   # 등록 작품이 하나뿐이면 그걸로
+        reg = works.all_works()
+        if len(reg) == 1:
+            work = next(iter(reg))
+    if not work:
+        _reply(channel, thread_ts, "어느 작품인지 알려주세요: `[확인] <작품> 지금 캐릭터 누구 있지?`")
+        return
+    if not q:
+        _reply(channel, thread_ts, f"뭘 확인할까요? 예: `[확인] <{work}> 지금 캐릭터 누구 있지?`")
+        return
+    sheet = reference.sheet()
+    bible = None
+    if sheet:
+        try:
+            bible = sheet.get(work)
+        except Exception:
+            log.exception("check bible load failed")
+    if not bible:
+        _reply(channel, thread_ts, f"'{work}' 바이블을 아직 못 찾았어요. 먼저 노션 링크로 동기화해 주세요.")
+        return
+    _CANCEL.discard(thread_ts)
+    ph = _thinking(channel, thread_ts, "확인 중이에요…")
+    try:
+        ans = generator.complete(prompts.check_system(bible), f"[질문] {q}").strip()
+    except Exception:
+        log.exception("check failed")
+        _post_chunks(channel, thread_ts, "확인 중 오류가 났어요. 잠시 후 다시.", replace_ts=ph)
+        return
+    if _cancelled(channel, thread_ts, ph):
+        return
+    ans = " ".join((ans or "(빈 응답)").split())    # 여러 줄이 와도 한 줄로 눌러줌
+    _post_chunks(channel, thread_ts, ans, replace_ts=ph)
+
+
 _NOTION_LINK = re.compile(r"https?://\S*notion\.\S+")
 
 
@@ -1861,6 +1909,8 @@ def _handle(event: dict) -> None:
         _do_trend(channel, thread_ts, rest)
     elif cmd in CMD_SYNC:
         _do_sync(channel, thread_ts, rest_f)
+    elif cmd in CMD_CHECK:
+        _do_check(channel, thread_ts, rest)
     elif cmd in CMD_IDEA:
         _do_idea(channel, thread_ts, rest)
     elif cmd in CMD_PLAN:

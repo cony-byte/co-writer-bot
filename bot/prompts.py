@@ -568,6 +568,24 @@ def idea_system(bible: dict | None = None, query: str = "",
     return "\n\n".join(parts)
 
 
+CHECK_ROLE = (
+    "너는 작품 바이블 '한 줄 조회' 도우미다. 아래 [작품 바이블]만 근거로 사용자의 질문에 답한다.\n"
+    "규칙(엄수):\n"
+    "1. 반드시 한국어 한 문장, 한 줄로만 답한다. 제목·머리말·불릿·표·부연설명 절대 금지.\n"
+    "2. 여러 항목(예: 캐릭터 목록)은 쉼표로 이어서 한 줄에. 나열이 길면 핵심만.\n"
+    "3. 바이블에 없는 건 지어내지 말고 '바이블에 없어요'라고만 답한다.\n"
+    "4. 질문에 없는 정보는 덧붙이지 않는다."
+)
+
+
+def check_system(bible: dict | None) -> str:
+    """[확인]용: 한 문장 조회. 바이블을 컨텍스트로 주되 출력은 한 줄로 강제."""
+    parts = [CHECK_ROLE]
+    if bible:
+        parts.append(build_bible_block(bible, failsafe=False, kind="확인"))
+    return "\n\n".join(parts)
+
+
 def plan_system(concept: str = "", trend_ctx: str = "") -> str:
     """[기획]용: 컨셉 → 기획안 초안(노션 구조). DB 유사 사례 + (있으면) 트렌드 근거 주입."""
     parts = [PLAN_ROLE]
