@@ -782,13 +782,13 @@ def _thread_origin_mode(messages: list[dict]) -> str:
 
 
 def _sb_stage(messages: list[dict]) -> str:
-    """스토리보드 스레드가 지금 '설계안(plan)' 단계인지 '상세(detail)' 단계인지.
-    가장 최근 봇 결과물이 상세 스토리보드면 'detail', 씬 설계안이면 'plan'."""
+    """스토리보드 스레드가 지금 '설계안(plan)' 단계인지 '작가 확인용 스토리보드(detail)' 단계인지.
+    가장 최근 봇 결과물이 스토리보드면 'detail', 씬 설계안이면 'plan'."""
     for m in reversed(messages):
         if m["role"] != "assistant":
             continue
         c = m["content"]
-        if "카메라:" in c or "무드/조명" in c:   # 상세 스토리보드 마커
+        if "화면(쉽게)" in c:                       # 작가 확인용 스토리보드 마커
             return "detail"
         if "씬 설계안" in c:                       # 씬 설계안 마커
             return "plan"
@@ -841,27 +841,28 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
     note = {"idea": "아이디어 이어가는 중이에요…", "trend": "트렌드 이어보는 중이에요…",
             "sb": "씬 설계 다듬는 중이에요…"}.get(mode, "수정하는 중이에요…")
     if sb_generate:
-        note = "확정한 씬 설계로 상세 스토리보드 만드는 중이에요… (몇 초~1분)"
+        note = "확정한 씬 설계로 작가 확인용 스토리보드 만드는 중이에요… (몇 초~1분)"
     elif sb_stage == "detail":
-        note = "상세 스토리보드 고치는 중이에요…"
+        note = "스토리보드 고치는 중이에요…"
     ph = _thinking(channel, thread_ts, note)
 
     try:
         if mode == "sb" and sb_generate:
-            # 1단계→2단계: 확정된 '씬 설계안'의 씬 수·순서·시간을 그대로 지켜 각 씬을 9칸 상세로 전개
+            # 1단계→2단계: 확정된 '씬 설계안'의 씬 수·순서·시간을 그대로 지켜, 각 씬을 6칸 작가 확인용으로.
             answer = generator.complete(
                 prompts.storyboard_system(bible, target_episode=target),
                 _convo_text(messages)
                 + "\n\n(위 대화에서 마지막으로 확정된 '씬 설계안'의 씬 수·순서·각 씬 시간을 그대로 지켜라. "
-                  "씬을 새로 나누거나 시간을 바꾸지 말고, 각 씬을 가이드의 9칸 상세 스토리보드로 전개하라.)",
+                  "각 씬을 6칸(제목·길이·장소·등장·화면(쉽게)·대사) 작가 확인용 스토리보드로 전개하되, "
+                  "대본의 사건·행동·대사는 하나도 바꾸지 마라. 카메라·조명은 넣지 마라.)",
                 timeout=300)
         elif mode == "sb" and sb_stage == "detail":
-            # 상세본이 이미 나온 뒤의 후속 피드백 → 바뀐 씬만 9칸 블록으로 재출력
+            # 스토리보드가 이미 나온 뒤의 후속 피드백 → 바뀐 씬만 6칸 블록으로 재출력
             answer = generator.complete(
                 prompts.storyboard_system(bible, target_episode=target),
                 _convo_text(messages)
-                + "\n\n(위 상세 스토리보드에서 마지막 작가 요청대로 **바뀐 씬만** 9칸 블록으로 내라 "
-                  "— 안 바뀐 씬은 다시 쓰지 말고, 맨 위에 '바꾼 점:' 한 줄. 전체 재출력 금지.)",
+                + "\n\n(위 스토리보드에서 마지막 작가 요청대로 **바뀐 씬만** 6칸 블록으로 내라 "
+                  "— 안 바뀐 씬은 다시 쓰지 말고, 맨 위에 '바꾼 점:' 한 줄. 대본 내용은 바꾸지 마라. 전체 재출력 금지.)",
                 timeout=300)
         elif mode == "sb":
             # 설계안 단계: 씬 설계안만 피드백대로 수정 (상세로 넘어가지 않음). 바뀐 씬만 출력.
