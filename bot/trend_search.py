@@ -54,12 +54,16 @@ class TrendSearch:
         # 성향(orient)별 풀 — 뷰어 상위계층(플랫폼/국가/성향)과 동일. cats(6축)로 트렌드.
         # orient은 reference_db에 저장됨(없으면 genre로 폴백). 국가·플랫폼은 _scope로 하위 좁힘.
         self.data = data
+
+        def _orient(x):
+            o = x.get("orient") or ("BL" if x.get("genre") in ("bl", "BL") else "남녀")
+            return "로맨스" if o == "남녀" else o   # 데이터값 '남녀' → 표기 '로맨스'
+
         self.orient_pools = {}
-        for o in ("BL", "GL", "남녀"):
+        for o in ("BL", "GL", "로맨스"):
             self.orient_pools[o] = [
                 x for x in data
-                if (x.get("orient") or ("BL" if x.get("genre") in ("bl", "BL") else "남녀")) == o
-                and any((x.get("cats") or {}).values())
+                if _orient(x) == o and any((x.get("cats") or {}).values())
             ]
         # 시간축 = 실제 게시일(publish_dt). 우리가 긁은 날(crawl_date)이 아니라 콘텐츠가 뜬 시점.
         self.pub_dates = sorted(d for d in (self._pub(x) for x in self.pool) if d)
@@ -122,6 +126,12 @@ class TrendSearch:
         if terms and self._matches(x, terms, self._excl.get("search_in") or ["desc", "script.line"]):
             return False
         return True
+
+    @staticmethod
+    def _flt_label(flt):
+        """(kind, val) → 표시용 라벨. catharsis는 CAT_KO 한글, trope는 값 그대로."""
+        kind, val = flt
+        return CAT_KO.get(val, val) if kind == "catharsis" else val
 
     def _match_keyword_group(self, q):
         """질문에 걸리는 키워드 그룹 반환 (any 용어가 질문에 등장)."""
@@ -378,8 +388,8 @@ class TrendSearch:
             orient = "BL"
         elif re.search(r"(?<![a-z])gl(?![a-z])", q, re.I) or "백합" in q:
             orient = "GL"
-        elif re.search(r"남녀|이성애|이성\s*로맨스", q):
-            orient = "남녀"
+        elif re.search(r"로맨스|남녀|이성애|이성\s*로맨스", q):
+            orient = "로맨스"
         if orient:
             scoped = self._scope(self.orient_pools.get(orient, []), q)
             title = f"{orient} 트렌드"
@@ -394,6 +404,15 @@ class TrendSearch:
                 tags.append("틱톡")
             if tags:
                 title += " · " + "·".join(tags)
+            # 하위 트로프/정서 필터 조합: 성향 버킷 안에서 추가로 좁힘 (예: '로맨스 혐관')
+            flt = self._alias_filter(q)
+            if flt is None and llm is not None:
+                flt = self._llm_filter(q, llm)
+            if flt:
+                sub = self._apply_filter(scoped, flt)
+                if sub:                              # 매칭될 때만 좁힘(빈 결과면 성향 전체 유지)
+                    title += " · " + self._flt_label(flt)
+                    scoped = sub
             return self.cats_trends(scoped, title)
         # 0.5) filters.json 키워드 그룹(재벌/CEO·계약결혼 등) 매칭 → 그 키워드 부분집합으로 트렌드
         kg = self._match_keyword_group(q)
