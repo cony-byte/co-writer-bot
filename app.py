@@ -532,8 +532,9 @@ def _notes_block(notes: str) -> str:
     )
 
 
-def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
-    """[생성] <작품> 경로(대본/N화 등) → 바이블 참고 생성 + 시트 저장."""
+def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "") -> None:
+    """[생성] <작품> 경로(대본/N화 등) → 바이블 참고 생성 + 시트 저장.
+    files_text: 첨부 파일 내용(있으면) — 명령 파싱과 분리해 '참고 자료'로 주입."""
     from bot.sheet_bible import parse_path
     sm = SUB_RE.match(rest)
     if not sm:
@@ -590,9 +591,14 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
     # '강도 1~5 / 전체 / 비교' → 5단계 버전을 한 번에 뽑기
     all_lvls = re.search(r"강도\s*(전체|전부|모두|비교|1\s*[~\-]\s*5|1to5)", directive)
     what = " ".join(x for x in [mid, top] if x) or top
+    # 첨부 파일(있으면) → 명령과 분리해 '참고 자료'로 주입 (경로 파싱 오염 방지)
+    file_ctx = ""
+    if files_text and files_text.strip():
+        file_ctx = ("\n\n[첨부 참고 자료 — 이 작품의 설정·줄거리·대본. 바이블처럼 참고하되, "
+                    f"여기 없는 사실을 지어내지 마라]\n{files_text.strip()[:12000]}")
     if all_lvls:
         notes_c = re.sub(r"강도\s*(전체|전부|모두|비교|1\s*[~\-]\s*5|1to5)[^\n]*", "", notes).strip()
-        req = f"'{work}' {what}를 생성해줘." + _notes_block(notes_c)
+        req = f"'{work}' {what}를 생성해줘." + _notes_block(notes_c) + file_ctx
         # prefs는 루프에서 강도별로 붙임
         _CANCEL.discard(thread_ts)
         ph = _thinking(channel, thread_ts, f"{what} 강도 1~5단계 순서대로 뽑는 중이에요… (좀 걸려요)")
@@ -615,7 +621,7 @@ def _do_generate(channel: str, thread_ts: str, rest: str) -> None:
     # 강도 명시 안 했으면 기본 4로 고정
     bible = _ensure_default_intensity(bible, top)
     # 이번 요청을 명확한 지시로 정리(명령 구문 제거) + 넣고 싶은 포인트는 '재료'로 (반복 금지)
-    req = f"'{work}' {what}를 생성해줘." + _notes_block(notes)
+    req = f"'{work}' {what}를 생성해줘." + _notes_block(notes) + file_ctx
     _eff_lvl = (bible.get("intensity_map") or {}).get(top) or bible.get("intensity_level") if bible else None
     req = _with_prefs(req, work, top, level=_eff_lvl)   # 관련(강도 일치) 좋아/별로 피드백 주입
     messages[-1] = {"role": "user", "content": req}
@@ -970,9 +976,14 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
     _post_chunks(channel, thread_ts, answer or "(빈 응답)", replace_ts=ph)
 
 
-def _do_plan(channel: str, thread_ts: str, rest: str) -> None:
-    """[기획] 컨셉·로그라인 → 노션 기획안 구조 초안 (로그라인·타겟·인물·줄거리·회차분배). 초안만, 자동저장 X."""
+def _do_plan(channel: str, thread_ts: str, rest: str, files_text: str = "") -> None:
+    """[기획] 컨셉·로그라인 → 노션 기획안 구조 초안 (로그라인·타겟·인물·줄거리·회차분배). 초안만, 자동저장 X.
+    files_text: 첨부 파일(기획서·인물 등) — 명령과 분리해 '참고 자료'로 주입."""
     concept = rest.strip()
+    file_ctx = ""
+    if files_text and files_text.strip():
+        file_ctx = ("\n\n[첨부 참고 자료 — 이 작품의 설정·자료. 바탕으로 삼되 없는 사실은 지어내지 마라]\n"
+                    + files_text.strip()[:12000])
     # 노션 페이지 링크가 있으면 → 생성 후 그 페이지에 기획안을 기록(append)
     from bot import notion_sync
     nm = re.search(r"https?://\S*notion\.\S+", concept)
@@ -996,7 +1007,7 @@ def _do_plan(channel: str, thread_ts: str, rest: str) -> None:
             ph = _thinking(channel, thread_ts, "기획안 부분 수정 중이에요…")
             user_msg = (f"[현재 기획안]\n{current_md}\n\n[요청]\n{concept}\n"
                         "위 기획안에서 요청대로만 고치고, 같은 구조로 전체 기획안을 다시 내라. "
-                        "안 바뀐 부분은 그대로 유지.")
+                        "안 바뀐 부분은 그대로 유지." + file_ctx)
             try:
                 answer = generator.complete(prompts.plan_system(concept), user_msg).strip()
             except Exception:
@@ -1021,13 +1032,13 @@ def _do_plan(channel: str, thread_ts: str, rest: str) -> None:
     # 스레드에서 [기획]을 치면 그 스레드 대화(트렌드·아이디어 논의 등)를 근거로 삼는다.
     messages = _thread_messages(channel, thread_ts)
     thread_ctx = _convo_text(messages) if len(messages) > 1 else ""
-    if len(concept) < 3 and not thread_ctx:
+    if len(concept) < 3 and not thread_ctx and not file_ctx:
         _reply(channel, thread_ts,
                "형식: `[기획] <컨셉/로그라인/키워드>`\n"
                "예: `[기획] 라이벌 아이돌 룸메이트 BL, 스캔들 나면 끝장`\n"
-               "(트렌드·아이디어 스레드에서 `[기획]`만 쳐도 위 대화로 기획안을 짭니다.)")
+               "(트렌드·아이디어 스레드에서 `[기획]`만 쳐도, 또는 기획서·인물 파일을 첨부해도 됩니다.)")
         return
-    seed = concept if len(concept) >= 3 else " ".join(m["content"] for m in messages)[:300]
+    seed = concept if len(concept) >= 3 else (" ".join(m["content"] for m in messages)[:300] or files_text[:300])
     trend_ctx = ""
     orient = _trend_orient(concept) or _trend_orient(seed)   # 성향(BL/GL/로맨스)이면 트렌드 근거
     if orient:
@@ -1039,9 +1050,10 @@ def _do_plan(channel: str, thread_ts: str, rest: str) -> None:
                 log.exception("plan trend ctx failed")
     if thread_ctx:
         user_msg = (f"{thread_ctx}\n\n[요청]\n위 대화 흐름·아이디어를 바탕으로 기획안 초안을 만들어줘."
-                    + (f" 특히 이 방향으로: {concept}" if len(concept) >= 3 else ""))
+                    + (f" 특히 이 방향으로: {concept}" if len(concept) >= 3 else "") + file_ctx)
     else:
-        user_msg = f"이 컨셉으로 기획안 초안을 만들어줘:\n{concept}"
+        base = f"이 컨셉으로 기획안 초안을 만들어줘:\n{concept}" if len(concept) >= 3 else "첨부 자료를 바탕으로 기획안 초안을 만들어줘."
+        user_msg = base + file_ctx
     _CANCEL.discard(thread_ts)
     ph = _thinking(channel, thread_ts, "기획안 초안 짜는 중이에요… (몇 초~1분)")
     try:
@@ -1516,7 +1528,7 @@ def _handle(event: dict) -> None:
     elif cmd in CMD_IDEA:
         _do_idea(channel, thread_ts, rest)
     elif cmd in CMD_PLAN:
-        _do_plan(channel, thread_ts, rest_f)
+        _do_plan(channel, thread_ts, rest, files_text=ft)
     elif cmd in CMD_FEEDBACK:
         _do_feedback(channel, thread_ts, rest_f, mode="both")
     elif cmd in CMD_FB_FUN:
@@ -1534,7 +1546,7 @@ def _handle(event: dict) -> None:
     elif cmd in CMD_EDIT:
         _do_input(channel, thread_ts, rest, mode="update")
     elif cmd in CMD_GEN:
-        _do_generate(channel, thread_ts, rest)
+        _do_generate(channel, thread_ts, rest, files_text=ft)
     else:
         _reply(channel, thread_ts, f"`[{cmd}]` 는 모르는 명령이에요.\n\n" + _HELP)
 
