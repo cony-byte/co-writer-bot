@@ -316,9 +316,50 @@ def _parse_outline_records(content: str, seed: str | None = None) -> list[tuple[
     return [(hwa, "\n".join(lines).strip()) for hwa, lines in records if hwa]
 
 
+_DRAFT_FOOT_RE = re.compile(r"(확정하려면|초안입니다|수정하고 싶은 부분|저장하세요|📝 초안|_✅|_⚠️|다듬어서)")
+_CONFIRM_RE = re.compile(
+    r"^\s*(?:이(?:거|걸|것|그거|걸로|거로)?\s*)?(?:확정|입력|저장|반영)\s*"
+    r"(?:해?\s*줘|해|할게|하자|하고 싶어|좀|요|부탁해?|!)*\s*$")
+
+
+def _strip_draft_footer(text: str) -> str:
+    """봇 초안 메시지에서 안내 꼬리말(📝 초안입니다·확정하려면 [입력]…) 제거 → 본문만."""
+    lines = (text or "").split("\n")
+    cut = next((i for i, ln in enumerate(lines) if _DRAFT_FOOT_RE.search(ln)), None)
+    if cut is not None:
+        lines = lines[:cut]
+    # 맨 앞 '🎚️ 강도 N단계' 헤더도 제거 (본문 아님)
+    body = "\n".join(lines).strip()
+    body = re.sub(r"^\*?🎚️[^\n]*\*?\s*\n+", "", body).strip()
+    return body
+
+
+def _last_assistant_draft(channel: str, thread_ts: str) -> str:
+    """스레드에서 가장 최근의 봇 초안 본문 (안내 꼬리말 제거). 없으면 ''."""
+    for m in reversed(_thread_messages(channel, thread_ts)):
+        if m["role"] != "assistant":
+            continue
+        t = _strip_draft_footer(m["content"])
+        if len(t) >= 40:
+            return t
+    return ""
+
+
+def _draft_save_cmd(channel: str, thread_ts: str) -> str | None:
+    """스레드 직전 초안 꼬리말에 박힌 `[입력] <작품> 경로` 에서 '<작품> 경로' 부분 회수."""
+    for m in reversed(_thread_messages(channel, thread_ts)):
+        if m["role"] != "assistant":
+            continue
+        mm = re.search(r"\[\s*입력\s*\]\s*(<[^>]+>[^`_\n]*)", m["content"])
+        if mm:
+            return mm.group(1).strip()
+    return None
+
+
 def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
-    """[입력](신규) / [수정](기존) — <작품> 경로 + 다음 줄 내용 → 시트 저장.
-    mode='create': 이미 있으면 거부 / mode='update': 없으면 거부."""
+    """[입력](신규) / [수정](기존) / 'save'(확정 저장) — <작품> 경로 + 내용 → 시트 저장.
+    내용이 비고 개요/대본/줄거리면 스레드 직전 봇 초안을 자동으로 가져와 저장.
+    mode='create': 이미 있으면 거부 / 'update': 없으면 거부 / 'save': 게이트 없이 upsert."""
     from bot.sheet_bible import parse_path, split_command, TABLE_SUBS
     sheet = reference.sheet()
     if not sheet:
@@ -340,6 +381,15 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
                f"`{path_line}` 는 모르는 종류예요. 로그라인·키워드·타겟층·핵심정서·인물/<이름>·줄거리·회차분배·개요/<N화>·대본/<N화>")
         return
     top, mid, sub = triple
+    # 내용을 안 적었고 서사 항목이면 → 스레드 직전 봇 초안을 확정 저장 (사람이 "이걸로 확정" 하는 흐름)
+    if not content.strip() and top in ("개요", "대본", "줄거리"):
+        draft = _last_assistant_draft(channel, thread_ts)
+        if draft:
+            content = draft
+        else:
+            _reply(channel, thread_ts,
+                   f"저장할 초안이 안 보여요. 먼저 `[생성] <{work}> {' / '.join(x for x in [top, mid, sub] if x)}` 로 초안을 만든 뒤 이 스레드에서 확정해 주세요.")
+            return
     if top in ("개요", "대본"):
         content = _md_bullets(content)               # 글머리 기호 → 마크다운 '-'
     # 여러 열을 갖는 표(인물·회차분배): 소분류 하나 직접 지정이 아니면 레코드 블록으로 처리
@@ -347,8 +397,8 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
         subs_list = TABLE_SUBS[top]
         subs = " · ".join(subs_list)
         key = "이름" if top == "등장인물" else "막"
-        verb = "저장" if mode == "create" else "수정"
-        icon = "✅" if mode == "create" else "✏️"
+        verb = "수정" if mode == "update" else "저장"
+        icon = "✏️" if mode == "update" else "✅"
         if sub and sub not in subs_list:
             _reply(channel, thread_ts, f"⚠️ `{sub}` 는 {top} 소분류가 아니에요. 가능한 소분류: {subs}")
             return
@@ -394,8 +444,8 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
                        f"⚠️ {top}는 `{top}/11화` 하고 다음 줄에 내용, 또는 `{top}` 하고 아래처럼 ↓\n"
                        f"```\n11화\n(내용…)\n\n12화\n(내용…)\n```")
                 return
-            verb = "저장" if mode == "create" else "수정"
-            icon = "✅" if mode == "create" else "✏️"
+            verb = "수정" if mode == "update" else "저장"
+            icon = "✏️" if mode == "update" else "✅"
             for hwa, body in records:
                 r = sheet.upsert(work, top, hwa, "", body)
                 if isinstance(r, dict) and r.get("error"):
@@ -422,8 +472,8 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
             _reply(channel, thread_ts, f"⚠️ 저장 못 했어요: {res['error']}")
             return
         sheet.invalidate(work)
-        verb = "저장" if mode == "create" else "수정"
-        icon = "✅" if mode == "create" else "✏️"
+        verb = "수정" if mode == "update" else "저장"
+        icon = "✏️" if mode == "update" else "✅"
         _reply(channel, thread_ts, f"{icon} *{work}* / {label} {verb}했어요.")
     except Exception:
         log.exception("input upsert failed")
@@ -2044,6 +2094,15 @@ def _handle(event: dict) -> None:
         # 명령어 없이 노션 링크만 붙여도 → 자동 등록/동기화 (신규 페이지면 새 작품 생성)
         if config.NOTION_TOKEN and re.search(r"https?://\S*notion\.\S+", query):
             _do_sync(channel, thread_ts, query)
+            return
+        # '이걸로 확정/입력/저장' → 직전 초안을 그 꼬리말이 안내한 경로로 시트 저장
+        if in_thread and _CONFIRM_RE.match(query):
+            savecmd = _draft_save_cmd(channel, thread_ts)
+            if savecmd:
+                _do_input(channel, thread_ts, savecmd, mode="save")
+            else:
+                _reply(channel, thread_ts,
+                       "무엇을 확정할지 못 찾았어요. `[입력] <작품> 개요 / 1화` 처럼 경로를 알려주세요.")
             return
         # 스레드 안의 후속 메시지(명령 없음) → 이전 초안 수정 지시로 처리
         if in_thread and query.strip():
