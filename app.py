@@ -1190,38 +1190,94 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
     _post_chunks(channel, thread_ts, answer or "(빈 응답)", replace_ts=ph)
 
 
-def _do_plan(channel: str, thread_ts: str, rest: str, files_text: str = "") -> None:
+def _do_plan(channel: str, thread_ts: str, rest: str, files_text: str = "", in_thread: bool = False) -> None:
     """[기획] 컨셉·로그라인 → 노션 기획안 구조 초안 (로그라인·타겟·인물·줄거리·회차분배). 초안만, 자동저장 X.
+    링크 페이지에 기획안이 있으면 수정:
+      · 첫 호출(스레드 아님) → 원본을 시트로 백업(원본 보존·시트 생성) + 전체 수정 + 노션 싹 교체
+      · 스레드 답글 후속 → 바뀐 섹션만 부분 교체
     files_text: 첨부 파일(기획서·인물 등) — 명령과 분리해 '참고 자료'로 주입."""
     concept = rest.strip()
     file_ctx = ""
     if files_text and files_text.strip():
         file_ctx = ("\n\n[첨부 참고 자료 — 이 작품의 설정·자료. 바탕으로 삼되 없는 사실은 지어내지 마라]\n"
                     + files_text.strip()[:12000])
-    # 노션 페이지 링크가 있으면 → 생성 후 그 페이지에 기획안을 기록(append)
-    from bot import notion_sync
+    from bot import notion_sync, works
     nm = re.search(r"https?://\S*notion\.\S+", concept)
     write_page_id = notion_sync.extract_page_id(nm.group(0)) if nm else None
     if nm:
         concept = concept.replace(nm.group(0), "").strip()   # 링크는 컨셉에서 제거
+    if not write_page_id and in_thread and config.NOTION_TOKEN:   # 스레드 후속: 앞선 링크 회수
+        joined = "\n".join(m["content"] for m in _thread_messages(channel, thread_ts))
+        tm = re.search(r"https?://\S*notion\.\S+", joined)
+        if tm:
+            write_page_id = notion_sync.extract_page_id(tm.group(0))
 
-    # 링크 페이지에 이미 기획안이 있으면 → '부분 수정' 모드: 그 페이지를 읽어 고치고 바뀐 섹션만 교체
+    # 링크 페이지에 이미 기획안이 있으면 → 수정 모드
     if write_page_id and config.NOTION_TOKEN:
         try:
             current_md = notion_sync.page_text(write_page_id)
         except Exception:
             current_md = ""
-        if _is_valid_plan(current_md):                 # 진짜 기획안이 있을 때만 '부분 수정'
+        if _is_valid_plan(current_md):
             if len(concept) < 2:
                 _reply(channel, thread_ts,
                        "그 페이지엔 이미 기획안이 있어요. 고칠 내용을 함께 적어주세요.\n"
                        "예: `[기획] <링크> 여주를 더 능동적으로, 회차분배 5막으로`")
                 return
             _CANCEL.discard(thread_ts)
-            ph = _thinking(channel, thread_ts, "기획안 부분 수정 중이에요…")
             user_msg = (f"[현재 기획안]\n{current_md}\n\n[요청]\n{concept}\n"
                         "위 기획안에서 요청대로만 고치고, 같은 구조로 전체 기획안을 다시 내라. "
                         "안 바뀐 부분은 그대로 유지." + file_ctx)
+
+            if not in_thread:
+                # ── 첫 [기획]: 원본을 새 시트로 백업(보존) + 전체 수정 + 노션 싹 교체 ──
+                sheet = reference.sheet()
+                work = works.work_by_page(write_page_id)
+                new_work = work is None
+                if not work:
+                    try:
+                        work = works.sanitize(notion_sync.page_title(write_page_id)) or "제목없음"
+                    except Exception:
+                        work = "제목없음"
+                works.register(work, write_page_id)
+                ph = _thinking(channel, thread_ts,
+                               f"🛠 원본을 '{work}' 시트에 백업하고, 기획안 전체를 수정하는 중이에요…")
+                if sheet:                              # 원본 보존 = 시트 생성/갱신 (백업 실패해도 진행 안 함)
+                    try:
+                        _sync_apply(sheet, work, current_md)
+                    except Exception:
+                        log.exception("plan backup-to-sheet failed")
+                        _post_chunks(channel, thread_ts,
+                                     "원본을 시트에 백업하지 못해서 노션은 건드리지 않았어요. 잠시 후 다시 시도해 주세요.",
+                                     replace_ts=ph)
+                        return
+                try:
+                    answer = generator.complete(prompts.plan_system(concept), user_msg).strip()
+                except Exception:
+                    log.exception("plan whole-modify failed")
+                    _post_chunks(channel, thread_ts,
+                                 "수정 중 오류가 났어요. (원본은 시트에 백업돼 있어요.)", replace_ts=ph)
+                    return
+                if _cancelled(channel, thread_ts, ph):
+                    return
+                if not _is_valid_plan(answer):
+                    _post_chunks(channel, thread_ts,
+                                 (answer or "(빈 응답)") + "\n\n_⚠️ 결과가 기획안 형식이 아니라 노션엔 안 썼어요 (원본은 시트에 백업)._",
+                                 replace_ts=ph)
+                    return
+                try:
+                    notion_sync.replace_markdown(write_page_id, answer)   # 페이지 싹 교체
+                    foot = (f"\n\n_✅ 노션 페이지를 수정본으로 교체했어요. 원본은 *{work}* 시트에 백업"
+                            + ("(새 작품 등록). " if new_work else ". ")
+                            + "이어서 이 스레드에 답글로 고치면 바뀐 부분만 반영해요._")
+                except Exception:
+                    log.exception("plan replace_markdown failed")
+                    foot = "\n\n_⚠️ 노션 교체 실패 — 통합 연결/권한 확인 (원본은 시트에 백업)._"
+                _post_chunks(channel, thread_ts, answer + foot, replace_ts=ph)
+                return
+
+            # ── 스레드 후속: 바뀐 섹션만 부분 교체 ──
+            ph = _thinking(channel, thread_ts, "기획안 부분 수정 중이에요…")
             try:
                 answer = generator.complete(prompts.plan_system(concept), user_msg).strip()
             except Exception:
@@ -1845,6 +1901,7 @@ def _handle(event: dict) -> None:
     channel = event["channel"]
     thread_ts = event.get("thread_ts") or event["ts"]
     query = _clean(event.get("text", ""))
+    in_thread = bool(event.get("thread_ts")) and event.get("thread_ts") != event.get("ts")
 
     m = CMD_RE.match(query)
     if not m:
@@ -1853,7 +1910,6 @@ def _handle(event: dict) -> None:
             _do_sync(channel, thread_ts, query)
             return
         # 스레드 안의 후속 메시지(명령 없음) → 이전 초안 수정 지시로 처리
-        in_thread = bool(event.get("thread_ts")) and event.get("thread_ts") != event.get("ts")
         if in_thread and query.strip():
             _do_revise(channel, thread_ts, query)
         else:
@@ -1914,7 +1970,7 @@ def _handle(event: dict) -> None:
     elif cmd in CMD_IDEA:
         _do_idea(channel, thread_ts, rest)
     elif cmd in CMD_PLAN:
-        _do_plan(channel, thread_ts, rest, files_text=ft)
+        _do_plan(channel, thread_ts, rest, files_text=ft, in_thread=in_thread)
     elif cmd in CMD_FEEDBACK:
         _do_feedback(channel, thread_ts, rest_f, mode="both")
     elif cmd in CMD_FB_FUN:

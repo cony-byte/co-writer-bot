@@ -8,9 +8,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import urllib.request
 
 from . import config
+
+log = logging.getLogger("co-writer")
 
 _API = "https://api.notion.com/v1/"
 _VER = "2022-06-28"
