@@ -1978,6 +1978,12 @@ def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both") ->
     if wm:
         work = works.resolve(wm.group(1).strip()) or wm.group(1).strip()
         q = wm.group(2).strip()
+    if not work:                       # <작품> 안 쓰면 스레드(첫 댓글의 작품/노션 링크)에서 회수
+        joined0 = "\n".join(m["content"] for m in _thread_messages(channel, thread_ts))
+        w = _work_from_thread(joined0)
+        if w:
+            work = works.resolve(w) or w
+    if work:
         sheet = reference.sheet()
         if sheet:
             try:
