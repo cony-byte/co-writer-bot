@@ -887,7 +887,8 @@ def _plan_sections(md: str) -> list[str]:
 
 
 def _is_valid_plan(md: str) -> bool:
-    """진짜 기획안인지(섹션 2개+) 판별 — 에러 문구·타임아웃·빈 텍스트를 노션에 쓰거나 수정 원본으로 삼지 않게."""
+    """진짜 기획안인지 판별 — 에러/타임아웃/빈 텍스트 배제.
+    마크다운(##) 없어도 섹션 키워드로 인식 (노션에 일반 텍스트로 넣어도 OK)."""
     if not md or len(md.strip()) < 60:
         return False
     bad = ("⏱️", "이어가는 중 오류", "기획안 생성 중 오류", "수정 중 오류", "오류가 났어요",
@@ -895,7 +896,10 @@ def _is_valid_plan(md: str) -> bool:
     head = md.strip()[:80]
     if any(b in head for b in bad):
         return False
-    return len(re.findall(r"(?m)^##\s", md)) >= 2
+    if len(re.findall(r"(?m)^#{1,3}\s", md)) >= 2:        # ①마크다운 헤딩(#/##/###) 2개+
+        return True
+    kws = ("로그라인", "키워드", "타겟", "정서", "등장인물", "인물", "줄거리", "회차분배", "회차 분배")
+    return sum(1 for k in kws if k in md) >= 3            # ②마크다운 없어도 섹션 키워드 3개+
 
 
 def _first_changed_section(prev_md: str, new_md: str) -> int | None:
