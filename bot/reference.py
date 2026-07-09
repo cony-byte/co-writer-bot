@@ -12,11 +12,29 @@ from pathlib import Path
 from . import config
 
 
-@lru_cache(maxsize=1)
-def load_db() -> list[dict]:
+def _joined_db() -> list[dict]:
+    """reference_db.json + (있으면) bl_cats.json 조인. 비파괴 — 원본 파일은 안 건드림.
+    bl_cats: 유튜브 video id → 한국 BL 수작업 태그. 매칭 항목에 genre='BL' + bl_tags 부착."""
     path = Path(config.REFERENCE_DIR) / "reference_db.json"
     with open(path, encoding="utf-8") as f:
-        return json.load(f)
+        data = json.load(f)
+    blp = Path(config.REFERENCE_DIR) / "bl_cats.json"
+    if blp.exists():
+        try:
+            bl = json.loads(blp.read_text(encoding="utf-8"))
+        except Exception:
+            bl = {}
+        for it in data:
+            tags = bl.get(str(it.get("id")))
+            if tags:
+                it["genre"] = "BL"
+                it["bl_tags"] = tags
+    return data
+
+
+@lru_cache(maxsize=1)
+def load_db() -> list[dict]:
+    return _joined_db()
 
 
 @lru_cache(maxsize=1)
@@ -45,7 +63,7 @@ def load_trend():
     if not path.exists():
         return None
     from .trend_search import TrendSearch
-    return TrendSearch(str(path))
+    return TrendSearch(items=load_db())   # bl_cats 조인된 items 사용 (BL 트렌드 가능)
 
 
 @lru_cache(maxsize=1)

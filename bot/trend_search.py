@@ -37,15 +37,20 @@ MIN_SPAN_DAYS = 30      # 게시일 범위가 이 이상이어야 추세 비교 
 
 
 class TrendSearch:
-    def __init__(self, db_path):
-        with open(db_path, encoding="utf-8") as f:
-            data = json.load(f)
+    def __init__(self, db_path=None, items=None):
+        if items is None:
+            with open(db_path, encoding="utf-8") as f:
+                items = json.load(f)
+        self._load_filters()                          # filters.json (번들): 품질 게이트·키워드 그룹
+        data = [x for x in items if self._passes_quality(x)]   # 품질 게이트 적용
         # v4 생성축 태깅 + 신뢰도 게이트 통과분만 검색 풀에 편입
         self.pool = [
             x for x in data
             if x.get("v4_tagged") and (x.get("v4_tag_confidence") or 0) >= MIN_CONF
         ]
         self.all_tagged = [x for x in data if x.get("v4_tagged")]
+        # BL 풀: v4와 별개 스키마(bl_cats 수작업 태그). genre 조인으로 표시됨.
+        self.bl_pool = [x for x in data if x.get("genre") == "BL" and x.get("bl_tags")]
         # 시간축 = 실제 게시일(publish_dt). 우리가 긁은 날(crawl_date)이 아니라 콘텐츠가 뜬 시점.
         self.pub_dates = sorted(d for d in (self._pub(x) for x in self.pool) if d)
 
@@ -56,6 +61,54 @@ class TrendSearch:
             return datetime.strptime(s[:10], "%Y-%m-%d")
         except (ValueError, TypeError):
             return None
+
+    # ---------------- filters.json (번들): 품질 게이트 + 키워드 그룹 ----------------
+    def _load_filters(self):
+        from . import config
+        self._view_rules, self._excl, self._kw_groups = {}, {}, []
+        try:
+            f = json.loads((config.REFERENCE_DIR / "filters.json").read_text(encoding="utf-8"))
+        except Exception:
+            return
+        self._view_rules = f.get("view_rules") or {}
+        self._excl = f.get("exclude_keywords") or {}
+        # 실제 키워드 그룹만 (any 있는 것). '_note'만 있는 예시 스켈레톤은 제외.
+        self._kw_groups = [g for g in (f.get("keyword_groups") or []) if g.get("any")]
+
+    @staticmethod
+    def _field_text(x, field):
+        if field in ("script.line", "script"):
+            s = x.get("script")
+            if isinstance(s, list):
+                return " ".join(str(ln.get("line", "") if isinstance(ln, dict) else ln) for ln in s)
+            return str(s or "")
+        return str(x.get(field) or "")
+
+    def _matches(self, x, terms, fields):
+        hay = " ".join(self._field_text(x, f) for f in fields).lower()
+        return any(t.lower() in hay for t in terms)
+
+    def _passes_quality(self, x):
+        vr = self._view_rules
+        if vr.get("require_script") and not x.get("script"):
+            return False
+        mn = vr.get("min_script_chars") or 0
+        if mn and len(self._field_text(x, "script")) < mn:
+            return False
+        if vr.get("hide_needs_review") and x.get("needs_review"):
+            return False
+        terms = self._excl.get("any") or []
+        if terms and self._matches(x, terms, self._excl.get("search_in") or ["desc", "script.line"]):
+            return False
+        return True
+
+    def _match_keyword_group(self, q):
+        """질문에 걸리는 키워드 그룹 반환 (any 용어가 질문에 등장)."""
+        ql = q.lower()
+        for g in self._kw_groups:
+            if any(t.lower() in ql for t in g["any"]):
+                return g
+        return None
 
     # ---------------- 성과 점수 ----------------
     @staticmethod
@@ -126,8 +179,8 @@ class TrendSearch:
         mode = "추세 비교(최근 vs 과거)" if self._split_time() else "스냅샷(성과 상위)"
         return f"_(검색풀 {len(items)}건 · {d} · {mode})_"
 
-    def catharsis(self, flt=None):
-        items = self._apply_filter(self.pool, flt)
+    def catharsis(self, flt=None, pool=None):
+        items = self._apply_filter(self.pool if pool is None else pool, flt)
         if not items:
             return "해당 카테고리의 신뢰도 높은 레퍼런스가 아직 없어요. (크롤링 보강 대상)"
         agg = self._agg(items, "catharsis_type")
@@ -145,8 +198,8 @@ class TrendSearch:
             lines.append(f"⚠️ 표본 부족(3건 미만): {', '.join(thin[:3])} — 이 축 트렌드는 아직 신뢰 낮음")
         return "\n".join(lines)
 
-    def combos(self, flt=None):
-        items = self._apply_filter(self.pool, flt)
+    def combos(self, flt=None, pool=None):
+        items = self._apply_filter(self.pool if pool is None else pool, flt)
         if len(items) < 3:
             return "조합을 뽑기엔 레퍼런스가 부족해요."
         s = defaultdict(lambda: [0.0, 0])
@@ -166,8 +219,8 @@ class TrendSearch:
             lines.append("• 반복 출현하는 조합이 아직 없음 (표본 확대 필요)")
         return "\n".join(lines)
 
-    def hooks(self, flt=None):
-        items = self._apply_filter(self.pool, flt)
+    def hooks(self, flt=None, pool=None):
+        items = self._apply_filter(self.pool if pool is None else pool, flt)
         if not items:
             return "해당 카테고리의 신뢰도 높은 레퍼런스가 아직 없어요."
         agg = self._agg(items, "hook_beat", is_list=True)
@@ -180,8 +233,8 @@ class TrendSearch:
             lines.append(f"  ↳ 예) {x['hook_desc'][:70]} (@{x['author']})")
         return "\n".join(lines)
 
-    def cliffhangers(self, flt=None):
-        items = self._apply_filter(self.pool, flt)
+    def cliffhangers(self, flt=None, pool=None):
+        items = self._apply_filter(self.pool if pool is None else pool, flt)
         if not items:
             return "해당 카테고리의 신뢰도 높은 레퍼런스가 아직 없어요."
         agg = self._agg(items, "cliffhanger_type")
@@ -191,8 +244,8 @@ class TrendSearch:
             lines.append(f"{i}. {k} — 성과지수 {sc:.0f} (n={n})")
         return "\n".join(lines)
 
-    def top_clips(self, flt=None, n=3):
-        items = self._apply_filter(self.pool, flt)
+    def top_clips(self, flt=None, n=3, pool=None):
+        items = self._apply_filter(self.pool if pool is None else pool, flt)
         top = sorted(items, key=lambda x: -self._score(x))[:n]
         if not top:
             return "해당 카테고리의 신뢰도 높은 레퍼런스가 아직 없어요."
@@ -207,8 +260,9 @@ class TrendSearch:
             )
         return "\n".join(lines)
 
-    def overall(self, flt=None):
-        parts = [self.catharsis(flt), self.combos(flt), self.hooks(flt), self.top_clips(flt, n=2)]
+    def overall(self, flt=None, pool=None):
+        parts = [self.catharsis(flt, pool), self.combos(flt, pool),
+                 self.hooks(flt, pool), self.top_clips(flt, n=2, pool=pool)]
         return "\n\n".join(parts)
 
     # ---------------- 카테고리 필터 감지 ----------------
@@ -261,8 +315,50 @@ class TrendSearch:
         return None
 
     # ---------------- 질문 라우팅 ----------------
+    # ---------------- BL 전용 트렌드 (bl_cats 수작업 태그 기반) ----------------
+    def bl_trends(self):
+        items = self.bl_pool
+        if not items:
+            return "BL 레퍼런스가 아직 없어요. (bl_cats 매핑/크롤링 보강 대상)"
+
+        def agg(axis):
+            s = defaultdict(lambda: [0.0, 0])
+            for x in items:
+                for v in (x.get("bl_tags") or {}).get(axis) or []:
+                    s[v][0] += self._score(x)     # 성과 가중 (조회·반응·저장)
+                    s[v][1] += 1
+            return sorted(s.items(), key=lambda kv: -kv[1][0])
+
+        lines = [f"*🎬 BL 트렌드* {self._pool_note(items)}"]
+        for axis, label in (("분위기", "분위기"), ("남자주인공", "남주 유형"),
+                            ("관계", "관계"), ("소재", "소재"), ("장르/배경", "장르·배경")):
+            top = [k for k, _ in agg(axis)[:4]]
+            if top:
+                lines.append(f"- {label}: " + " · ".join(top))
+        top_clips = sorted(items, key=lambda x: -self._score(x))[:2]
+        if top_clips:
+            lines.append("\n*상위 클립*")
+            for x in top_clips:
+                m = x.get("metrics", {})
+                lines.append(f"• {(x.get('hook_desc') or '')[:60]}\n"
+                             f"  조회 {m.get('views', 0):,.0f} · 저장률 {m.get('save_rate', 0)}% · {x.get('url', '')}")
+        return "\n".join(lines)
+
     def answer(self, question: str, llm=None) -> str:
         q = question.strip()
+        # 0) BL 장르 요청 → BL 전용 트렌드 (v4 풀과 스키마가 달라 분리 처리)
+        #    'BL로'·'BL을' 처럼 한글 조사가 붙어도 잡히게 ASCII 글자 경계로 (table/problem 등은 제외)
+        if re.search(r"(?<![a-z])bl(?![a-z])", q, re.I):
+            return self.bl_trends()
+        # 0.5) filters.json 키워드 그룹(재벌/CEO·계약결혼 등) 매칭 → 그 키워드 부분집합으로 트렌드
+        kg = self._match_keyword_group(q)
+        if kg:
+            fields = kg.get("search_in") or ["desc", "script.line", "hook_desc"]
+            subset = [x for x in self.pool if self._matches(x, kg["any"], fields)]
+            if subset:
+                label = kg.get("label", "").replace("예시: ", "").strip()
+                return f"*🔎 '{label}' 관련 트렌드* _(키워드 필터 · {len(subset)}건)_\n\n" + self.overall(pool=subset)
+            # 부분집합이 비면 그냥 일반 트렌드로 진행
         # 1) 카테고리 필터: alias 부분일치 먼저 → 미스면 LLM 폴백(있을 때만)
         flt = self._alias_filter(q)
         if flt is None and llm is not None:
