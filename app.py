@@ -1004,7 +1004,7 @@ def _sync_apply(sheet, work: str, content: str) -> tuple[int, int, list]:
 
 # [재미] 6기준 (①몰입 ②명확 ③기대 ④속도 ⑤주체 ⑥강약) + 가중치(합 125 → 100 환산)
 _FUN_LABELS = ["몰입", "명확", "기대", "속도", "주체", "강약"]
-_FUN_WEIGHTS = [25, 20, 25, 20, 10, 25]
+_FUN_WEIGHTS = [25, 20, 25, 20, 5, 25]
 
 
 def _verify_fun_score(text: str) -> str:
