@@ -44,6 +44,7 @@ CMD_INPUT = {"입력", "저장", "input"}
 CMD_EDIT = {"수정", "편집", "edit"}
 CMD_GEN = {"생성", "generate", "gen"}
 CMD_CONVERT = {"변환", "포맷", "대본변환"}
+CMD_STORYBOARD = {"스토리보드", "스보", "storyboard"}                     # 대본 → 컷 스토리보드
 CMD_TREND = {"트렌드", "trend"}
 CMD_IDEA = {"아이디어", "아이디어 제시", "아이디어제시", "제안", "idea"}
 CMD_SYNC = {"동기화", "노션동기화", "sync"}                              # 노션 붙여넣기 → 시트
@@ -1011,16 +1012,21 @@ def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both") ->
         stored = ((bible.get("intensity_map") or {}).get("재미") or bible.get("intensity_level")) if bible else None
         lens_levels = [stored or DEFAULT_INTENSITY]
 
+    ep_cmd = re.search(r"(\d+)\s*화", q)          # 명령에 'N화'가 있으면 그 화
     draft = q
     if len(draft) < 30:  # 대본 미첨부 → 스레드 직전 봇 대본/초안
         prior = [m["content"] for m in _thread_messages(channel, thread_ts) if m["role"] == "assistant"]
         draft = prior[-1] if prior else ""
+    if len(draft) < 30 and bible and ep_cmd:      # 그래도 없으면 → 시트에 저장된 그 화 대본 사용
+        stored = (bible.get("scripts") or {}).get(f"{ep_cmd.group(1)}화", "")
+        if len(stored.strip()) >= 30:
+            draft = stored
     if len(draft) < 30:
         _reply(channel, thread_ts,
-               "형식: `[피드백] <작품> (대본 붙여넣기)` — 대본을 주면 재미·개연성을 봐드려요.")
+               "형식: `[피드백] <작품> (대본 붙여넣기)` 또는 `[피드백] <작품> N화` (시트에 저장된 그 화 대본을 읽어요).")
         return
     em = re.search(r"(\d+)\s*화", draft[:200])   # 대본 앞부분에 회차가 있으면 그 흐름 앵커
-    target = int(em.group(1)) if em else _progress_episode(bible, ["대본", "개요"])
+    target = (ep_cmd and int(ep_cmd.group(1))) or (int(em.group(1)) if em else _progress_episode(bible, ["대본", "개요"]))
     _CANCEL.discard(thread_ts)
     note = {"fun": "재미 보는 중이에요…", "logic": "개연성 보는 중이에요…"}.get(mode, "대본 보는 중이에요…")
     ph = _thinking(channel, thread_ts, note)
@@ -1219,6 +1225,8 @@ def _handle(event: dict) -> None:
         _reply(channel, thread_ts, "시트 바이블 캐시를 비웠어요. 다음 요청부터 최신으로 읽어옵니다.")
     elif cmd in CMD_CONVERT:
         _do_convert(channel, thread_ts, rest_f)
+    elif cmd in CMD_STORYBOARD:
+        _do_storyboard(channel, thread_ts, rest_f)
     elif cmd in CMD_TREND:
         _do_trend(channel, thread_ts, rest)
     elif cmd in CMD_SYNC:
