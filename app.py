@@ -723,12 +723,18 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "") 
     files_text: 첨부 파일 내용(있으면) — 명령 파싱과 분리해 '참고 자료'로 주입."""
     from bot.sheet_bible import parse_path
     sm = SUB_RE.match(rest)
-    if not sm:
-        _reply(channel, thread_ts,
-               "형식: `[생성] <작품> 대본 / 24화` (또는 자연어로 `[생성] <작품> 1~3화 대본 써줘`)")
-        return
-    work = works.resolve(sm.group(1).strip()) or sm.group(1).strip()   # 별칭 → 정식 작품명
-    raw_gen = sm.group(2)
+    if sm:
+        work = works.resolve(sm.group(1).strip()) or sm.group(1).strip()   # 별칭 → 정식 작품명
+        raw_gen = sm.group(2)
+    else:
+        # <작품> 안 쓰면 스레드(첫 댓글의 작품/노션 링크)에서 회수
+        w = _work_from_thread("\n".join(m["content"] for m in _thread_messages(channel, thread_ts)))
+        work = (works.resolve(w) or w) if w else None
+        raw_gen = rest
+        if not work:
+            _reply(channel, thread_ts,
+                   "형식: `[생성] <작품> 대본 / 24화` (또는 자연어로 `[생성] <작품> 1~3화 대본 써줘`)")
+            return
 
     # ── 자연어 모드: 여러 종류/회차를 한 문장에 요청하면 각각을 표준 경로로 재구성해 순차 생성 ──
     jobs = _parse_gen_jobs(raw_gen)
@@ -1090,10 +1096,10 @@ def _do_storyboard_images(channel: str, thread_ts: str, rest: str) -> None:
     _CANCEL.discard(thread_ts)
     ph = _thinking(channel, thread_ts,
                    (f"콘티를 {target}컷으로 나누는 중이에요…" if target else "콘티를 컷(샷) 리스트로 나누는 중이에요…"))
-    # 1) 콘티 → 샷 리스트(JSON) — target 있으면 그 컷 수로 지정(과잉분할 방지)
+    # 1) 콘티 → 샷 리스트(JSON) — OpenRouter(HTTP)로. agent(claude CLI) 동시호출 충돌/지연 회피.
     try:
-        raw = generator.complete(prompts.storyboard_shots_system(bible, target=target),
-                                 prompts.storyboard_shots_user(conti), timeout=900)
+        raw = oi.chat(prompts.storyboard_shots_system(bible, target=target),
+                      prompts.storyboard_shots_user(conti), timeout=300)
         shots = [s for s in _parse_json_array(raw) if isinstance(s, dict) and s.get("prompt")]
         if target and len(shots) > target:
             shots = shots[:target]
