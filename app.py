@@ -814,7 +814,7 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "") 
             except Exception:
                 log.exception("generation failed (lvl %s)", lvl)
                 ans = "생성 오류"
-            _post_chunks(channel, thread_ts, f"*🎚️ 강도 {lvl}단계*\n\n{ans}", replace_ts=(ph if first else None))
+            _post_chunks(channel, thread_ts, f"*🎚️ 강도 {lvl}단계*\n\n{_clean_draft(ans)}", replace_ts=(ph if first else None))
             first = False
         return
 
@@ -867,7 +867,8 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "") 
         if _cancelled(channel, thread_ts, ph):
             return
 
-    # 강도가 적용됐으면 답변 맨 앞에 표시
+    # 강도가 적용됐으면 답변 맨 앞에 표시 (모델이 스스로 낸 강도 줄은 먼저 제거 → 중복 방지)
+    answer = _clean_draft(answer)
     _lvl = (bible.get("intensity_map") or {}).get(top) or bible.get("intensity_level") if bible else None
     if _lvl:
         answer = f"*🎚️ 강도 {_lvl}단계*\n\n" + answer
