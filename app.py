@@ -1094,8 +1094,9 @@ def _do_storyboard_images(channel: str, thread_ts: str, rest: str) -> None:
 
 
 def _thread_origin_mode(messages: list[dict]) -> str:
-    """스레드를 시작한 명령이 뭔지 → 후속 답글을 그 모드로 이어가기 위함."""
-    for m in messages:
+    """스레드에서 '가장 최근' 명령의 모드 → 후속 답글을 그 활동으로 이어감.
+    (한 스레드에서 [기획]→[생성]처럼 활동을 바꿔도, 마지막으로 한 활동을 따라감)"""
+    for m in reversed(messages):
         if m["role"] != "user":
             continue
         cm = CMD_RE.match(m["content"])
@@ -1205,6 +1206,19 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
     joined = "\n".join(m["content"] for m in messages)
     work = _work_from_thread(joined)
     work = (works.resolve(work) or work) if work else None    # 별칭 → 정식 작품명
+
+    # 1순위: 답글에 '대본/개요/줄거리 + 만들어줘' 류 생성 요청이 있으면 → 그 종류를 새로 생성
+    #        (예: "그럼 2화 대본도 써줘", "전체 줄거리 만들어줘")
+    _jobs = _parse_gen_jobs(feedback)
+    if _jobs and work and re.search(r"(만들|작성|생성|뽑|그려|써|쓰|짜|추가|다시)", feedback):
+        _CANCEL.discard(thread_ts)
+        _reply(channel, thread_ts, "요청 확인: " + ", ".join(
+            (t if e is None else f"{e}화 {t}") for t, e in _jobs) + " 만들게요.")
+        for top, ep in _jobs:
+            _do_generate(channel, thread_ts,
+                         f"<{work}> {top}" + (f" / {ep}화" if ep is not None else ""))
+        return
+
     em = re.search(r"(\d+)\s*화", feedback) or re.search(r"(\d+)\s*화", joined)
     target = int(em.group(1)) if em else None
     bible = None
