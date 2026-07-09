@@ -45,6 +45,8 @@ CMD_EDIT = {"수정", "편집", "edit"}
 CMD_GEN = {"생성", "generate", "gen"}
 CMD_CONVERT = {"변환", "포맷", "대본변환"}
 CMD_STORYBOARD = {"스토리보드", "스보", "storyboard"}                     # 대본 → 씬 스토리보드
+# 스토리보드 스레드에서 이 말이 오면 1단계(씬 설계) → 2단계(상세 스토리보드)로 넘어감
+SB_GEN_RE = re.compile(r"^\s*(생성|생성해|생성해줘|상세\s*생성|만들어|만들어줘|ㄱㄱ|고고)\s*$")
 CMD_TREND = {"트렌드", "trend"}
 CMD_IDEA = {"아이디어", "아이디어 제시", "아이디어제시", "제안", "idea"}
 CMD_SYNC = {"동기화", "노션동기화", "sync"}                              # 노션 붙여넣기 → 시트
@@ -710,12 +712,13 @@ def _do_convert(channel: str, thread_ts: str, rest: str) -> None:
 
 
 def _do_storyboard(channel: str, thread_ts: str, rest: str) -> None:
-    """[스토리보드]: 대본/줄글 → 영상문법가이드 기준 컷 단위 스토리보드 (슬랙 답글).
-    본문이 없으면 스레드 직전 봇 출력(방금 쓴 대본)을 그대로 스토리보드화한다."""
+    """[스토리보드] 1단계 = 씬 설계 (씬 분할 + 시간 배치)만 낸다.
+    상세 스토리보드는 이 스레드에서 씬 설계를 손본 뒤 「생성」이라고 하면 2단계로 만든다.
+    본문이 없으면 스레드 직전 봇 출력(방금 쓴 대본)을 대상으로 삼는다."""
     q = rest.strip()
     work, bible = None, None
     wm = SUB_RE.match(q)
-    if wm:                              # <작품> 지정 시 인물 이름·호칭 참고(주어에 반영)
+    if wm:                              # <작품> 지정 시 인물 이름·호칭 참고
         work = wm.group(1).strip()
         q = wm.group(2).strip()
         sheet = reference.sheet()
@@ -724,24 +727,28 @@ def _do_storyboard(channel: str, thread_ts: str, rest: str) -> None:
                 bible = sheet.get(work)
             except Exception:
                 log.exception("storyboard bible load failed")
+    # 대상 화: 명령/대본에 'N화'가 있으면 그 화, 없으면 바이블 진행상태(대본→개요) 화
+    epm = re.search(r"(\d+)\s*화", q[:200])
+    target = int(epm.group(1)) if epm else _progress_episode(bible, ["대본", "개요"])
     draft = q
-    if len(draft) < 10:                 # 본문 거의 없음 → 스레드 직전 봇 출력을 스토리보드화
+    if len(draft) < 10:                 # 본문 거의 없음 → 스레드 직전 봇 출력을 대상으로
         prior = [m["content"] for m in _thread_messages(channel, thread_ts)
                  if m["role"] == "assistant"]
         draft = prior[-1] if prior else ""
     if len(draft) < 5:
         _reply(channel, thread_ts,
-               "대본이나 줄글 상황을 `[스토리보드]` 뒤에 붙이면 컷 단위 스토리보드로 바꿔드려요.\n"
-               "예: `[스토리보드] <날혐남> (대본 붙여넣기)` — 또는 대본을 방금 뽑은 스레드에서 `[스토리보드]`만 쳐도 돼요.")
+               "대본이나 줄글 상황을 `[스토리보드]` 뒤에 붙이면 먼저 *씬 설계안*(씬 분할·시간)을 잡아드려요.\n"
+               "예: `[스토리보드] <날혐남> (대본 붙여넣기)` — 또는 대본을 방금 뽑은 스레드에서 `[스토리보드]`만 쳐도 돼요.\n"
+               "설계안을 스레드에서 손본 뒤 「생성」이라고 하면 상세 스토리보드로 넘어갑니다.")
         return
     _CANCEL.discard(thread_ts)
-    ph = _thinking(channel, thread_ts, "영상문법가이드로 씬 스토리보드 짜는 중이에요… (몇 초~1분)")
+    ph = _thinking(channel, thread_ts, "씬을 어떻게 나눌지(분할·시간) 설계하는 중이에요…")
     try:
-        answer = generator.complete(prompts.storyboard_system(bible),
-                                    prompts.storyboard_user(draft), timeout=300).strip()
+        answer = generator.complete(prompts.storyboard_plan_system(bible, target_episode=target),
+                                    prompts.storyboard_plan_user(draft), timeout=300).strip()
     except Exception:
-        log.exception("storyboard failed")
-        _post_chunks(channel, thread_ts, "스토리보드 생성 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
+        log.exception("storyboard plan failed")
+        _post_chunks(channel, thread_ts, "씬 설계 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
         return
     if _cancelled(channel, thread_ts, ph):
         return
@@ -767,9 +774,36 @@ def _thread_origin_mode(messages: list[dict]) -> str:
             return "logic"
         if cmd in CMD_FEEDBACK:
             return "feedback"
+        if cmd in CMD_STORYBOARD:
+            return "sb"
         if cmd in CMD_GEN:
             return "gen"
     return "gen"
+
+
+def _sb_stage(messages: list[dict]) -> str:
+    """스토리보드 스레드가 지금 '설계안(plan)' 단계인지 '상세(detail)' 단계인지.
+    가장 최근 봇 결과물이 상세 스토리보드면 'detail', 씬 설계안이면 'plan'."""
+    for m in reversed(messages):
+        if m["role"] != "assistant":
+            continue
+        c = m["content"]
+        if "카메라:" in c or "무드/조명" in c:   # 상세 스토리보드 마커
+            return "detail"
+        if "씬 설계안" in c:                       # 씬 설계안 마커
+            return "plan"
+    return "plan"
+
+
+def _trend_orient(text: str) -> str | None:
+    """텍스트에서 트렌드 성향(BL/GL/로맨스) 감지 — 스레드 후속에 성향 이어붙이기용."""
+    if re.search(r"(?<![a-z])bl(?![a-z])", text or "", re.I):
+        return "BL"
+    if re.search(r"(?<![a-z])gl(?![a-z])", text or "", re.I) or "백합" in (text or ""):
+        return "GL"
+    if "로맨스" in (text or "") or "남녀" in (text or ""):
+        return "로맨스"
+    return None
 
 
 def _convo_text(messages: list[dict]) -> str:
@@ -800,17 +834,55 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
     bible = _override_intensity(bible, feedback)   # '강도 N으로 바꿔' → 이번 수정만 그 레벨로 재보정
     mode = _thread_origin_mode(messages)
     _CANCEL.discard(thread_ts)
-    note = {"idea": "아이디어 이어가는 중이에요…", "trend": "트렌드 이어보는 중이에요…"}.get(mode, "수정하는 중이에요…")
+    # 스토리보드 스레드: 지금 설계안(plan) 단계인지 상세(detail) 단계인지에 따라 후속 처리가 다름
+    sb_stage = _sb_stage(messages) if mode == "sb" else None
+    #  · 설계안 단계 + 「생성」 → 상세로 전개 / 그 외 설계안 단계 → 설계안 수정 / 상세 단계 → 상세 수정
+    sb_generate = sb_stage == "plan" and bool(SB_GEN_RE.match(feedback.strip()))
+    note = {"idea": "아이디어 이어가는 중이에요…", "trend": "트렌드 이어보는 중이에요…",
+            "sb": "씬 설계 다듬는 중이에요…"}.get(mode, "수정하는 중이에요…")
+    if sb_generate:
+        note = "확정한 씬 설계로 상세 스토리보드 만드는 중이에요… (몇 초~1분)"
+    elif sb_stage == "detail":
+        note = "상세 스토리보드 고치는 중이에요…"
     ph = _thinking(channel, thread_ts, note)
 
     try:
-        if mode == "idea":
+        if mode == "sb" and sb_generate:
+            # 1단계→2단계: 확정된 '씬 설계안'의 씬 수·순서·시간을 그대로 지켜 각 씬을 9칸 상세로 전개
+            answer = generator.complete(
+                prompts.storyboard_system(bible, target_episode=target),
+                _convo_text(messages)
+                + "\n\n(위 대화에서 마지막으로 확정된 '씬 설계안'의 씬 수·순서·각 씬 시간을 그대로 지켜라. "
+                  "씬을 새로 나누거나 시간을 바꾸지 말고, 각 씬을 가이드의 9칸 상세 스토리보드로 전개하라.)",
+                timeout=300)
+        elif mode == "sb" and sb_stage == "detail":
+            # 상세본이 이미 나온 뒤의 후속 피드백 → 바뀐 씬만 9칸 블록으로 재출력
+            answer = generator.complete(
+                prompts.storyboard_system(bible, target_episode=target),
+                _convo_text(messages)
+                + "\n\n(위 상세 스토리보드에서 마지막 작가 요청대로 **바뀐 씬만** 9칸 블록으로 내라 "
+                  "— 안 바뀐 씬은 다시 쓰지 말고, 맨 위에 '바꾼 점:' 한 줄. 전체 재출력 금지.)",
+                timeout=300)
+        elif mode == "sb":
+            # 설계안 단계: 씬 설계안만 피드백대로 수정 (상세로 넘어가지 않음). 바뀐 씬만 출력.
+            answer = generator.complete(
+                prompts.storyboard_plan_system(bible, target_episode=target),
+                _convo_text(messages)
+                + "\n\n(이번은 '씬 설계안 수정' 요청이다. 위에 이미 낸 설계안에서 **바뀐 씬만** 내라 "
+                  "— 안 바뀐 씬은 다시 쓰지 말고, 맨 위에 '바꾼 점:' 한 줄. 전체 설계안 재출력 금지.)")
+        elif mode == "idea":
             bible_i = _idea_intensity(bible, feedback)   # 아이디어 기본 강도 3 고정
             answer = generator.complete(prompts.idea_system(bible_i, feedback, target_episode=target),
                                         _convo_text(messages))
         elif mode == "trend":
             trend = reference.load_trend()
-            raw = trend.answer(feedback, llm=_trend_filter_llm) if trend else ""
+            # 스레드가 특정 성향(BL/GL/로맨스)으로 시작했으면 후속도 그 성향 데이터로 유지
+            # (후속 텍스트에 성향어가 없으면 앞 대화의 성향을 앞에 붙여 스코프가 이어지게)
+            tq = feedback
+            o_prev, o_now = _trend_orient(joined), _trend_orient(feedback)
+            if o_prev and not o_now:
+                tq = f"{o_prev} {feedback}"
+            raw = trend.answer(tq, llm=_trend_filter_llm) if trend else ""
             sys = prompts.trend_system(bible)
             answer = generator.complete(sys, _convo_text(messages)
                                         + f"\n\n[측정 데이터 참고]\n{raw}")
