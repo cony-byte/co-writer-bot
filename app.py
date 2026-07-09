@@ -386,6 +386,7 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
         draft = _last_assistant_draft(channel, thread_ts)
         if draft:
             content = draft
+            mode = "save"                # 초안 확정 = 덮어쓰기 (빈 행/기존값 있어도 저장)
         else:
             _reply(channel, thread_ts,
                    f"저장할 초안이 안 보여요. 먼저 `[생성] <{work}> {' / '.join(x for x in [top, mid, sub] if x)}` 로 초안을 만든 뒤 이 스레드에서 확정해 주세요.")

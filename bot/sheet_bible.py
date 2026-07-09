@@ -232,10 +232,13 @@ class SheetBible:
             "plot": s.get("줄거리", ""),
             "characters": _rows_to_map(data.get("등장인물"), "이름", CHAR_SUBS),
             "episode_plan": _rows_to_map(data.get("회차분배"), "막", ["구간", "화수", "핵심사건"]),
+            # 내용이 빈 개요/대본 행은 '없는 것'으로 취급 (빈칸저장 잔재·환각 방지)
             "outlines": {(r.get("화") or "").strip(): r.get("내용", "")
-                         for r in (data.get("개요") or []) if (r.get("화") or "").strip()},
+                         for r in (data.get("개요") or [])
+                         if (r.get("화") or "").strip() and (r.get("내용") or "").strip()},
             "scripts": {(r.get("화") or "").strip(): r.get("내용", "")
-                        for r in (data.get("대본") or []) if (r.get("화") or "").strip()},
+                        for r in (data.get("대본") or [])
+                        if (r.get("화") or "").strip() and (r.get("내용") or "").strip()},
             "last_synced": datetime.now(timezone.utc).isoformat(),
         }
         return b
