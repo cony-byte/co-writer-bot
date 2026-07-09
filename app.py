@@ -371,6 +371,24 @@ def _draft_save_cmd(channel: str, thread_ts: str) -> str | None:
     return None
 
 
+def _clean_draft(text: str) -> str:
+    """초안 본문에서 강도 뱃지 줄(🎚️/:level_slider:/강도 N단계) 제거 — 시트·노션에 안 섞이게."""
+    out = []
+    for ln in (text or "").split("\n"):
+        s = ln.strip()
+        if re.match(r"^\*?\s*(🎚️|:level_slider:)", s):
+            continue
+        if re.match(r"^\*?\s*강도\s*\d+\s*단계\s*\*?$", s):
+            continue
+        out.append(ln)
+    return "\n".join(out).strip()
+
+
+def _slack_to_notion_md(text: str) -> str:
+    """슬랙식 단일 *볼드* → 노션 **볼드**. (이미 **인 것은 안 건드림)"""
+    return re.sub(r"(?<![\*\w])\*(?!\s)([^*\n]+?)(?<!\s)\*(?![\*\w])", r"**\1**", text or "")
+
+
 def _push_section_to_notion(work: str, top: str, mid: str, content: str) -> bool:
     """개요/대본/줄거리를 작품의 노션 페이지에 섹션 업서트(있으면 교체·없으면 추가). 반영되면 True."""
     if top not in ("개요", "대본", "줄거리") or not content.strip() or not config.NOTION_TOKEN:
@@ -381,7 +399,7 @@ def _push_section_to_notion(work: str, top: str, mid: str, content: str) -> bool
     from bot import notion_sync
     heading = "줄거리" if top == "줄거리" else f"{top} {mid}".strip()
     try:
-        notion_sync.upsert_section(pid, heading, content)
+        notion_sync.upsert_section(pid, heading, _slack_to_notion_md(content))
         return True
     except Exception:
         log.exception("notion 섹션 업서트 실패: %s / %s", work, heading)
@@ -418,7 +436,7 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
     if not content.strip() and top in ("개요", "대본", "줄거리"):
         draft = _last_assistant_draft(channel, thread_ts)
         if draft:
-            content = draft
+            content = _clean_draft(draft)          # 강도 뱃지 줄 등 제거
             captured = True
             mode = "save"                # 초안 확정 = 덮어쓰기 (빈 행/기존값 있어도 저장)
         else:
