@@ -27,6 +27,20 @@ MARKER = "/*__PAYLOAD__*/null"
 ITER = 200_000
 
 
+BL_IDS = {"7544952986594741559", "7644648326046043406"}  # 실사 BL(게이물) — genre 컬럼 없어 수동
+GL_IDS = {"7644620832018418960"}                          # 실사 GL
+
+
+def orient_of(rec):
+    """장르(성향): BL / GL / 남녀. genre 컬럼(bl/gl) 우선, 없으면 수동 세트, 기본 남녀."""
+    g = (rec.get("genre") or "").lower()
+    if g == "bl" or rec["id"] in BL_IDS:
+        return "BL"
+    if g == "gl" or rec["id"] in GL_IDS:
+        return "GL"
+    return "남녀"
+
+
 def trim(rec):
     """뷰어에 필요한 필드만 (전체 원문·legacy_tags 등 제외해 페이로드 축소)."""
     return {
@@ -34,6 +48,10 @@ def trim(rec):
         "desc": rec.get("desc", ""), "rank": rec.get("rank"),
         "crawl_date": rec.get("crawl_date", ""), "publish_dt": rec.get("publish_dt", ""),
         "region": rec.get("region", "서양"),
+        "make": "AI" if rec.get("content_type") == "ai_generated" else "실사",
+        "orient": orient_of(rec),
+        "platform": "유튜브" if rec.get("platform") == "youtube" else "틱톡",
+        "genre": rec.get("genre", ""),
         "metrics": {k: rec["metrics"].get(k) for k in
                     ("er", "save_rate", "views", "likes", "shares", "dur", "cut_count", "avg_cut")},
         "transcript_form": rec.get("transcript_form"),
@@ -42,6 +60,7 @@ def trim(rec):
         "script_len": sum(len(l.get("line", "")) for l in (rec.get("script") or [])),
         "scenes": rec.get("scenes") or [],
         "hook_desc": rec.get("hook_desc") or "",
+        "context": rec.get("context") or "",
         "cats": rec.get("cats") or {},
         "tags": rec.get("tags") or {},
         "tag_confidence": rec.get("tag_confidence"),

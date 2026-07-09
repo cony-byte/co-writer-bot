@@ -10,6 +10,7 @@
 import json, os
 BASE=os.path.dirname(os.path.abspath(__file__))
 DB=os.path.join(BASE,"reference_db.json")
+BL_CATS=os.path.join(BASE,"bl_cats.json")  # 유튜브 BL AI: 대본 정독 기반 cats 전체 override(s5 미신뢰)
 
 CATS=["장르/배경","소재","관계","남자주인공","여자주인공","분위기"]
 
@@ -128,8 +129,46 @@ HAND={
 def add(lst,v):
     if v and v not in lst: lst.append(v)
 
+# ── 봇(co-writer) 트렌드 호환: cats → 레거시 KO 필드 역산 매핑 ──
+# 봇 trend_search는 tags.trope_tags_ko(한글)·catharsis_type(영어)로 집계·필터.
+# 신규 편은 cats만 있고 이 필드가 없어 트렌드에 안 잡힘 → cats에서 백필.
+REL2KO={"재회/후회":"재회물","라이벌/앙숙(적→연인)":"혐관","사내연애":"오피스로맨스",
+ "삼각관계":"삼각관계","금지된사랑":"금단물","계약연애":"계약연애"}
+MAT2KO={"계약/위장결혼":"선결혼후연애","신분위장/숨겨진정체":"신분숨김(히든재벌·정체은닉)",
+ "신데렐라/신분상승":"신데렐라(신분격차)","시크릿베이비":"임신·출산","육아물":"임신·출산",
+ "늑대인간/수인":"능력·판타지","회귀/전생":"회귀·환생","초능력/초자연":"능력·판타지"}
+ML2KO={"독점/집착남":"집착남"}
+MOOD2CATH={"로맨틱코미디":"humor_flutter","신파/눈물":"regret_grovel",
+ "자극/막장":"revenge_payback","잔잔/힐링":"salvation"}
+REL2CATH={"금지된사랑":"forbidden_tension","재회/후회":"regret_grovel"}
+
+def backfill_bot(r,c,curated):
+    """cats → trope_tags_ko·catharsis_type 역산 + v4_tagged 게이트. 기존 값은 보존(비파괴)."""
+    t=r.setdefault("tags",{})
+    if not t.get("trope_tags_ko"):
+        ko=[]
+        for v in c["관계"]: add(ko,REL2KO.get(v))
+        for v in c["소재"]: add(ko,MAT2KO.get(v))
+        for v in c["남자주인공"]: add(ko,ML2KO.get(v))
+        if ko: t["trope_tags_ko"]=ko
+    if not t.get("catharsis_type"):
+        cat=None
+        if "독점/집착남" in c["남자주인공"]: cat="devotion_thrill"
+        if not cat:
+            for v in c["분위기"]:
+                if v in MOOD2CATH: cat=MOOD2CATH[v]; break
+        if not cat:
+            for v in c["관계"]:
+                if v in REL2CATH: cat=REL2CATH[v]; break
+        if cat: t["catharsis_type"]=cat
+    # 큐레이션(HAND)편은 사람 검수 → conf 0.7. 자동편은 기존 tag_confidence 유지.
+    conf=0.7 if curated else (r.get("tag_confidence") or 0.4)
+    r["v4_tag_confidence"]=max(r.get("v4_tag_confidence") or 0, conf)
+    r["v4_tagged"]=True
+
 def main():
     db=json.load(open(DB,encoding="utf-8"))
+    BLOVR=json.load(open(BL_CATS,encoding="utf-8")) if os.path.exists(BL_CATS) else {}
     for r in db:
         t=r.get("tags") or {}
         setting=t.get("setting") or ""
@@ -154,15 +193,21 @@ def main():
         # 판타지 배경 분할: 수인 신호(늑대인간/수인 소재) 있으면 수인물, 아니면 판타지
         if setting=="fantasy_supernatural":
             add(c["장르/배경"], "수인물" if "늑대인간/수인" in c["소재"] else "판타지")
+        # 유튜브 BL AI: 대본 정독 기반 전체 override(기계 매핑 폐기)
+        if r["id"] in BLOVR:
+            c={k:list(BLOVR[r["id"]].get(k,[])) for k in CATS}
         c={k:[x for x in v if x] for k,v in c.items()}
         r["cats"]=c
         r["tag_version"]="v4.0"
+        # BL은 봇 bl_pool(bl_tags)로 별도 처리 → 일반 트렌드 백필 제외. 그 외는 cats로 편입.
+        if r["id"] not in BLOVR and (r.get("genre") or "").lower()!="bl":
+            backfill_bot(r,c,curated=bool(h))
     json.dump(db,open(DB,"w",encoding="utf-8"),ensure_ascii=False,indent=1)
     # 통계
     from collections import Counter
     for k in CATS:
         cc=Counter(x for r in db for x in r["cats"][k])
         empty=sum(1 for r in db if not r["cats"][k])
-        print(f"[{k}] 빈:{empty}/76 | {dict(cc.most_common())}")
+        print(f"[{k}] 빈:{empty}/{len(db)} | {dict(cc.most_common())}")
 
 if __name__=="__main__": main()

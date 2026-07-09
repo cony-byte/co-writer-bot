@@ -59,7 +59,8 @@ select{padding:9px 10px;border:1px solid var(--line);border-radius:8px;backgroun
 .catlabel{flex:0 0 76px;font-size:12px;font-weight:700;color:var(--ink);padding-top:3px;word-break:keep-all}
 .catchips{display:flex;gap:6px;flex-wrap:wrap;flex:1}
 /* 최상단 지역 필터 강조 */
-#regionZone .catrow.region{border-top:none;border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:2px}
+#makeZone .catrow.region,#regionZone .catrow.region,#platformZone .catrow.region,#orientZone .catrow.region{border-top:none}
+#orientZone .catrow.region{border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:2px}
 .chip.region{font-weight:700;font-size:13px;padding:5px 16px}
 .chip.region.on{background:var(--rose);border-color:var(--rose);color:#fff}
 
@@ -109,9 +110,13 @@ main{max-width:1060px;margin:0 auto;padding:20px}
 .script{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
 .line{display:flex;gap:10px;padding:5px 0;align-items:baseline}
 .line + .line{border-top:1px dashed var(--line)}
-.spk{flex:0 0 58px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:500;padding-top:2px}
+.spk{flex:0 0 64px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:500;padding-top:2px}
+.gtag{display:inline-block;margin-left:3px;font-size:9px;padding:0 4px;border-radius:3px;font-weight:700;vertical-align:middle}
+.gtag.gm{background:var(--blue-soft);color:var(--blue)}
+.gtag.gf{background:var(--rose-soft);color:var(--rose)}
 .spk.s1{color:var(--rose)} .spk.s2{color:var(--blue)} .spk.s3{color:#7A5AA8}
 .spk.nar{color:var(--mute);font-style:italic} .spk.unk{color:var(--mute)}
+.ts{display:block;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--mute);opacity:.7;margin-top:1px}
 .linetext{font-family:'Gowun Batang',serif;font-size:15px;line-height:1.6;flex:1;word-break:keep-all}
 .linetext mark{background:linear-gradient(transparent 52%, var(--hl) 52%);padding:0 1px}
 .nar .linetext{color:var(--ink-soft);font-style:italic;font-size:14px}
@@ -173,7 +178,10 @@ h1{font-size:22px}
       <select id="sort"></select>
       <span class="count" id="count"></span>
     </div>
+    <div id="makeZone"></div>
     <div id="regionZone"></div>
+    <div id="platformZone"></div>
+    <div id="orientZone"></div>
     <div id="catZones"></div>
   </div>
 </div>
@@ -240,8 +248,11 @@ function boot(payload){
     const opt=document.createElement('option'); opt.value=o.id; opt.textContent='정렬: '+o.label; sortSel.appendChild(opt);
   });
 
-  // 최상단 지역 필터 (한국/서양)
+  // 최상단 제작유형(실사/AI) + 지역(한국/서양) + 장르(BL/GL/남녀) 필터
+  buildMakeChips();
   buildRegionChips();
+  buildPlatformChips();
+  buildOrientChips();
 
   // 카테고리 칩 (재태깅된 cats 기반). 시트 URL 있으면 순서·숨김 큐레이션 적용
   buildCategoryChips(null);
@@ -275,6 +286,66 @@ function eligibleData(){
     (!vr.require_script || (r.script||[]).length) &&
     (!vr.hide_needs_review || !r.needs_review) &&
     (!vr.min_script_chars || (r.script_len||0)>=vr.min_script_chars));
+}
+
+// 최상단 제작유형 필터 (실사/AI)
+function buildMakeChips(){
+  state.make=new Set();
+  const pool=eligibleData();
+  const counts={};
+  pool.forEach(r=>{ const v=r.make||'실사'; counts[v]=(counts[v]||0)+1; });
+  const order=['실사','AI'];
+  const zone=document.getElementById('makeZone'); zone.innerHTML='';
+  const row=document.createElement('div'); row.className='catrow region';
+  row.innerHTML=`<span class="catlabel">제작</span>`;
+  const chips=document.createElement('div'); chips.className='catchips';
+  order.forEach(v=>{
+    const n=counts[v]||0;
+    const b=document.createElement('button'); b.className='chip region'+(n?'':' zero'); b.textContent=`${v} ${n}`;
+    b.onclick=()=>{ state.make.has(v)?state.make.delete(v):state.make.add(v); b.classList.toggle('on'); render(); };
+    chips.appendChild(b);
+  });
+  row.appendChild(chips); zone.appendChild(row);
+}
+
+// 최상단 플랫폼 필터 (틱톡/유튜브)
+function buildPlatformChips(){
+  state.platform=new Set();
+  const pool=eligibleData();
+  const counts={};
+  pool.forEach(r=>{ const v=r.platform||'틱톡'; counts[v]=(counts[v]||0)+1; });
+  const order=['틱톡','유튜브'];
+  const zone=document.getElementById('platformZone'); zone.innerHTML='';
+  const row=document.createElement('div'); row.className='catrow region';
+  row.innerHTML=`<span class="catlabel">플랫폼</span>`;
+  const chips=document.createElement('div'); chips.className='catchips';
+  order.forEach(v=>{
+    const n=counts[v]||0;
+    const b=document.createElement('button'); b.className='chip region'+(n?'':' zero'); b.textContent=`${v} ${n}`;
+    b.onclick=()=>{ state.platform.has(v)?state.platform.delete(v):state.platform.add(v); b.classList.toggle('on'); render(); };
+    chips.appendChild(b);
+  });
+  row.appendChild(chips); zone.appendChild(row);
+}
+
+// 최상단 장르 필터 (BL/GL/남녀)
+function buildOrientChips(){
+  state.orient=new Set();
+  const pool=eligibleData();
+  const counts={};
+  pool.forEach(r=>{ const v=r.orient||'남녀'; counts[v]=(counts[v]||0)+1; });
+  const order=['남녀','BL','GL'];
+  const zone=document.getElementById('orientZone'); zone.innerHTML='';
+  const row=document.createElement('div'); row.className='catrow region';
+  row.innerHTML=`<span class="catlabel">장르</span>`;
+  const chips=document.createElement('div'); chips.className='catchips';
+  order.forEach(v=>{
+    const n=counts[v]||0;
+    const b=document.createElement('button'); b.className='chip region'+(n?'':' zero'); b.textContent=`${v} ${n}`;
+    b.onclick=()=>{ state.orient.has(v)?state.orient.delete(v):state.orient.add(v); b.classList.toggle('on'); render(); };
+    chips.appendChild(b);
+  });
+  row.appendChild(chips); zone.appendChild(row);
 }
 
 // 최상단 지역 필터 (한국/서양) — 노출 대상 기준 카운트
@@ -385,8 +456,14 @@ function filtered(){
     if(vr.require_script && !(rec.script||[]).length) return false;
     if(vr.hide_needs_review && rec.needs_review) return false;
     if(vr.min_script_chars && (rec.script_len||0) < vr.min_script_chars) return false;
+    // 제작유형 (실사/AI)
+    if(state.make && state.make.size && !state.make.has(rec.make||'실사')) return false;
     // 지역 (한국/서양)
     if(state.region && state.region.size && !state.region.has(rec.region||'서양')) return false;
+    // 플랫폼 (틱톡/유튜브)
+    if(state.platform && state.platform.size && !state.platform.has(rec.platform||'틱톡')) return false;
+    // 장르 (BL/GL/남녀)
+    if(state.orient && state.orient.size && !state.orient.has(rec.orient||'남녀')) return false;
     // 카테고리: 선택 있는 축마다 교집합 필요(축 내 OR, 축 간 AND)
     for(const cat in state.cats){
       const sel=state.cats[cat];
@@ -446,7 +523,12 @@ function scriptHTML(rec){
   if(!S.length){
     return `<div class="noscript-big">정제 대본 없음 — ${rec.transcript_raw? 'STT 원문은 있으나 정제 전':'STT 미수집(무발화 또는 오디오 수집 실패)'}.<br>전체 스크립트는 오디오 재크롤링 후 채워집니다.</div>`;
   }
-  const lines=S.map(l=>`<div class="line ${spkClass(l.speaker)}"><span class="spk ${spkClass(l.speaker)}">${esc(l.speaker)}</span><span class="linetext">${esc(l.line)}</span></div>`).join('');
+  const gtag=g=>(g==='남'||g==='여')?`<span class="gtag ${g==='남'?'gm':'gf'}">${g}</span>`:'';
+  const mmss=s=>{s=Math.floor(s);return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;};
+  // 미상(화자 미구분)은 라벨 숨기고 줄글로. whisperX 세그먼트는 타임스탬프 표시.
+  const lines=S.map(l=>{const sp=l.speaker==='미상'?'':esc(l.speaker)+gtag(l.gender);
+    const ts=(l.start!=null)?`<span class="ts">${mmss(l.start)}</span>`:'';
+    return `<div class="line ${spkClass(l.speaker)}"><span class="spk ${spkClass(l.speaker)}">${sp}${ts}</span><span class="linetext">${esc(l.line)}</span></div>`;}).join('');
   return `<div class="script">${lines}</div>`;
 }
 
@@ -489,7 +571,8 @@ function openDetail(id){
     return `<div class="catline"><span class="catk">${esc(CAT_LABEL[cat]||cat)}</span><span class="catv">${vals.map(v=>`<span class="tag">${esc(v)}</span>`).join('')}</span></div>`;
   }).filter(Boolean).join('');
   const ctxTags=[...((rec.cats||{})['장르/배경']||[]), ...((rec.cats||{})['소재']||[])];
-  const ctxHtml=`<div class="d-ctx"><span class="ctxk">맥락</span><span class="ctxbody">${rec.hook_desc?`<span class="ctxsit">${esc(rec.hook_desc)}</span>`:''}${ctxTags.map(v=>`<span class="tag blue">${esc(v)}</span>`).join('')}</span></div>`;
+  const ctxSit=rec.context || rec.hook_desc || '';
+  const ctxHtml=`<div class="d-ctx"><span class="ctxk">맥락</span><span class="ctxbody">${ctxSit?`<span class="ctxsit">${esc(ctxSit)}</span>`:''}${ctxTags.map(v=>`<span class="tag blue">${esc(v)}</span>`).join('')}</span></div>`;
   const pubLine=[rec.publish_dt?'발행 '+ymd(rec.publish_dt):'', rec.crawl_date?'크롤 '+rec.crawl_date:'', '대본형태 '+lab(rec.transcript_form||'none')].filter(Boolean).join(' · ');
   const conf=`신뢰도 ${rec.tag_confidence==null?'–':Number(rec.tag_confidence).toFixed(2)}${rec.needs_review?' · <b style="color:#9A6B00">검수 필요</b>':''}`;
   sheet.innerHTML=`

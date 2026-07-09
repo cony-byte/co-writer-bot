@@ -120,10 +120,21 @@ def main():
     scenes = extract_scenes(a.csv) if a.csv else {}
     markets = extract_market(a.csv) if a.csv else {}
 
+    # CSV publish_dt (유튜브 등 id로 시각 추출 불가한 경우용)
+    csv_pub = {}
+    for p in a.csv:
+        with open(p, encoding="utf-8-sig") as f:
+            for r in csv.DictReader(f):
+                vid = (r.get("source_video_id") or "").strip()
+                pd = (r.get("publish_dt") or "").strip()
+                if vid and vid not in csv_pub and pd:
+                    csv_pub[vid] = pd if "T" in pd else pd + "T00:00:00Z"
+
     n_pub = n_scene = 0
     for r in db:
         vid = r["id"]
-        r["publish_dt"] = publish_dt(vid)
+        pd = publish_dt(vid) or csv_pub.get(vid) or r.get("publish_dt", "")
+        r["publish_dt"] = pd
         if r["publish_dt"]:
             n_pub += 1
         r["script"] = neutralize(r.get("script") or [])
