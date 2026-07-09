@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import mimetypes
 import json
+import unicodedata
 import urllib.error
 import urllib.request
 
@@ -18,6 +19,11 @@ from . import config
 
 _URL = "https://openrouter.ai/api/v1/images"
 _REF_EXTS = (".png", ".jpg", ".jpeg", ".webp")
+
+
+def _nfc(s: str) -> str:
+    """macOS 파일명은 한글을 NFD(자모분해)로 저장 → NFC(완성형)로 통일해 비교."""
+    return unicodedata.normalize("NFC", s or "")
 
 
 def available() -> bool:
@@ -49,28 +55,29 @@ def _aliases(work: str | None) -> dict:
 
 
 def registered_refs(work: str | None) -> list[str]:
-    """그 작품에 등록된 참조 인물(파일명 정본) 목록. 상태 확인용."""
+    """그 작품에 등록된 참조 인물(파일명 정본, NFC) 목록. 상태 확인용."""
     out = set()
     for d in _ref_dirs(work):
         if d.exists():
-            out |= {p.stem for p in d.iterdir() if p.suffix.lower() in _REF_EXTS}
+            out |= {_nfc(p.stem) for p in d.iterdir() if p.suffix.lower() in _REF_EXTS}
     return sorted(out)
 
 
 def resolve_ref_name(work: str | None, mention: str) -> str | None:
-    """대본/콘티에 나온 이름(mention) → 등록된 정본 파일명. 못 찾으면 None."""
+    """대본/콘티에 나온 이름(mention) → 등록된 정본 파일명(NFC). 못 찾으면 None."""
+    mention = _nfc(mention)
     if not mention:
         return None
-    stems = registered_refs(work)
+    stems = registered_refs(work)          # NFC
     aliases = _aliases(work)
     # ① 정확일치
     if mention in stems:
         return mention
-    # ② 별칭
+    # ② 별칭 (NFC 정규화 비교)
     for canon, alts in aliases.items():
-        if mention == canon or mention in (alts or []):
-            if canon in stems:
-                return canon
+        names = {_nfc(canon)} | {_nfc(a) for a in (alts or [])}
+        if mention in names and _nfc(canon) in stems:
+            return _nfc(canon)
     # ③ 양방향 부분일치 (2자 이상, 가장 긴 정본 우선)
     for stem in sorted(stems, key=len, reverse=True):
         if len(stem) >= 2 and (stem in mention or mention in stem):
