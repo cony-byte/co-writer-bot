@@ -982,9 +982,11 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
                   "— 안 바뀐 씬은 다시 쓰지 말고, 맨 위에 '바꾼 점:' 한 줄. 전체 설계안 재출력 금지.)")
             answer = SB_BADGE_PLAN + answer
         elif mode == "plan":
-            # 기획안 스레드 후속 → 대화 맥락 유지하며 요청대로 수정, 기획안 전체본 재출력
+            # 기획안 스레드 후속 → '직전 기획안 + 이번 요청'만 넣어 수정(전체 대화 넣으면 입력 비대 → agent max-turns 에러)
             prev_md = next((m["content"] for m in reversed(messages) if m["role"] == "assistant"), "")
-            answer = generator.complete(prompts.plan_system(joined), _convo_text(messages))
+            pu = (f"[현재 기획안]\n{prev_md}\n\n[요청]\n{feedback}\n"
+                  "위 기획안에서 요청대로만 고치고, 같은 구조로 전체 기획안을 다시 내라. 안 바뀐 부분은 그대로 유지.")
+            answer = generator.complete(prompts.plan_system(feedback), pu)
             # 스레드에 노션 링크가 있으면 → 바뀐 섹션만 그 페이지에서 교체
             nmv = re.search(r"https?://\S*notion\.\S+", joined)
             pid = None
