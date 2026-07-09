@@ -51,8 +51,31 @@ class TrendSearch:
         self.all_tagged = [x for x in data if x.get("v4_tagged")]
         # BL 풀: v4와 별개 스키마(bl_cats 수작업 태그). genre 조인으로 표시됨.
         self.bl_pool = [x for x in data if x.get("genre") == "BL" and x.get("bl_tags")]
+        # 성향(orient)별 풀 — 뷰어 상위계층(플랫폼/국가/성향)과 동일. cats(6축)로 트렌드.
+        # orient은 reference_db에 저장됨(없으면 genre로 폴백). 국가·플랫폼은 _scope로 하위 좁힘.
+        self.data = data
+        self.orient_pools = {}
+        for o in ("BL", "GL", "남녀"):
+            self.orient_pools[o] = [
+                x for x in data
+                if (x.get("orient") or ("BL" if x.get("genre") in ("bl", "BL") else "남녀")) == o
+                and any((x.get("cats") or {}).values())
+            ]
         # 시간축 = 실제 게시일(publish_dt). 우리가 긁은 날(crawl_date)이 아니라 콘텐츠가 뜬 시점.
         self.pub_dates = sorted(d for d in (self._pub(x) for x in self.pool) if d)
+
+    def _scope(self, items, q):
+        """성향 트렌드의 하위 스코프(뷰어 상위축) — 질문에 국가/플랫폼 언급 시 좁힘."""
+        ql = q.lower()
+        if "한국" in q:
+            items = [x for x in items if x.get("region") == "한국"]
+        elif "서양" in q or "해외" in q:
+            items = [x for x in items if x.get("region") == "서양"]
+        if "유튜브" in q or "youtube" in ql:
+            items = [x for x in items if x.get("platform") == "youtube"]
+        elif "틱톡" in q or "tiktok" in ql:
+            items = [x for x in items if (x.get("platform") or "tiktok") == "tiktok"]
+        return items
 
     @staticmethod
     def _pub(x):
@@ -313,22 +336,23 @@ class TrendSearch:
         return None
 
     # ---------------- 질문 라우팅 ----------------
-    # ---------------- BL 전용 트렌드 (bl_cats 수작업 태그 기반) ----------------
-    def bl_trends(self):
-        items = self.bl_pool
+    # ---------------- 성향(orient) 전용 트렌드 — 뷰어 계층대로 cats(6축) 집계 ----------------
+    def cats_trends(self, items, title):
+        """상위축(성향, 필요시 국가/플랫폼)으로 스코프된 풀 안에서 cats 6축을 성과 가중 집계.
+        cats는 137편 전편 보유 → BL·GL·남녀 모두 동일 방식. 축 간 데이터가 안 섞임(스코프가 상위)."""
         if not items:
-            return "BL 레퍼런스가 아직 없어요. (bl_cats 매핑/크롤링 보강 대상)"
+            return f"*{title}* — 해당 스코프의 레퍼런스가 아직 없어요. (크롤링/태깅 보강 대상)"
 
         def agg(axis):
             s = defaultdict(lambda: [0.0, 0])
             for x in items:
-                for v in (x.get("bl_tags") or {}).get(axis) or []:
+                for v in (x.get("cats") or {}).get(axis) or []:
                     s[v][0] += self._score(x)     # 성과 가중 (조회·반응·저장)
                     s[v][1] += 1
             return sorted(s.items(), key=lambda kv: -kv[1][0])
 
-        lines = [f"*🎬 BL 트렌드* {self._pool_note(items)}"]
-        for axis, label in (("분위기", "분위기"), ("남자주인공", "남주 유형"),
+        lines = [f"*🎬 {title}* {self._pool_note(items)}"]
+        for axis, label in (("분위기", "분위기"), ("남자주인공", "남주 유형"), ("여자주인공", "여주 유형"),
                             ("관계", "관계"), ("소재", "소재"), ("장르/배경", "장르·배경")):
             top = [k for k, _ in agg(axis)[:4]]
             if top:
@@ -342,12 +366,35 @@ class TrendSearch:
                              f"  조회 {m.get('views', 0):,.0f} · 저장률 {m.get('save_rate', 0)}% · {x.get('url', '')}")
         return "\n".join(lines)
 
+    def bl_trends(self):  # 하위호환 — BL 성향 풀로 위임
+        return self.cats_trends(self.orient_pools.get("BL") or self.bl_pool, "BL 트렌드")
+
     def answer(self, question: str, llm=None) -> str:
         q = question.strip()
-        # 0) BL 장르 요청 → BL 전용 트렌드 (v4 풀과 스키마가 달라 분리 처리)
-        #    'BL로'·'BL을' 처럼 한글 조사가 붙어도 잡히게 ASCII 글자 경계로 (table/problem 등은 제외)
+        # 0) 성향(BL/GL/남녀) 요청 → 성향 전용 cats 트렌드 (뷰어 상위계층 = 플랫폼/국가/성향).
+        #    'BL로'·'BL을' 조사가 붙어도 잡히게 ASCII 경계로 (table/problem 등 제외).
+        orient = None
         if re.search(r"(?<![a-z])bl(?![a-z])", q, re.I):
-            return self.bl_trends()
+            orient = "BL"
+        elif re.search(r"(?<![a-z])gl(?![a-z])", q, re.I) or "백합" in q:
+            orient = "GL"
+        elif re.search(r"남녀|이성애|이성\s*로맨스", q):
+            orient = "남녀"
+        if orient:
+            scoped = self._scope(self.orient_pools.get(orient, []), q)
+            title = f"{orient} 트렌드"
+            tags = []
+            if "한국" in q:
+                tags.append("한국")
+            elif "서양" in q or "해외" in q:
+                tags.append("서양")
+            if "유튜브" in q or "youtube" in q.lower():
+                tags.append("유튜브")
+            elif "틱톡" in q or "tiktok" in q.lower():
+                tags.append("틱톡")
+            if tags:
+                title += " · " + "·".join(tags)
+            return self.cats_trends(scoped, title)
         # 0.5) filters.json 키워드 그룹(재벌/CEO·계약결혼 등) 매칭 → 그 키워드 부분집합으로 트렌드
         kg = self._match_keyword_group(q)
         if kg:
