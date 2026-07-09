@@ -233,13 +233,19 @@ def fun_system(bible: dict | None = None, target_episode: int | None = None) -> 
     return s
 
 
-def fun_user(script: str, lens_level: int | None = None) -> str:
+def fun_user(script: str, lens_level: int | None = None, kind: str = "대본") -> str:
     head = ""
+    if kind == "개요":   # 개요(회차 설계)는 대사·구체 씬이 없는 게 정상 → 사건 구성·흐름 기준
+        head += ("‼️ 이건 **개요(회차 설계안)**다. 대사·구체적 씬 묘사가 없는 게 정상이니 "
+                 "그걸 문제 삼지 말고, **사건 구성·배치·훅·전개 흐름**을 기준으로 평가하라.\n\n")
     if lens_level:
-        head = (f"## 평가 관점: 강도 {lens_level}단계 — {_INTENSITY_LEVELS.get(lens_level, '')}\n"
-                f"이 대본이 **강도 {lens_level} 수위를 목표로 한다고 가정**하고, 그 톤 기준으로 재밌는지 판단하라. "
-                f"목표보다 밋밋하면 '더 세게' 방향으로, 과하면 '덜어내라' 방향으로 지적.\n\n")
-    return head + FUN_USER_TMPL.format(script=script)
+        head += (f"## 평가 관점: 강도 {lens_level}단계 — {_INTENSITY_LEVELS.get(lens_level, '')}\n"
+                 f"이 {kind}이 **강도 {lens_level} 수위를 목표로 한다고 가정**하고, 그 톤 기준으로 재밌는지 판단하라. "
+                 f"목표보다 밋밋하면 '더 세게' 방향으로, 과하면 '덜어내라' 방향으로 지적.\n\n")
+    body = FUN_USER_TMPL.format(script=script)
+    if kind != "대본":
+        body = body.replace("[대본]", f"[{kind}]").replace("대본에 실제로", f"{kind}에 실제로").replace("대본으로 착각", f"{kind} 아닌 걸로 착각")
+    return head + body
 
 
 CONVERT_ROLE = """너는 숏폼 드라마 각색가다. 작가가 **대충 한 줄로 적은 상황**을 받아, 그대로 촬영할 수 있는 **생생한 드라마 대본식 지문**으로 살을 붙여 구체화한다.
@@ -447,7 +453,12 @@ def storyboard_plan_user(draft: str) -> str:
 
 # ── [이미지] 상세 콘티 → GPT 이미지 생성용 '샷 리스트'(JSON) ───────────────────
 STORYBOARD_SHOTS_ROLE = """너는 완성된 '상세 콘티'를 GPT 이미지 생성용 **샷 리스트**로 변환한다.
-콘티를 이미지 한 장씩 그릴 수 있는 샷으로 잘게 나누고, 각 샷을 아래 JSON 객체로 만든다.
+콘티를 '이미지 한 장으로 담을 순간' 단위로 나눠, 각 샷을 아래 JSON 객체로 만든다.
+
+[분할 기준 — ★과잉 분할 금지]
+- 컷이 실제로 바뀌는 지점에서만 나눈다: 구도·앵글·프레임이 바뀌거나, 인서트/리버스로 전환되거나, 장소·시간이 바뀔 때.
+- 같은 구도에서 이어지는 연속 동작·표정 변화·대사 몇 마디는 **한 컷으로 묶는다**(동작마다·표정마다 쪼개지 마라).
+- 분량 기준: 보통 한 씬당 3~6컷, 화 전체 대략 20~40컷. 컷이 80~100개씩 나오면 너무 잘게 쪼갠 것이니 합쳐라.
 
 각 샷 객체:
 - "n": 샷 번호(1부터, 정수)
@@ -460,15 +471,18 @@ STORYBOARD_SHOTS_ROLE = """너는 완성된 '상세 콘티'를 GPT 이미지 생
 - 나레이션 컷은 인물이 입을 벌려 말하는 그림이 되지 않게(prompt에 speaking mouth 넣지 마라).
 - 순수 JSON 배열만 출력. 설명·머리말·마크다운 코드펜스 금지."""
 
-STORYBOARD_SHOTS_USER_TMPL = """아래 [상세 콘티]를 샷 리스트(JSON 배열)로 변환하라. 각 샷 = 이미지 한 장.
+STORYBOARD_SHOTS_USER_TMPL = """아래 [상세 콘티]를 샷 리스트(JSON 배열)로 변환하라. 각 샷 = 이미지 한 장. 과잉 분할 금지(화 전체 20~40컷).
 
 [상세 콘티]
 {conti}"""
 
 
-def storyboard_shots_system(bible: dict | None = None) -> str:
-    """[이미지]용: 상세 콘티 → 샷 리스트(JSON). 인물 이름은 바이블 인물명에 맞춘다."""
+def storyboard_shots_system(bible: dict | None = None, target: int | None = None) -> str:
+    """[이미지]용: 상세 콘티 → 샷 리스트(JSON). target 주면 그 컷 수로 지정."""
     s = STORYBOARD_SHOTS_ROLE
+    if target and target > 0:
+        s += (f"\n\n[컷 수 지정 — ★반드시] 전체 콘티를 처음부터 끝까지 고르게 커버하며 "
+              f"**정확히 약 {target}컷**으로 나눠라(그 수 안팎, 초반에만 몰지 마라).")
     if bible and bible.get("characters"):
         names = ", ".join(bible["characters"].keys())
         s += f"\n\n[이 작품 인물 이름 — characters/캡션에 이 이름을 쓴다]\n{names}"

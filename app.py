@@ -1064,6 +1064,11 @@ def _do_storyboard_images(channel: str, thread_ts: str, rest: str) -> None:
     q = rest.strip()
     wm = SUB_RE.match(q)
     work = wm.group(1).strip() if wm else None
+    if wm:
+        q = wm.group(2).strip()
+    # [이미지] <작품> 30  → 목표 컷 수 30 (과잉분할 방지). 없으면 자동.
+    tm = re.search(r"(\d+)", q)
+    target = int(tm.group(1)) if tm else None
     msgs = _thread_messages(channel, thread_ts)
     joined = "\n".join(m["content"] for m in msgs)
     if not work:
@@ -1083,12 +1088,15 @@ def _do_storyboard_images(channel: str, thread_ts: str, rest: str) -> None:
         return
 
     _CANCEL.discard(thread_ts)
-    ph = _thinking(channel, thread_ts, "콘티를 컷(샷) 리스트로 나누는 중이에요…")
-    # 1) 콘티 → 샷 리스트(JSON)
+    ph = _thinking(channel, thread_ts,
+                   (f"콘티를 {target}컷으로 나누는 중이에요…" if target else "콘티를 컷(샷) 리스트로 나누는 중이에요…"))
+    # 1) 콘티 → 샷 리스트(JSON) — target 있으면 그 컷 수로 지정(과잉분할 방지)
     try:
-        raw = generator.complete(prompts.storyboard_shots_system(bible),
-                                 prompts.storyboard_shots_user(conti), timeout=300)
+        raw = generator.complete(prompts.storyboard_shots_system(bible, target=target),
+                                 prompts.storyboard_shots_user(conti), timeout=900)
         shots = [s for s in _parse_json_array(raw) if isinstance(s, dict) and s.get("prompt")]
+        if target and len(shots) > target:
+            shots = shots[:target]
     except Exception as e:
         log.exception("shots split failed")
         _post_chunks(channel, thread_ts, f"컷 분해 중 오류가 났어요: {e}", replace_ts=ph)
@@ -1990,17 +1998,19 @@ def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both") ->
 
     ep_cmd = re.search(r"(\d+)\s*화", q)                 # 명령에 'N화'가 있으면 그 화
     want_outline = ("개요" in q) and ("대본" not in q)   # '개요' 명시 → 개요, 기본은 대본
+    eval_kind = "개요" if want_outline else "대본"
     src_kind = ""
-    draft = q
-    if len(draft) < 30:  # 대본 미첨부 → 스레드 직전 봇 대본/초안
-        prior = [m["content"] for m in _thread_messages(channel, thread_ts) if m["role"] == "assistant"]
-        draft = prior[-1] if prior else ""
-    if len(draft) < 30 and bible and ep_cmd:            # 그래도 없으면 → 시트 저장본(개요/대본) 사용
+    draft = q if len(q) >= 30 else ""                    # ① 직접 붙여넣은 내용 우선
+    if not draft and bible and ep_cmd:                   # ② 'N화 (개요/대본)' 명시 → 시트 저장본
         key = "outlines" if want_outline else "scripts"
         saved = (bible.get(key) or {}).get(f"{ep_cmd.group(1)}화", "")
         if len(saved.strip()) >= 30:
             draft = saved
-            src_kind = f"시트의 {ep_cmd.group(1)}화 {'개요' if want_outline else '대본'}"
+            src_kind = f"시트의 {ep_cmd.group(1)}화 {eval_kind}"
+    if not draft:                                        # ③ 스레드 직전 '실제 초안'(확정·오류 메시지 제외)
+        d = _last_assistant_draft(channel, thread_ts)
+        if d:
+            draft = _clean_draft(d)
     if len(draft) < 30:
         _reply(channel, thread_ts,
                "형식: `[피드백] <작품> (대본 붙여넣기)` 또는 `[피드백] <작품> N화`"
@@ -2037,10 +2047,11 @@ def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both") ->
                     return
                 b_lvl = _override_intensity(bible, f"강도 {lvl}")
                 _run(prompts.fun_system(b_lvl, target_episode=target),
-                     prompts.fun_user(draft, lens_level=lvl),
+                     prompts.fun_user(draft, lens_level=lvl, kind=eval_kind),
                      post_fn=(lambda a, L=lvl: f"*🎚️ 강도 {L}단계 관점*\n\n" + _verify_fun_score(a)))
         else:
-            _run(prompts.fun_system(bible, target_episode=target), prompts.fun_user(draft), post_fn=_verify_fun_score)
+            _run(prompts.fun_system(bible, target_episode=target),
+                 prompts.fun_user(draft, kind=eval_kind), post_fn=_verify_fun_score)
         if _cancelled(channel, thread_ts, ph if first else None):
             return
     if mode in ("logic", "both"):   # 개연성 지적 (엄격도: 명령 강도 N > 시트 개연성 강도)
@@ -2048,8 +2059,10 @@ def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both") ->
         if strict is None and bible:
             strict = (bible.get("intensity_map") or {}).get("개연성")
         sys_text = prompts.feedback_system(bible, target_episode=target, mode="logic", strictness=strict)
-        _run(sys_text, "‼️ 아래 [대본]에 실제로 적힌 것만 검토하라. [작품 바이블]은 대조용 배경일 뿐, "
-                       f"그 줄거리·개요를 대본으로 착각하지 마라.\n\n[평가할 대본]\n{draft}")
+        okw = ("‼️ 이건 개요(회차 설계)다 — 대사·구체 씬이 없는 게 정상이니 사건 구성·흐름의 개연성만 보라. "
+               if eval_kind == "개요" else "")
+        _run(sys_text, f"{okw}‼️ 아래 [{eval_kind}]에 실제로 적힌 것만 검토하라. [작품 바이블]은 대조용 배경일 뿐, "
+                       f"그 배경을 {eval_kind}으로 착각하지 마라.\n\n[평가할 {eval_kind}]\n{draft}")
 
 
 def _trend_filter_llm(system: str, user: str) -> str:
