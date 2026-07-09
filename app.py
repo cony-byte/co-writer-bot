@@ -815,6 +815,21 @@ def _sb_stage(messages: list[dict]) -> str:
     return "plan"
 
 
+def _plan_sections(md: str) -> list[str]:
+    """기획안 마크다운을 '## 섹션' 단위로 분리 (헤딩 포함)."""
+    return [p.strip() for p in re.split(r"(?m)(?=^##\s)", md or "") if p.strip()]
+
+
+def _first_changed_section(prev_md: str, new_md: str) -> int | None:
+    """직전 기획안 대비 처음으로 바뀐 '## 섹션' 인덱스. 변화 없으면 None."""
+    norm = lambda s: re.sub(r"\s+", " ", s or "").strip()
+    ps, ns = _plan_sections(prev_md), _plan_sections(new_md)
+    for i in range(len(ns)):
+        if norm(ns[i]) != norm(ps[i] if i < len(ps) else ""):
+            return i
+    return None
+
+
 def _trend_orient(text: str) -> str | None:
     """텍스트에서 트렌드 성향(BL/GL/로맨스) 감지 — 스레드 후속에 성향 이어붙이기용."""
     if re.search(r"(?<![a-z])bl(?![a-z])", text or "", re.I):
@@ -901,7 +916,25 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
             answer = SB_BADGE_PLAN + answer
         elif mode == "plan":
             # 기획안 스레드 후속 → 대화 맥락 유지하며 요청대로 수정, 기획안 전체본 재출력
+            prev_md = next((m["content"] for m in reversed(messages) if m["role"] == "assistant"), "")
             answer = generator.complete(prompts.plan_system(joined), _convo_text(messages))
+            # 스레드에 노션 링크가 있으면 → 바뀐 섹션만 그 페이지에서 교체
+            nmv = re.search(r"https?://\S*notion\.\S+", joined)
+            pid = None
+            if nmv:
+                from bot import notion_sync
+                pid = notion_sync.extract_page_id(nmv.group(0))
+            if pid and config.NOTION_TOKEN and prev_md:
+                idx = _first_changed_section(prev_md, answer)
+                if idx is None:
+                    answer += "\n\n_(노션: 바뀐 섹션이 없어 그대로 둠)_"
+                else:
+                    try:
+                        notion_sync.replace_from_section(pid, answer, idx)
+                        answer += f"\n\n_✅ 노션 페이지의 {idx + 1}번째 섹션부터 업데이트했어요._"
+                    except Exception:
+                        log.exception("plan section replace failed")
+                        answer += "\n\n_⚠️ 노션 업데이트 실패 — 권한/연결 확인. (초안은 위에)_"
         elif mode == "idea":
             bible_i = _idea_intensity(bible, feedback)   # 아이디어 기본 강도 3 고정
             answer = generator.complete(prompts.idea_system(bible_i, feedback, target_episode=target),

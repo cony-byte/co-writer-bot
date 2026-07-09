@@ -154,6 +154,52 @@ def _md_to_blocks(md: str) -> list:
     return blocks
 
 
+def _patch(path: str, body: dict, token: str) -> dict:
+    data = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(
+        _API + path, data=data, method="PATCH",
+        headers={"Authorization": f"Bearer {token}", "Notion-Version": _VER,
+                 "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+def clear_children(page_id: str, token: str | None = None) -> None:
+    """페이지의 최상위 블록을 전부 archive(비우기). 일부 실패해도 계속."""
+    token = token or config.NOTION_TOKEN
+    ids = [b["id"] for b in _children(page_id, token)]
+    for bid in ids:
+        try:
+            _patch(f"blocks/{bid}", {"archived": True}, token)
+        except Exception:
+            log.warning("블록 archive 실패: %s", bid)
+
+
+def replace_markdown(page_id: str, md: str, token: str | None = None) -> None:
+    """페이지를 비우고 마크다운을 새로 기록 — 반복 수정 시 중복 없이 최신본으로 교체."""
+    clear_children(page_id, token)
+    append_markdown(page_id, md, token)
+
+
+def replace_from_section(page_id: str, new_md: str, section_idx: int, token: str | None = None) -> None:
+    """section_idx번째 '## 섹션' heading부터 페이지 끝까지 비우고, new_md의 그 섹션부터 새로 기록.
+    앞 섹션(안 바뀐)은 건드리지 않음. (heading_2 = 기획안 5섹션 마커)"""
+    import re
+    token = token or config.NOTION_TOKEN
+    children = _children(page_id, token)
+    h2 = [i for i, b in enumerate(children) if b.get("type") == "heading_2"]
+    if section_idx < len(h2):                       # 그 섹션 heading부터 끝까지 archive
+        for b in children[h2[section_idx]:]:
+            try:
+                _patch(f"blocks/{b['id']}", {"archived": True}, token)
+            except Exception:
+                log.warning("블록 archive 실패: %s", b.get("id"))
+    parts = [p for p in re.split(r"(?m)(?=^##\s)", new_md) if p.strip()]
+    tail = "\n".join(parts[section_idx:]) if section_idx < len(parts) else ""
+    if tail:
+        append_markdown(page_id, tail, token)
+
+
 def append_markdown(page_id: str, md: str, token: str | None = None) -> None:
     """마크다운을 노션 블록으로 변환해 페이지 하위에 append. 100블록씩 나눠 PATCH.
     권한/연결 부족 시 HTTPError를 그대로 올림(호출부에서 안내)."""
