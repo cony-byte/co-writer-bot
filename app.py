@@ -287,6 +287,26 @@ def _post_draft_actions(channel: str, thread_ts: str, work: str, top: str, mid: 
             _reply(channel, thread_ts, f"_📝 초안입니다. 확정: `[입력] <{work}> {label}`_")
 
 
+def _post_revise_actions(channel: str, thread_ts: str, work: str,
+                         kind: str, episode: int | None) -> None:
+    """초안 수정 제안(revise gen 모드) 밑에 [🆕 <종류> 생성] / [✏️ 수정] 버튼.
+    생성 → 제안대로 그 종류를 새로 생성 / 수정 → 원하는 수정 방향을 답글로 받도록 안내."""
+    val = json.dumps({"w": work, "k": kind, "e": episode or ""}, ensure_ascii=False)
+    ep_l = f"{episode}화 " if episode else ""
+    try:
+        app.client.chat_postMessage(
+            channel=channel, thread_ts=thread_ts,
+            text=f"이 방향으로 — 🆕 {ep_l}{kind} 생성 또는 ✏️ 수정",
+            blocks=[{"type": "actions", "block_id": "revise_actions", "elements": [
+                {"type": "button", "action_id": "revise_generate", "style": "primary",
+                 "text": {"type": "plain_text", "text": f"🆕 {kind} 생성"}, "value": val},
+                {"type": "button", "action_id": "revise_specify",
+                 "text": {"type": "plain_text", "text": "✏️ 수정"}, "value": val}]}])
+    except Exception:
+        log.exception("revise action buttons post failed")
+        _reply(channel, thread_ts, "_📝 초안입니다. 확정은 `[입력]`/`[수정]` 으로._")
+
+
 # ---------------- 명령별 처리 ----------------
 
 def _parse_records(content: str, subs: list[str],
@@ -1445,6 +1465,7 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
         note = "상세 콘티 고치는 중이에요…"
     ph = _thinking(channel, thread_ts, note)
 
+    gen_buttons = None       # gen(초안 수정) 모드일 때만 [<종류> 생성]/[수정] 버튼 부착
     try:
         if mode == "sb" and sb_generate:
             # 1단계→2단계: 확정된 '씬 설계안'의 씬 순서·시간을 지켜, 대본을 샷 단위 '상세 콘티'로 전개.
@@ -1521,8 +1542,12 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
                                         _convo_text(messages))
         else:  # gen — 초안 수정
             answer = generator.generate(messages, feedback, bible=bible, target_episode=target)
-            if work:
-                answer += "\n\n_📝 초안입니다. 확정은 `[입력]`/`[수정]` 으로._"
+            if work:                       # 텍스트 꼬리말 대신 [<종류> 생성]/[수정] 버튼(아래에서 부착)
+                _kind = next((k for k in ("개요", "대본", "줄거리") if k in feedback), None)
+                if not _kind:
+                    _kind = _thread_gen_context(messages)[1] \
+                        or next((k for k in ("개요", "대본", "줄거리") if k in joined), None)
+                gen_buttons = (work, _kind or "개요", target)
     except Exception:
         log.exception("revise failed")
         _post_chunks(channel, thread_ts, "이어가는 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
@@ -1530,6 +1555,8 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
     if _cancelled(channel, thread_ts, ph):
         return
     _post_chunks(channel, thread_ts, answer or "(빈 응답)", replace_ts=ph)
+    if gen_buttons:
+        _post_revise_actions(channel, thread_ts, *gen_buttons)
 
 
 def _do_plan(channel: str, thread_ts: str, rest: str, files_text: str = "", in_thread: bool = False) -> None:
@@ -2915,6 +2942,49 @@ def on_draft_regen(ack, body):
         _do_generate(ch, th, path)             # 같은 작품/종류/회차 다시 생성(새 초안+버튼)
     except Exception:
         log.exception("draft_regen 실패")
+
+
+def _revise_action_ctx(body: dict):
+    """revise 버튼 payload → (channel, thread_ts, message_ts, work, kind, episode)."""
+    v = json.loads(body["actions"][0]["value"])
+    ch = (body.get("channel") or {}).get("id")
+    msg = body.get("message") or {}
+    th = msg.get("thread_ts") or msg.get("ts")
+    ep = v.get("e")
+    return ch, th, msg.get("ts"), v.get("w"), v.get("k") or "개요", (int(ep) if ep else None)
+
+
+@app.action("revise_generate")
+def on_revise_generate(ack, body):
+    ack()
+    try:
+        ch, th, mts, work, kind, ep = _revise_action_ctx(body)
+        log.info("revise_generate: work=%s kind=%s ep=%s", work, kind, ep)
+        path = f"<{work}> {kind}" + (f" / {ep}화" if ep else "")
+        try:                                   # 버튼 비활성화(중복 클릭 방지)
+            app.client.chat_update(channel=ch, ts=mts, text=f"🆕 {kind} 생성할게요…", blocks=[])
+        except Exception:
+            pass
+        _do_generate(ch, th, path)             # 위 대화(제안) 맥락 그대로 반영해 새로 생성
+    except Exception:
+        log.exception("revise_generate 실패")
+
+
+@app.action("revise_specify")
+def on_revise_specify(ack, body):
+    ack()
+    try:
+        ch, th, mts, work, kind, ep = _revise_action_ctx(body)
+        ep_l = f"{ep}화 " if ep else ""
+        try:
+            app.client.chat_update(channel=ch, ts=mts, text="✏️ 수정 방향을 알려주세요.", blocks=[])
+        except Exception:
+            pass
+        _reply(ch, th,
+               f"✏️ 원하는 {ep_l}{kind} 수정 방향을 이 스레드에 답글로 적어주세요.\n"
+               "예: `사건 1을 벽치기 해소로 시작하게 고쳐줘` / `엔딩 훅을 더 세게`")
+    except Exception:
+        log.exception("revise_specify 실패")
 
 
 @app.event("app_mention")
