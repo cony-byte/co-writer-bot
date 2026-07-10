@@ -2202,6 +2202,26 @@ def _decode_text(data: bytes) -> str:
     return data.decode("utf-8", "replace")   # 최후: 깨져도 최대한
 
 
+# '기획안 만들어줘' 류 수락 (파일 기반 기획안 제안에 대한 답)
+_PLAN_ACCEPT_RE = re.compile(r"기획|만들어\s*줘|만들자|생성해?\s*줘|해\s*줘|응|네|좋아|ㅇㅋ|ㅇㅇ|고고|가자")
+
+
+def _thread_parent_files_text(channel: str, thread_ts: str) -> str:
+    """스레드에서 첨부 파일이 있는 첫 메시지의 파일 텍스트를 회수 (후속 답글엔 파일이 안 실림)."""
+    try:
+        resp = app.client.conversations_replies(channel=channel, ts=thread_ts,
+                                                 limit=config.THREAD_HISTORY_LIMIT)
+    except Exception:
+        log.exception("thread parent files fetch failed")
+        return ""
+    for m in resp.get("messages", []):
+        if m.get("files"):
+            ft, _ = _files_text(m)
+            if ft.strip():
+                return ft
+    return ""
+
+
 def _files_text(event: dict) -> tuple[str, int]:
     """메시지에 붙은 스니펫/텍스트/.hwpx 파일 내용을 봇 토큰으로 내려받아 합친다.
     반환: (내용, blocked) — blocked>0이면 권한 부족으로 로그인 HTML만 받은 것."""
@@ -2431,7 +2451,27 @@ def _handle(event: dict) -> None:
         # 명령어 없이 노션 링크만 붙여도 → 자동 등록/동기화 (신규 페이지면 새 작품 생성)
         if config.NOTION_TOKEN and re.search(r"https?://\S*notion\.\S+", query):
             _do_sync(channel, thread_ts, query)
+            if event.get("files"):                 # 링크 + 파일 → 파일로 기획안 만들지 제안
+                ftx, _ = _files_text(event)
+                if ftx.strip():
+                    _reply(channel, thread_ts,
+                           "📎 첨부 파일도 있네요. 방금 링크는 **동기화**했고, 이 파일들로 "
+                           "**새 작품 기획안**을 만들 수도 있어요.\n"
+                           "만들려면 이 스레드에 `기획안 만들어줘`(또는 `기획`) 라고 답글 주세요.")
             return
+        # 파일 기반 기획안 제안('새 작품 기획안')에 대한 수락 답글 → 부모 첨부로 [기획] 실행
+        if (in_thread and _PLAN_ACCEPT_RE.search(query)
+                and (len(query.strip()) <= 20 or re.search(r"기획|만들", query))):
+            offered = any(m["role"] == "assistant" and "새 작품 기획안" in m["content"]
+                          for m in _thread_messages(channel, thread_ts))
+            if offered:
+                ftx = _thread_parent_files_text(channel, thread_ts)
+                if ftx.strip():
+                    _do_plan(channel, thread_ts, "", files_text=ftx)
+                else:
+                    _reply(channel, thread_ts,
+                           "첨부 파일을 다시 못 읽었어요. 파일을 이 스레드에 다시 올리고 `[기획]` 해주세요.")
+                return
         # '이걸로 확정/입력/저장' → 직전 초안을 그 꼬리말이 안내한 경로로 시트 저장
         if in_thread and _is_confirm(query):
             savecmd = _draft_save_cmd(channel, thread_ts)
