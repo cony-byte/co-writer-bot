@@ -420,6 +420,22 @@ def _clean_draft(text: str) -> str:
     return "\n".join(out).strip()
 
 
+# 저장(시트·노션) 시 빼야 할 메타 줄: 모델 메모/봇 진행안내/구분선
+_META_LINE_RE = re.compile(
+    r"^\s*(?:📝|💡|ℹ️|🔧|:memo:|:bulb:|메모\s*[:：]|참고\s*[:：]|요청\s*확인\s*[:：]|바꾼\s*점\s*[:：])")
+
+
+def _clean_for_save(text: str, top: str | None = None, mid: str | None = None) -> str:
+    """저장용 정리: 강도 뱃지 + 모델 메모(📝/:memo:)·'요청 확인:'·중복 제목 줄 제거."""
+    text = _clean_draft(text)                     # 강도 뱃지
+    lines = [ln for ln in text.split("\n") if not _META_LINE_RE.match(ln.strip())]
+    text = "\n".join(lines).strip()
+    if top and mid:                               # 맨 앞 중복 제목('… 3화 대본' / '대본/3화') 제거
+        text = re.sub(rf"(?m)\A\**\s*(?:\S+\s+)*{re.escape(mid)}\s*{re.escape(top)}\**\s*\n+", "", text)
+        text = re.sub(rf"(?m)\A\**\s*{re.escape(top)}\s*/?\s*{re.escape(mid)}\**\s*\n+", "", text)
+    return text.strip()
+
+
 def _slack_to_notion_md(text: str) -> str:
     """슬랙식 단일 *볼드* → 노션 **볼드**. (이미 **인 것은 안 건드림)"""
     return re.sub(r"(?<![\*\w])\*(?!\s)([^*\n]+?)(?<!\s)\*(?![\*\w])", r"**\1**", text or "")
@@ -472,7 +488,7 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
     if not content.strip() and top in ("개요", "대본", "줄거리"):
         draft = _last_assistant_draft(channel, thread_ts, top, mid)   # 그 화/종류 초안 우선
         if draft:
-            content = _clean_draft(draft)          # 강도 뱃지 줄 등 제거
+            content = _clean_for_save(draft, top, mid)   # 강도 뱃지·메모·요청확인·중복제목 제거
             captured = True
             mode = "save"                # 초안 확정 = 덮어쓰기 (빈 행/기존값 있어도 저장)
         else:
