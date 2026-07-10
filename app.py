@@ -967,6 +967,9 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "",
                 ans = "생성 오류"
             _post_chunks(channel, thread_ts, f"*🎚️ 강도 {lvl}단계*\n\n{_clean_draft(ans)}", replace_ts=(ph if first else None))
             first = False
+        # 강도 비교: 5개 초안 중 원하는 강도를 통과(저장)하거나 재생성
+        if work and top in ("개요", "대본", "줄거리"):
+            _post_draft_actions(channel, thread_ts, work, top, mid)
         return
 
     # 강도 명시 안 했으면 기본 4로 고정
