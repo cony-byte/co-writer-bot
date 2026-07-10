@@ -5,6 +5,7 @@ __pycache__/
 data/prefs/
 data/notion_state.json
 data/notion_pages.json
+data/inflight.json
 
 # 캐릭터 참조 이미지 (개인 에셋, 용량)
 data/refs/
