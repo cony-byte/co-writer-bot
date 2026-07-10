@@ -1822,6 +1822,15 @@ def _do_freeform(channel: str, thread_ts: str, query: str) -> None:
         _reply(channel, thread_ts, _GUIDE)
         return
     # 1) 명확한 의도 → 해당 기능
+    # 생성 의도('<작품> 2화 대본 만들어줘', '개요 써줘') → 실제 생성으로 라우팅.
+    # 질문형('줄거리 뭐였지?', '대본 어떻게 써?')은 제외하고 일반 답변으로 넘김.
+    _gm = SUB_RE.match(q)
+    _gen_src = _gm.group(2).strip() if _gm else q
+    if (_parse_gen_jobs(_gen_src)
+            and re.search(r"(만들|작성|생성|뽑|그려|써|쓰|짜)", _gen_src)
+            and not re.search(r"(뭐|뭔|무엇|어때|어떻|어케|알려|설명|였지|궁금|인가|일까|해야|\?)", _gen_src)):
+        _do_generate(channel, thread_ts, q)
+        return
     if re.search(r"트렌드|유행|요즘 (뭐|뭔)|뜨는|인기\s*(있|많|글)", q):
         _do_trend(channel, thread_ts, q)
         return
