@@ -469,11 +469,13 @@ def _push_section_to_notion(work: str, top: str, mid: str, content: str) -> bool
         return False
     pid = works.page_of(work)
     if not pid:
+        log.info("노션 push 생략(페이지 미등록): %s / %s %s", work, top, mid)
         return False
     from bot import notion_sync
     heading = "줄거리" if top == "줄거리" else f"{top} {mid}".strip()
     try:
         notion_sync.upsert_section(pid, heading, _slack_to_notion_md(content))
+        log.info("노션 push 완료: %s / %s", work, heading)
         return True
     except Exception:
         log.exception("notion 섹션 업서트 실패: %s / %s", work, heading)
@@ -2875,6 +2877,7 @@ def on_draft_approve(ack, body):
     ack()
     try:
         ch, th, mts, work, top, mid = _draft_action_ctx(body)
+        log.info("draft_approve: work=%s top=%s mid=%s", work, top, mid)
         path = f"<{work}> {top}" + (f" / {mid}" if mid else "")
         try:                                   # 버튼 비활성화(중복 클릭 방지)
             app.client.chat_update(channel=ch, ts=mts, text="✅ 통과 — 저장할게요.", blocks=[])
