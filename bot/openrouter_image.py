@@ -18,7 +18,30 @@ import urllib.request
 from . import config
 
 _URL = "https://openrouter.ai/api/v1/images"
+_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
 _REF_EXTS = (".png", ".jpg", ".jpeg", ".webp")
+
+
+def chat(system: str, user: str, *, model: str | None = None, timeout: int = 240) -> str:
+    """OpenRouter chat completions (HTTP) — 컷 분해 등 LLM 호출용.
+    agent(claude CLI) 대신 써서 느림·동시호출 충돌을 피한다."""
+    if not config.OPENROUTER_API_KEY:
+        raise RuntimeError("OPENROUTER_API_KEY 미설정")
+    payload = {
+        "model": model or getattr(config, "OPENROUTER_LLM_MODEL", "anthropic/claude-sonnet-4.5"),
+        "messages": [{"role": "system", "content": system},
+                     {"role": "user", "content": user}],
+    }
+    req = urllib.request.Request(
+        _CHAT_URL, data=json.dumps(payload).encode("utf-8"),
+        headers={"Authorization": f"Bearer {config.OPENROUTER_API_KEY}",
+                 "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            data = json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"OpenRouter chat 오류 {e.code}: {e.read().decode('utf-8','replace')[:200]}") from e
+    return (data.get("choices") or [{}])[0].get("message", {}).get("content", "") or ""
 
 
 def _nfc(s: str) -> str:

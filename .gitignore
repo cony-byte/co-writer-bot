@@ -11,3 +11,5 @@ data/refs/
 
 .DS_Store
 **/.DS_Store
+
+logs/

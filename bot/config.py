@@ -59,6 +59,7 @@ OPENROUTER_PANEL_ASPECT = os.environ.get("OPENROUTER_PANEL_ASPECT", "16:9")
 OPENROUTER_GRID_COLS = int(os.environ.get("OPENROUTER_GRID_COLS", "6"))     # 그리드 열 수
 OPENROUTER_IMG_WORKERS = int(os.environ.get("OPENROUTER_IMG_WORKERS", "4"))  # 이미지 병렬 생성 수
 OPENROUTER_IMG_TIMEOUT = int(os.environ.get("OPENROUTER_IMG_TIMEOUT", "600"))  # 이미지 1장 HTTP 대기(초) — 넉넉히
+OPENROUTER_LLM_MODEL = os.environ.get("OPENROUTER_LLM_MODEL", "anthropic/claude-sonnet-4.5")  # 컷 분해 등 LLM(HTTP)
 # 캐릭터 일관성용 참조 이미지 폴더: <refs>/<작품>/<인물>.(png|jpg|jpeg|webp)
 # 여기 넣어두면 그 인물이 나오는 컷 생성 시 input_references(data URL)로 자동 첨부됨.
 OPENROUTER_REFS_DIR = Path(os.environ.get("OPENROUTER_REFS_DIR", BASE_DIR / "data" / "refs"))
