@@ -2797,6 +2797,20 @@ def _handle_dispatch(event: dict) -> None:
         # '이걸로 확정/입력/저장' → 직전 초안을 그 꼬리말이 안내한 경로로 시트 저장
         if in_thread and _is_confirm(query):
             savecmd = _draft_save_cmd(channel, thread_ts)
+            if not savecmd:
+                # 버튼 방식 스레드([✅ 통과] 버튼)는 [입력] 꼬리말이 없음
+                # → 스레드 맥락(작품·종류·회차)에서 직접 save 경로 구성
+                _tmsgs = _thread_messages(channel, thread_ts)
+                _twk = _work_from_thread("\n".join(m["content"] for m in _tmsgs))
+                _twk = (works.resolve(_twk) or _twk) if _twk else None
+                if _twk:
+                    _ctx = _thread_gen_context(_tmsgs)
+                    _tkind = ("대본" if "대본" in query else ("개요" if "개요" in query else None)) or _ctx[1]
+                    _tem = re.search(r"(\d+)\s*화", query) or re.search(
+                        r"(\d+)\s*화", "\n".join(m["content"] for m in _tmsgs))
+                    _tep = _tem.group(1) if _tem else None
+                    if _tkind and _tep:
+                        savecmd = f"<{_twk}> {_tkind} / {_tep}화"
             if savecmd:
                 # 확정 메시지가 특정 화/종류를 지정하면('2화 개요만 확정') 꼬리말 경로 대신 그걸 따름
                 _qep = re.search(r"(\d+)\s*화", query)
