@@ -446,12 +446,26 @@ def _clean_draft(text: str) -> str:
 _META_LINE_RE = re.compile(
     r"^\s*(?:📝|💡|ℹ️|🔧|:memo:|:bulb:|메모\s*[:：]|참고\s*[:：]|요청\s*확인\s*[:：]|바꾼\s*점\s*[:：])")
 
+# 본문 뒤에 모델이 붙이는 꼬리 메타(체크리스트·완성 멘트·(끝/약 N초) 등) — 이 줄부터 끝까지 잘라냄
+_SAVE_TAIL_RE = re.compile(
+    r"(?m)^[ \t]*(?:"
+    r"\**\s*\(?\s*끝\s*[/·)]"                     # (끝 / 약 90초 / 씬 4개)
+    r"|(?:✅\s*)?#*\s*\**\s*체크\s*리스트"          # ✅ 체크리스트 / ## 체크리스트
+    r"|(?:✅\s*)?#*\s*\**\s*자체\s*점검"            # 자체 점검
+    r"|\**\s*(?:초안\s*)?완성\s*했?습니다"          # 초안 완성했습니다
+    r"|\**\s*수정\s*(?:이\s*)?필요"                # 수정 필요한 부분 있으면…
+    r")")
+
 
 def _clean_for_save(text: str, top: str | None = None, mid: str | None = None) -> str:
-    """저장용 정리: 강도 뱃지 + 모델 메모(📝/:memo:)·'요청 확인:'·중복 제목 줄 제거."""
+    """저장용 정리: 강도 뱃지 + 모델 메모(📝/:memo:)·'요청 확인:'·꼬리 메타(체크리스트/완성멘트)·중복 제목 제거."""
     text = _clean_draft(text)                     # 강도 뱃지
     lines = [ln for ln in text.split("\n") if not _META_LINE_RE.match(ln.strip())]
     text = "\n".join(lines).strip()
+    m = _SAVE_TAIL_RE.search(text)                # 체크리스트·완성멘트 등 꼬리 메타 절단
+    if m:
+        text = text[:m.start()]
+    text = re.sub(r"(?:\n[ \t]*[-—]{2,}[ \t]*)+\s*$", "", text).strip()  # 남은 구분선(---) 정리
     if top and mid:                               # 맨 앞 중복 제목('… 3화 대본' / '대본/3화') 제거
         text = re.sub(rf"(?m)\A\**\s*(?:\S+\s+)*{re.escape(mid)}\s*{re.escape(top)}\**\s*\n+", "", text)
         text = re.sub(rf"(?m)\A\**\s*{re.escape(top)}\s*/?\s*{re.escape(mid)}\**\s*\n+", "", text)
