@@ -1758,6 +1758,54 @@ def _do_alias(channel: str, thread_ts: str, rest: str) -> None:
            f"✅ 이제 *{canon}* 을(를) {nice} (으)로도 부를 수 있어요!\n예: `[생성] <{aliases[0]}> 3화`")
 
 
+def _do_freeform(channel: str, thread_ts: str, query: str) -> None:
+    """명령어 없이 던진 자유 질문 → 실제로 답변. 명확한 의도는 해당 기능으로 라우팅,
+    아니면 (작품 맥락 있으면 바이블 근거로) 일반 답변, 영 아니면 도움말 안내."""
+    q = query.strip()
+    if not q:
+        _reply(channel, thread_ts, _GUIDE)
+        return
+    # 1) 명확한 의도 → 해당 기능
+    if re.search(r"트렌드|유행|요즘 (뭐|뭔)|뜨는|인기\s*(있|많|글)", q):
+        _do_trend(channel, thread_ts, q)
+        return
+    if _IDEA_INTENT_RE.search(q):
+        _do_idea(channel, thread_ts, q)     # 작품 없으면 자체적으로 안내
+        return
+    if _MAKE_WORK_RE.search(q):
+        _reply(channel, thread_ts,
+               "새 작품·기획안을 만들까요? `[기획] <컨셉/로그라인>` (노션 링크 주면 그 페이지에 기록)\n"
+               "예: `[기획] 라이벌 아이돌 룸메 BL, 스캔들 나면 끝장`")
+        return
+    # 2) 작품 맥락(명시 <작품> or 스레드) 있으면 바이블 근거로 일반 답변
+    work, bible = None, None
+    wm = SUB_RE.match(q)
+    if wm:
+        work = works.resolve(wm.group(1).strip()) or wm.group(1).strip()
+        q = wm.group(2).strip() or q
+    if work:
+        sheet = reference.sheet()
+        if sheet:
+            try:
+                bible = sheet.get(work)
+            except Exception:
+                log.exception("freeform bible load failed")
+    _CANCEL.discard(thread_ts)
+    ph = _thinking(channel, thread_ts, "생각 중이에요…")
+    try:
+        ans = generator.complete(prompts.freeform_system(bible), q).strip()
+    except Exception:
+        log.exception("freeform failed")
+        _post_chunks(channel, thread_ts, _GUIDE, replace_ts=ph)
+        return
+    if _cancelled(channel, thread_ts, ph):
+        return
+    if not ans or ans.replace("*", "").strip() in ("도움말", "(빈 응답)"):
+        _post_chunks(channel, thread_ts, _GUIDE, replace_ts=ph)   # 영 아니면 도움말
+    else:
+        _post_chunks(channel, thread_ts, ans, replace_ts=ph)
+
+
 def _do_check(channel: str, thread_ts: str, rest: str) -> None:
     """[확인] <작품> 질문 → 바이블 근거로 한 문장만 답. (작품명·캐릭터 등 빠른 조회)"""
     q = rest.strip()
@@ -2572,8 +2620,10 @@ def _handle(event: dict) -> None:
         # 스레드 안의 후속 메시지(명령 없음) → 이전 초안 수정 지시로 처리
         if in_thread and query.strip():
             _do_revise(channel, thread_ts, query)
+        elif query.strip():
+            _do_freeform(channel, thread_ts, query)   # 첫 멘션 자유 질문 → 실제 답변(영 아니면 도움말)
         else:
-            _reply(channel, thread_ts, _GUIDE)   # 명령 없이 아무 말 → 짧은 안내('뭘 할지')
+            _reply(channel, thread_ts, _GUIDE)        # 그냥 멘션만 → 짧은 안내
         return
     cmd, rest = m.group(1).strip(), m.group(2)
     # 스니펫/파일 첨부가 있으면 그 내용을 명령 뒤에 이어붙임 (긴 대본·노션 문서용)
