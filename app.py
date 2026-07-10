@@ -416,6 +416,8 @@ def _clean_draft(text: str) -> str:
             continue
         if re.match(r"^\*?\s*강도\s*\d+\s*단계\s*\*?$", s):
             continue
+        if re.match(r"^```[a-zA-Z]*$", s):     # 코드블록 펜스 줄 제거(대본 코드블록 캡처 시)
+            continue
         out.append(ln)
     return "\n".join(out).strip()
 
@@ -933,18 +935,31 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "",
         if _cancelled(channel, thread_ts, ph):
             return
 
-    # 강도가 적용됐으면 답변 맨 앞에 표시 (모델이 스스로 낸 강도 줄은 먼저 제거 → 중복 방지)
+    # 모델이 스스로 낸 강도 줄 제거(중복 방지)
     answer = _clean_draft(answer)
     _lvl = (bible.get("intensity_map") or {}).get(top) or bible.get("intensity_level") if bible else None
+    label = " / ".join(x for x in [top, mid, sub] if x)
+    foot = f"_📝 초안입니다. 확정하려면 `[입력] <{work}> {label}` 로 저장하세요._" if label else ""
+
+    if top == "대본":
+        # 대본은 정렬·가독성 위해 코드블록으로. 배지·검증·확정안내는 밖에.
+        header = ((f"*🎚️ 강도 {_lvl}단계*  " if _lvl else "") + "🎬 *대본 초안*"
+                  + (f"\n{gate_note}" if gate_note else ""))
+        if ph:
+            _post_chunks(channel, thread_ts, header, replace_ts=ph)
+        else:
+            _reply(channel, thread_ts, header)
+        _post_code(channel, thread_ts, answer)           # 코드블록(monospace)
+        if foot:
+            _reply(channel, thread_ts, foot)
+        return
+
     if _lvl:
         answer = f"*🎚️ 강도 {_lvl}단계*\n\n" + answer
     if gate_note:
         answer += f"\n\n{gate_note}"
-
-    # 슬랙은 초안 생성만. 시트 저장은 사람이 검토 후 [입력]/[수정]으로 직접.
-    label = " / ".join(x for x in [top, mid, sub] if x)
-    if label:
-        answer += f"\n\n_📝 초안입니다. 확정하려면 `[입력] <{work}> {label}` 로 저장하세요._"
+    if foot:
+        answer += f"\n\n{foot}"
     _post_chunks(channel, thread_ts, answer, replace_ts=ph)
 
 
