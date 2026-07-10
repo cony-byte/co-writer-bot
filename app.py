@@ -1624,8 +1624,9 @@ def _do_plan(channel: str, thread_ts: str, rest: str, files_text: str = "", in_t
     _post_chunks(channel, thread_ts, (answer or "(빈 응답)") + footer, replace_ts=ph)
 
 
-def _do_idea(channel: str, thread_ts: str, rest: str) -> None:
-    """[아이디어 제시] — 추상적 고민을 구체적이고 간단한 상황 2~3개로. 작품 바이블+DB 근거."""
+def _do_idea(channel: str, thread_ts: str, rest: str, force_generic: bool = False) -> None:
+    """[아이디어 제시] — 추상적 고민을 구체적이고 간단한 상황 2~3개로. 작품 바이블+DB 근거.
+    force_generic=True: 작품 없이 '일반 아이디어'로 바로 생성(사용자가 그렇게 골랐을 때)."""
     q = rest.strip()
     work, bible = None, None
     wm = SUB_RE.match(q)
@@ -1636,6 +1637,12 @@ def _do_idea(channel: str, thread_ts: str, rest: str) -> None:
         w = _work_from_thread("\n".join(m["content"] for m in _thread_messages(channel, thread_ts)))
         if w:
             work = works.resolve(w) or w
+    if not work and q and not force_generic:   # 작품 못 잡음 → 일반으로 할지 물어봄
+        _reply(channel, thread_ts,
+               "작품명이 없어요 🙂 이대로면 작품 설정 없이 **일반 아이디어**로 드려요.\n"
+               "• 그대로 원하면 이 스레드에 `응`(또는 `일반으로`) 답글\n"
+               f"• 더 정확히 하려면 작품을 넣어 다시: `[아이디어] <작품> {q[:40]}…`")
+        return
     if work:
         sheet = reference.sheet()
         if sheet:
@@ -2501,6 +2508,18 @@ def _handle(event: dict) -> None:
                 _reply(channel, thread_ts,
                        "무엇을 확정할지 못 찾았어요. `[입력] <작품> 개요 / 1화` 처럼 경로를 알려주세요.")
             return
+        # '작품 없이 일반 아이디어로 드릴까요?' 제안에 대한 수락 → 일반 아이디어 생성
+        if in_thread and re.search(r"응|네|일반|그냥|좋아|해줘|ㅇㅋ|ㅇㅇ|ok", query, re.I) and len(query.strip()) <= 20:
+            _imsgs = _thread_messages(channel, thread_ts)
+            _idea_asked = any(m["role"] == "assistant" and "일반 아이디어" in m["content"] for m in _imsgs)
+            if _idea_asked:
+                oq = ""                       # 원래 [아이디어] 질문 회수
+                for mm0 in _imsgs:
+                    cm0 = CMD_RE.match(mm0["content"]) if mm0["role"] == "user" else None
+                    if cm0 and cm0.group(1).strip() in CMD_IDEA:
+                        oq = cm0.group(2).strip()
+                _do_idea(channel, thread_ts, oq, force_generic=True)
+                return
         # '이걸로 작품/기획 만들어줘'(트렌드·아이디어 스레드) → 물어보고, 수락하면 그 대화로 [기획]
         if in_thread:
             _asked = any(m["role"] == "assistant" and "기획 초안을 생성할까요" in m["content"]
