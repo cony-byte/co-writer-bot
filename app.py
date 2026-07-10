@@ -749,9 +749,11 @@ def _parse_gen_jobs(text: str) -> list[tuple[str, int | None]]:
     return out
 
 
-def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "") -> None:
+def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "",
+                 force_generic: bool = False) -> None:
     """[생성] <작품> 경로(대본/N화 등) 또는 자연어('에피1~3 대본 써줘') → 바이블 참고 생성 + 시트 저장.
-    files_text: 첨부 파일 내용(있으면) — 명령 파싱과 분리해 '참고 자료'로 주입."""
+    files_text: 첨부 파일 내용(있으면) — 명령 파싱과 분리해 '참고 자료'로 주입.
+    force_generic=True: 작품 없이 '일반 초안'으로 바로 생성(사용자가 그렇게 골랐을 때)."""
     from bot.sheet_bible import parse_path
     sm = SUB_RE.match(rest)
     if sm:
@@ -762,9 +764,11 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "") 
         w = _work_from_thread("\n".join(m["content"] for m in _thread_messages(channel, thread_ts)))
         work = (works.resolve(w) or w) if w else None
         raw_gen = rest
-        if not work:
+        if not work and not force_generic:   # 작품 못 잡음 → 일반으로 할지 물어봄
             _reply(channel, thread_ts,
-                   "형식: `[생성] <작품> 대본 / 24화` (또는 자연어로 `[생성] <작품> 1~3화 대본 써줘`)")
+                   "작품명이 없어요 🙂 이대로면 작품 설정(바이블) 없이 **일반 초안**으로 만들어요 — 시트 저장은 안 돼요.\n"
+                   "• 그대로 원하면 이 스레드에 `응`(또는 `일반으로`) 답글\n"
+                   "• 더 정확·저장까지 하려면 작품을 넣어 다시: `[생성] <작품> 2화 개요`")
             return
 
     # ── 자연어 모드: 여러 종류/회차를 한 문장에 요청하면 각각을 표준 경로로 재구성해 순차 생성 ──
@@ -772,7 +776,7 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "") 
     _first_line = (raw_gen.splitlines() or [""])[0]
     _pl = re.sub(r"\s*" + _GEN_INTPAT, "", _VERIFY_TOKENS_RE.sub("", _first_line)).strip()
     _strict_ok = parse_path(_pl) is not None
-    if len(jobs) >= 2 or (len(jobs) == 1 and not _strict_ok):
+    if work and (len(jobs) >= 2 or (len(jobs) == 1 and not _strict_ok)):
         _im = re.search(_GEN_INTPAT, raw_gen)
         strength = " " + _im.group(0) if _im else ""
         _reply(channel, thread_ts,
@@ -844,7 +848,7 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "") 
                     f"여기 없는 사실을 지어내지 마라]\n{files_text.strip()[:12000]}")
     if all_lvls:
         notes_c = re.sub(r"강도\s*(전체|전부|모두|비교|1\s*[~\-]\s*5|1to5)[^\n]*", "", notes).strip()
-        req = f"'{work}' {what}를 생성해줘." + _notes_block(notes_c) + file_ctx
+        req = (f"'{work}' " if work else "") + f"{what}를 생성해줘." + _notes_block(notes_c) + file_ctx
         # prefs는 루프에서 강도별로 붙임
         _CANCEL.discard(thread_ts)
         ph = _thinking(channel, thread_ts, f"{what} 강도 1~5단계 순서대로 뽑는 중이에요… (좀 걸려요)")
@@ -867,7 +871,7 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "") 
     # 강도 명시 안 했으면 기본 4로 고정
     bible = _ensure_default_intensity(bible, top)
     # 이번 요청을 명확한 지시로 정리(명령 구문 제거) + 넣고 싶은 포인트는 '재료'로 (반복 금지)
-    req = f"'{work}' {what}를 생성해줘." + _notes_block(notes) + file_ctx
+    req = (f"'{work}' " if work else "") + f"{what}를 생성해줘." + _notes_block(notes) + file_ctx
     _eff_lvl = (bible.get("intensity_map") or {}).get(top) or bible.get("intensity_level") if bible else None
     req = _with_prefs(req, work, top, level=_eff_lvl)   # 관련(강도 일치) 좋아/별로 피드백 주입
     messages[-1] = {"role": "user", "content": req}
@@ -2026,8 +2030,10 @@ def _verify_fun_score(text: str) -> str:
     return banner + text
 
 
-def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both") -> None:
-    """[피드백] 대본 평가. mode='both'(재미+개연성)/'fun'(재미만)/'logic'(개연성만)."""
+def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both",
+                 force_generic: bool = False) -> None:
+    """[피드백] 대본 평가. mode='both'(재미+개연성)/'fun'(재미만)/'logic'(개연성만).
+    force_generic=True: 작품 없이 '일반 기준'으로 바로 평가(사용자가 그렇게 골랐을 때)."""
     q = rest.strip()
     work, bible = None, None
     wm = SUB_RE.match(q)
@@ -2039,6 +2045,12 @@ def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both") ->
         w = _work_from_thread(joined0)
         if w:
             work = works.resolve(w) or w
+    if not work and not force_generic:   # 작품 못 잡음 → 일반 기준으로 할지 물어봄
+        _reply(channel, thread_ts,
+               "작품명이 없어요 🙂 이대로면 작품 설정 대조 없이 **일반 기준**으로만 평가해요 (개연성 대조 약함).\n"
+               "• 그대로 원하면 이 스레드에 `응`(또는 `일반으로`) 답글\n"
+               "• 개연성까지 정확히 하려면 작품을 넣어: `[피드백] <작품> 3화`")
+        return
     if work:
         sheet = reference.sheet()
         if sheet:
@@ -2508,18 +2520,28 @@ def _handle(event: dict) -> None:
                 _reply(channel, thread_ts,
                        "무엇을 확정할지 못 찾았어요. `[입력] <작품> 개요 / 1화` 처럼 경로를 알려주세요.")
             return
-        # '작품 없이 일반 아이디어로 드릴까요?' 제안에 대한 수락 → 일반 아이디어 생성
+        # '작품명이 없어요 — 일반으로 드릴까요?' 제안(생성/피드백/아이디어)에 대한 수락 → 일반으로 진행
         if in_thread and re.search(r"응|네|일반|그냥|좋아|해줘|ㅇㅋ|ㅇㅇ|ok", query, re.I) and len(query.strip()) <= 20:
-            _imsgs = _thread_messages(channel, thread_ts)
-            _idea_asked = any(m["role"] == "assistant" and "일반 아이디어" in m["content"] for m in _imsgs)
-            if _idea_asked:
-                oq = ""                       # 원래 [아이디어] 질문 회수
-                for mm0 in _imsgs:
-                    cm0 = CMD_RE.match(mm0["content"]) if mm0["role"] == "user" else None
-                    if cm0 and cm0.group(1).strip() in CMD_IDEA:
-                        oq = cm0.group(2).strip()
-                _do_idea(channel, thread_ts, oq, force_generic=True)
-                return
+            _amsgs = _thread_messages(channel, thread_ts)
+            _asked_generic = any(m["role"] == "assistant" and "작품명이 없어요" in m["content"] for m in _amsgs)
+            if _asked_generic:
+                for mm0 in reversed(_amsgs):   # 마지막 관련 명령 회수 → 일반(force_generic)으로 재실행
+                    if mm0["role"] != "user":
+                        continue
+                    cm0 = CMD_RE.match(mm0["content"])
+                    if not cm0:
+                        continue
+                    c0, body0 = cm0.group(1).strip(), cm0.group(2).strip()
+                    if c0 in CMD_IDEA:
+                        _do_idea(channel, thread_ts, body0, force_generic=True); return
+                    if c0 in CMD_GEN:
+                        _do_generate(channel, thread_ts, body0, force_generic=True); return
+                    if c0 in CMD_FEEDBACK:
+                        _do_feedback(channel, thread_ts, body0, mode="both", force_generic=True); return
+                    if c0 in CMD_FB_FUN:
+                        _do_feedback(channel, thread_ts, body0, mode="fun", force_generic=True); return
+                    if c0 in CMD_FB_LOGIC:
+                        _do_feedback(channel, thread_ts, body0, mode="logic", force_generic=True); return
         # '이걸로 작품/기획 만들어줘'(트렌드·아이디어 스레드) → 물어보고, 수락하면 그 대화로 [기획]
         if in_thread:
             _asked = any(m["role"] == "assistant" and "기획 초안을 생성할까요" in m["content"]
