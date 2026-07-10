@@ -476,16 +476,26 @@ _SAVE_TAIL_RE = re.compile(
     r"|\**\s*수정\s*(?:이\s*)?필요"                # 수정 필요한 부분 있으면…
     r")")
 
+# 본문 앞에 모델이 붙이는 대화체 인사/확인 멘트("알겠어요! … 다시 쓸게요." + ---) — 그 줄부터 제거
+_SAVE_HEAD_RE = re.compile(
+    r"\A\s*(?:네|넵|예|알겠|알았|좋아|그래|오케이|오키|ok|물론|당연|확인)"
+    r"[^\n]*?(?:쓸게요|쓸게|만들게요|만들게|작성|드릴게요|드릴게|할게요|볼게요|해드릴게요"
+    r"|반영|추가|정리했|고칠게요|고칠게|수정할게요|바꿀게요|다시)[^\n]*\n+"
+    r"(?:[ \t]*[-—]{2,}[ \t]*\n+)?",              # 뒤따르는 --- 구분선도 함께 제거
+    re.I)
+
 
 def _clean_for_save(text: str, top: str | None = None, mid: str | None = None) -> str:
-    """저장용 정리: 강도 뱃지 + 모델 메모(📝/:memo:)·'요청 확인:'·꼬리 메타(체크리스트/완성멘트)·중복 제목 제거."""
+    """저장용 정리: 강도 뱃지 + 모델 메모(📝/:memo:)·'요청 확인:'·앞머리 인사멘트·꼬리 메타(체크리스트/완성멘트)·중복 제목 제거."""
     text = _clean_draft(text)                     # 강도 뱃지
     lines = [ln for ln in text.split("\n") if not _META_LINE_RE.match(ln.strip())]
     text = "\n".join(lines).strip()
+    text = _SAVE_HEAD_RE.sub("", text, count=1).strip()   # 앞머리 대화체 인사/확인 멘트 제거
     m = _SAVE_TAIL_RE.search(text)                # 체크리스트·완성멘트 등 꼬리 메타 절단
     if m:
         text = text[:m.start()]
     text = re.sub(r"(?:\n[ \t]*[-—]{2,}[ \t]*)+\s*$", "", text).strip()  # 남은 구분선(---) 정리
+    text = re.sub(r"\A(?:[ \t]*[-—]{2,}[ \t]*\n+)+", "", text).strip()   # 앞머리 남은 --- 정리
     if top and mid:                               # 맨 앞 중복 제목('… 3화 대본' / '대본/3화') 제거
         text = re.sub(rf"(?m)\A\**\s*(?:\S+\s+)*{re.escape(mid)}\s*{re.escape(top)}\**\s*\n+", "", text)
         text = re.sub(rf"(?m)\A\**\s*{re.escape(top)}\s*/?\s*{re.escape(mid)}\**\s*\n+", "", text)
