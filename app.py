@@ -98,19 +98,14 @@ _HELP = (
     "[생성] <날혐남> 대본 / 24화     ← 24화 개요+바이블 참고해 생성 (자동 검증 관문 ON)\n"
     "[생성] <날혐남> 대본 / 24화 검증생략   ← 빠르게: 바이블 준수 자동검증 끄기\n"
     "[변환] 휴대폰 보는 연우, 화내며 나감   ← 줄글 상황 → 드라마 대본식 지문으로\n"
-    "[스토리보드1] <날혐남> 3화   ← 노션 대본 자동 인식 → 씬 설계(분할·시간)\n"
-    "[스토리보드2] <날혐남>       ← 스레드의 씬 설계를 읽어 GPT 이미지용 상세 콘티\n"
-    "[이미지] <날혐남>            ← 스레드의 상세 콘티 → 컷별 GPT 이미지 → 그리드 1장 (참조로 얼굴 유지)\n"
-    "[참조] <날혐남> 강태혁       ← 이미지 첨부하면 그 인물 '얼굴 고정값'으로 등록 ([이미지]가 자동으로 씀)\n"
-    "  (수정: 같은 명령 뒤에 지시 — 예 `[스토리보드1] <날혐남> 씬3 8초로` / `[스토리보드2] <날혐남> 씬3 더 세게`)\n"
-    "[파일] csv 회차분배   ← 스레드 마지막 봇 답변을 md·txt·csv 파일로 내보내기 ([md]/[txt]/[csv]도 가능)\n"
+    "[기획] 라이벌 아이돌 룸메 BL (+노션링크)  ← 기획안 초안·수정(노션 기록)\n"
     "[트렌드] 요즘 뭐가 유행?          ← 쉬운 요약\n"
     "[아이디어] <날혐남> 서아 힘든 거 어떻게 보여주지?  ← 구체적 상황 제안\n"
     "[피드백] <날혐남> (대본)  ← 재미+개연성 / [재미]·[개연성]로 따로도 가능\n"
     "[동기화] <날혐남> (노션 내용 통째로 붙여넣기)  ← 노션→시트 반영\n"
     "[좋아]/[별로] (생성물 스레드에서, 뒤에 이유)  ← 다음 생성에 학습 (별로는 바로 다시 뽑음)\n"
     "```\n"
-    "• `[입력]` 새로 저장 / `[수정]` 기존 고침 / `[생성]` 초안 / `[아이디어]` 상황제안 / `[변환]` 줄글→대본식지문 / `[스토리보드1]` 씬 설계·`[스토리보드2]` 상세 콘티 / `[트렌드]` 조회 / `[멈춰]` 중지\n"
+    "• `[입력]` 새로 저장 / `[수정]` 기존 고침 / `[생성]` 초안 / `[아이디어]` 상황제안 / `[변환]` 줄글→대본식지문 / `[기획]` 기획안 / `[확인]` 조회 / `[트렌드]` 조회 / `[멈춰]` 중지\n"
     "• 이름만: 로그라인·키워드·타겟층·핵심정서·줄거리·금지사항·진행상태 (뒤에 바로 내용)\n"
     "• 인물/회차분배: 소분류 하나 `인물/강태혁/성별 남` 또는 여러 개를 줄마다 `소분류: 값`\n"
     "  인물 소분류 = 성별·나이·포지션·설정·핵심대사·설명 / 회차분배 = 구간·화수·핵심사건\n"
@@ -2527,7 +2522,7 @@ def _handle(event: dict) -> None:
     # 바이블을 쓰는 명령에 노션 링크가 섞였으면 → 먼저 등록·동기화한 뒤 그 명령을 실행.
     # (동기화·기획은 제외: 동기화는 자체 처리, 기획의 링크는 '쓸 대상'이라 읽어오면 안 됨)
     _WORK_CMDS = (CMD_GEN | CMD_FEEDBACK | CMD_FB_FUN | CMD_FB_LOGIC
-                  | CMD_IDEA | CMD_CONVERT | CMD_STORYBOARD | CMD_STORYBOARD2 | CMD_STORYBOARD_IMG)
+                  | CMD_IDEA | CMD_CONVERT)
     if cmd in _WORK_CMDS and config.NOTION_TOKEN:
         rest = re.sub(r"<(https?://[^>|]+)(?:\|[^>]*)?>", r"\1", rest)   # 슬랙 <url|label> 언랩
         lm = _NOTION_LINK.search(rest)
@@ -2554,16 +2549,9 @@ def _handle(event: dict) -> None:
         _reply(channel, thread_ts, "시트 바이블 캐시를 비웠어요. 다음 요청부터 최신으로 읽어옵니다.")
     elif cmd in CMD_CONVERT:
         _do_convert(channel, thread_ts, rest_f)
-    elif cmd in CMD_STORYBOARD:
-        _do_storyboard(channel, thread_ts, rest_f, stage=1)
-    elif cmd in CMD_STORYBOARD2:
-        _do_storyboard(channel, thread_ts, rest_f, stage=2)
-    elif cmd in CMD_STORYBOARD_IMG:
-        _do_storyboard_images(channel, thread_ts, rest_f)
-    elif cmd in CMD_FILE:
-        _do_export(channel, thread_ts, rest_f, cmd=cmd)
-    elif cmd in CMD_REF:
-        _do_ref(channel, thread_ts, rest, event)
+    elif cmd in (CMD_STORYBOARD | CMD_STORYBOARD2 | CMD_STORYBOARD_IMG | CMD_FILE | CMD_REF):
+        _reply(channel, thread_ts,
+               "이 기능(스토리보드·이미지·참조·파일)은 현재 이 봇에서 빠져 있어요. (별도 봇으로 분리)")
     elif cmd in CMD_TREND:
         _do_trend(channel, thread_ts, rest)
     elif cmd in CMD_SYNC:
