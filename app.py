@@ -520,6 +520,15 @@ def _push_section_to_notion(work: str, top: str, mid: str, content: str) -> bool
     try:
         notion_sync.upsert_section(pid, heading, _slack_to_notion_md(content))
         log.info("노션 push 완료: %s / %s", work, heading)
+        # 봇이 직접 쓴 변경은 자동 동기화가 재읽지 않도록 state에 기록
+        try:
+            new_le = notion_sync.page_last_edited(pid)
+            if new_le:
+                st = _load_notion_state()
+                st[work] = new_le
+                _save_notion_state(st)
+        except Exception:
+            pass   # 실패해도 push 자체는 성공이므로 무시
         return True
     except Exception:
         log.exception("notion 섹션 업서트 실패: %s / %s", work, heading)
