@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.tain.co-writer-bot</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/zsh</string>
+        <string>-c</string>
+        <string>export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; cd /Users/cony/dev/my-bot/co-writer-bot; set -a; [ -f .env ] &amp;&amp; source .env; set +a; exec python3 app.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/cony/dev/my-bot/co-writer-bot</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/cony/dev/my-bot/co-writer-bot/logs/bot.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/cony/dev/my-bot/co-writer-bot/logs/bot.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
