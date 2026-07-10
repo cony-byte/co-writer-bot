@@ -1614,13 +1614,24 @@ def _do_plan(channel: str, thread_ts: str, rest: str, files_text: str = "", in_t
     if _cancelled(channel, thread_ts, ph):
         return
     # 링크가 주어졌으면 그 노션 페이지에 기획안 본문을 기록
-    footer = "\n\n_📝 기획안 초안입니다. 다듬어서 `[생성]`으로 개요·대본을 뽑으세요._"
+    footer = ("\n\n_📝 기획안 초안입니다. 다듬어서 `[생성]`으로 개요·대본을 뽑으세요._"
+              "\n_(노션 링크를 주면 작품으로 기록돼요.)_")
     if write_page_id and config.NOTION_TOKEN and not _is_valid_plan(answer):
         footer = "\n\n_⚠️ 결과가 기획안 형식이 아니라 노션엔 안 썼어요. 다시 시도해 주세요._"
     elif write_page_id and config.NOTION_TOKEN:
         try:
             notion_sync.append_markdown(write_page_id, answer)
-            footer = "\n\n_✅ 위 기획안을 노션 페이지에 기록했어요. (초안 — 다듬어 쓰세요)_"
+            new_work = works.work_by_page(write_page_id) is None
+            wname = works.work_by_page(write_page_id) or ""
+            if new_work:                              # 새 작품으로 등록 → 이후 부를 수 있게
+                try:
+                    wname = works.sanitize(notion_sync.page_title(write_page_id)) or "제목없음"
+                except Exception:
+                    wname = "제목없음"
+                works.register(wname, write_page_id)
+            footer = f"\n\n_✅ 위 기획안을 노션 페이지에 기록했어요 (작품: *{wname}*)._"
+            if new_work and wname:                    # 새 작품이면 짧은 별칭 권장
+                footer += f"\n_이름이 길면 답글로 `[별칭] {wname} 짧은이름` 하면 짧게 부를 수 있어요._"
         except Exception:
             log.exception("notion append failed")
             footer = ("\n\n_⚠️ 노션 기록 실패 — 통합에 '콘텐츠 삽입/업데이트' 권한이 있고 "
@@ -1729,9 +1740,11 @@ def _do_alias(channel: str, thread_ts: str, rest: str) -> None:
     work = (works.resolve(work) or work) if work else None
     aliases = [_alias_clean(a) for a in re.split(r"[,、/]| 그리고 ", txt) if _alias_clean(a)]
     if not work:
-        known = ", ".join(works.all_works().keys()) or "(없음)"
+        known = ", ".join(works.all_works().keys()) or "(아직 없음)"
         _reply(channel, thread_ts,
-               f"어느 작품의 별칭인가요? `[별칭] <작품> 짧은이름` 형식으로요.\n등록된 작품: {known}")
+               "어느 작품의 별칭인가요? 작품을 앞에 적어주세요 → `[별칭] <작품> 짧은이름`\n"
+               f"등록된 작품: {known}\n"
+               "_(작품이 아직 없으면 노션 링크를 붙여 등록하거나 `[기획]`으로 새로 만든 뒤 별칭을 다세요.)_")
         return
     if not works.resolve(work):
         _reply(channel, thread_ts, f"'{work}' 라는 작품을 아직 못 찾았어요. 먼저 노션 링크로 등록해 주세요.")
