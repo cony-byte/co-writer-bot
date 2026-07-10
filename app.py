@@ -290,18 +290,21 @@ def _post_draft_actions(channel: str, thread_ts: str, work: str, top: str, mid: 
 def _post_revise_actions(channel: str, thread_ts: str, work: str,
                          kind: str, episode: int | None) -> None:
     """초안 수정 제안(revise gen 모드) 밑에 [🆕 <종류> 생성] / [✏️ 수정] 버튼.
-    생성 → 제안대로 그 종류를 새로 생성 / 수정 → 원하는 수정 방향을 답글로 받도록 안내."""
+    생성 → 제안대로 그 종류를 새로 생성 / 수정 → 원하는 수정 방향을 답글로 받도록 안내.
+    work가 빈 문자열이면 생성 버튼 없이 수정 버튼만 표시."""
     val = json.dumps({"w": work, "k": kind, "e": episode or ""}, ensure_ascii=False)
     ep_l = f"{episode}화 " if episode else ""
+    elements = []
+    if work:
+        elements.append({"type": "button", "action_id": "revise_generate", "style": "primary",
+                          "text": {"type": "plain_text", "text": f"🆕 {kind} 생성"}, "value": val})
+    elements.append({"type": "button", "action_id": "revise_specify",
+                     "text": {"type": "plain_text", "text": "✏️ 수정"}, "value": val})
+    label = f"이 방향으로 — " + (f"🆕 {ep_l}{kind} 생성 또는 " if work else "") + "✏️ 수정"
     try:
         app.client.chat_postMessage(
-            channel=channel, thread_ts=thread_ts,
-            text=f"이 방향으로 — 🆕 {ep_l}{kind} 생성 또는 ✏️ 수정",
-            blocks=[{"type": "actions", "block_id": "revise_actions", "elements": [
-                {"type": "button", "action_id": "revise_generate", "style": "primary",
-                 "text": {"type": "plain_text", "text": f"🆕 {kind} 생성"}, "value": val},
-                {"type": "button", "action_id": "revise_specify",
-                 "text": {"type": "plain_text", "text": "✏️ 수정"}, "value": val}]}])
+            channel=channel, thread_ts=thread_ts, text=label,
+            blocks=[{"type": "actions", "block_id": "revise_actions", "elements": elements}])
     except Exception:
         log.exception("revise action buttons post failed")
         _reply(channel, thread_ts, "_📝 초안입니다. 확정은 `[입력]`/`[수정]` 으로._")
@@ -437,13 +440,18 @@ def _last_assistant_draft(channel: str, thread_ts: str, top: str | None = None, 
 
 
 def _draft_save_cmd(channel: str, thread_ts: str) -> str | None:
-    """스레드 직전 초안 꼬리말에 박힌 `[입력] <작품> 경로` 에서 '<작품> 경로' 부분 회수."""
+    """스레드 직전 초안 꼬리말에 박힌 `[입력] <작품> 경로` 에서 '<작품> 경로' 부분 회수.
+    도움말/오류 메시지의 템플릿 예시('<작품>' 리터럴)는 무시."""
     for m in reversed(_thread_messages(channel, thread_ts)):
         if m["role"] != "assistant":
             continue
         mm = re.search(r"\[\s*입력\s*\]\s*(<[^>]+>[^`_\n]*)", m["content"])
         if mm:
-            return mm.group(1).strip()
+            result = mm.group(1).strip()
+            wm = re.match(r"<([^>]+)>", result)
+            if wm and wm.group(1).strip() == "작품":
+                continue  # 도움말/오류 메시지 예시 텍스트는 건너뜀
+            return result
     return None
 
 
@@ -1561,12 +1569,12 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
                                         _convo_text(messages))
         else:  # gen — 초안 수정
             answer = generator.generate(messages, feedback, bible=bible, target_episode=target)
-            if work:                       # 텍스트 꼬리말 대신 [<종류> 생성]/[수정] 버튼(아래에서 부착)
-                _kind = next((k for k in ("개요", "대본", "줄거리") if k in feedback), None)
-                if not _kind:
-                    _kind = _thread_gen_context(messages)[1] \
-                        or next((k for k in ("개요", "대본", "줄거리") if k in joined), None)
-                gen_buttons = (work, _kind or "개요", target)
+            # work 유무와 무관하게 항상 버튼 부착 (work=None이면 "생성" 버튼만 숨김)
+            _kind = next((k for k in ("개요", "대본", "줄거리") if k in feedback), None)
+            if not _kind:
+                _kind = _thread_gen_context(messages)[1] \
+                    or next((k for k in ("개요", "대본", "줄거리") if k in joined), None)
+            gen_buttons = (work or "", _kind or "개요", target)
     except Exception:
         log.exception("revise failed")
         _post_chunks(channel, thread_ts, "이어가는 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
