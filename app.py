@@ -344,10 +344,19 @@ def _strip_draft_footer(text: str) -> str:
     return body
 
 
-def _last_assistant_draft(channel: str, thread_ts: str) -> str:
+def _last_assistant_draft(channel: str, thread_ts: str, top: str | None = None, mid: str | None = None) -> str:
     """스레드에서 가장 최근의 '실제 초안' 본문. 오류·확정 안내 텍스트에 안 흔들리게,
-    초안 꼬리말(초안입니다·확정하려면·[입력] …)이 붙은 메시지를 우선으로 찾는다."""
+    초안 꼬리말(초안입니다·확정하려면·[입력] …)이 붙은 메시지를 우선으로 찾는다.
+    top·mid를 주면 그 화/종류(예: 개요 2화)에 해당하는 초안을 먼저 고른다."""
     msgs = _thread_messages(channel, thread_ts)
+    # 0) 대상(개요/대본 + N화) 지정 시 그 초안 우선 ('개요 / 2화' 꼬리말 or '2화 개요' 본문)
+    if top and mid:
+        pat = re.compile(rf"{re.escape(top)}\s*/\s*{re.escape(mid)}|{re.escape(mid)}\s*{re.escape(top)}")
+        for m in reversed(msgs):
+            if m["role"] == "assistant" and pat.search(m["content"]):
+                t = _strip_draft_footer(m["content"])
+                if len(t) >= 20:
+                    return t
     # 1) 초안 꼬리말이 있는 봇 메시지 = 진짜 생성 초안 (에러/확정성공 메시지엔 꼬리말 없음)
     for m in reversed(msgs):
         if m["role"] != "assistant" or not _DRAFT_FOOT_RE.search(m["content"]):
@@ -439,7 +448,7 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
     # 내용을 안 적었고 서사 항목이면 → 스레드 직전 봇 초안을 확정 저장 (사람이 "이걸로 확정" 하는 흐름)
     captured = False
     if not content.strip() and top in ("개요", "대본", "줄거리"):
-        draft = _last_assistant_draft(channel, thread_ts)
+        draft = _last_assistant_draft(channel, thread_ts, top, mid)   # 그 화/종류 초안 우선
         if draft:
             content = _clean_draft(draft)          # 강도 뱃지 줄 등 제거
             captured = True
@@ -2215,6 +2224,17 @@ def _handle(event: dict) -> None:
         if in_thread and _is_confirm(query):
             savecmd = _draft_save_cmd(channel, thread_ts)
             if savecmd:
+                # 확정 메시지가 특정 화/종류를 지정하면('2화 개요만 확정') 꼬리말 경로 대신 그걸 따름
+                _qep = re.search(r"(\d+)\s*화", query)
+                _qkind = "대본" if "대본" in query else ("개요" if "개요" in query else None)
+                if _qep or _qkind:
+                    _wtok = re.match(r"\s*(<[^>]+>)", savecmd)
+                    _wtok = _wtok.group(1) if _wtok else ""
+                    _kind = _qkind or ("대본" if "대본" in savecmd else "개요")
+                    _m2 = re.search(r"(\d+)\s*화", savecmd)
+                    _ep = _qep.group(1) if _qep else (_m2.group(1) if _m2 else None)
+                    if _wtok and _ep:
+                        savecmd = f"{_wtok} {_kind} / {_ep}화"
                 _do_input(channel, thread_ts, savecmd, mode="save")
             else:
                 _reply(channel, thread_ts,
