@@ -267,6 +267,26 @@ def _post_code(channel: str, thread_ts: str, text: str) -> None:
         _reply(channel, thread_ts, f"```\n{c}\n```")
 
 
+def _post_draft_actions(channel: str, thread_ts: str, work: str, top: str, mid: str) -> None:
+    """생성 초안 밑에 [✅ 통과 (저장)] / [🔄 재생성] 버튼 메시지를 붙인다.
+    버튼 클릭 → _on_draft_approve(저장) / _on_draft_regen(같은 걸 다시 생성)."""
+    label = " / ".join(x for x in [top, mid] if x)
+    val = json.dumps({"w": work, "t": top, "m": mid or ""}, ensure_ascii=False)
+    try:
+        app.client.chat_postMessage(
+            channel=channel, thread_ts=thread_ts,
+            text=f"이 {label} 초안 — ✅ 통과(저장) 또는 🔄 재생성",
+            blocks=[{"type": "actions", "block_id": "draft_actions", "elements": [
+                {"type": "button", "action_id": "draft_approve", "style": "primary",
+                 "text": {"type": "plain_text", "text": "✅ 통과 (저장)"}, "value": val},
+                {"type": "button", "action_id": "draft_regen", "style": "danger",
+                 "text": {"type": "plain_text", "text": "🔄 재생성"}, "value": val}]}])
+    except Exception:
+        log.exception("draft action buttons post failed")
+        if label:
+            _reply(channel, thread_ts, f"_📝 초안입니다. 확정: `[입력] <{work}> {label}`_")
+
+
 # ---------------- 명령별 처리 ----------------
 
 def _parse_records(content: str, subs: list[str],
@@ -939,7 +959,8 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "",
     answer = _clean_draft(answer)
     _lvl = (bible.get("intensity_map") or {}).get(top) or bible.get("intensity_level") if bible else None
     label = " / ".join(x for x in [top, mid, sub] if x)
-    foot = f"_📝 초안입니다. 확정하려면 `[입력] <{work}> {label}` 로 저장하세요._" if label else ""
+    saveable = bool(work) and top in ("개요", "대본", "줄거리")   # 통과(저장)/재생성 버튼 대상
+    foot = f"_📝 초안입니다. 확정하려면 `[입력] <{work}> {label}` 로 저장하세요._" if (label and not saveable) else ""
 
     if top == "대본":
         # 대본은 정렬·가독성 위해 코드블록으로. 배지·검증·확정안내는 밖에.
@@ -950,7 +971,9 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "",
         else:
             _reply(channel, thread_ts, header)
         _post_code(channel, thread_ts, answer)           # 코드블록(monospace)
-        if foot:
+        if saveable:
+            _post_draft_actions(channel, thread_ts, work, top, mid)
+        elif foot:
             _reply(channel, thread_ts, foot)
         return
 
@@ -961,6 +984,8 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "",
     if foot:
         answer += f"\n\n{foot}"
     _post_chunks(channel, thread_ts, answer, replace_ts=ph)
+    if saveable:
+        _post_draft_actions(channel, thread_ts, work, top, mid)
 
 
 def _do_convert(channel: str, thread_ts: str, rest: str) -> None:
@@ -2733,6 +2758,45 @@ def _handle(event: dict) -> None:
         _reply(channel, thread_ts, _HELP)
     else:
         _reply(channel, thread_ts, f"`[{cmd}]` 는 모르는 명령이에요.\n\n" + _GUIDE)
+
+
+def _draft_action_ctx(body: dict):
+    """버튼 payload → (channel, thread_ts, message_ts, work, top, mid)."""
+    v = json.loads(body["actions"][0]["value"])
+    ch = (body.get("channel") or {}).get("id")
+    msg = body.get("message") or {}
+    th = msg.get("thread_ts") or msg.get("ts")
+    return ch, th, msg.get("ts"), v.get("w"), v.get("t"), v.get("m", "")
+
+
+@app.action("draft_approve")
+def on_draft_approve(ack, body):
+    ack()
+    try:
+        ch, th, mts, work, top, mid = _draft_action_ctx(body)
+        path = f"<{work}> {top}" + (f" / {mid}" if mid else "")
+        try:                                   # 버튼 비활성화(중복 클릭 방지)
+            app.client.chat_update(channel=ch, ts=mts, text="✅ 통과 — 저장할게요.", blocks=[])
+        except Exception:
+            pass
+        _do_input(ch, th, path, mode="save")   # 스레드 직전 초안 캡처 → 시트+노션 저장
+    except Exception:
+        log.exception("draft_approve 실패")
+
+
+@app.action("draft_regen")
+def on_draft_regen(ack, body):
+    ack()
+    try:
+        ch, th, mts, work, top, mid = _draft_action_ctx(body)
+        path = f"<{work}> {top}" + (f" / {mid}" if mid else "")
+        try:
+            app.client.chat_update(channel=ch, ts=mts, text="🔄 재생성할게요…", blocks=[])
+        except Exception:
+            pass
+        _do_generate(ch, th, path)             # 같은 작품/종류/회차 다시 생성(새 초안+버튼)
+    except Exception:
+        log.exception("draft_regen 실패")
 
 
 @app.event("app_mention")
