@@ -1581,6 +1581,12 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
         return
     if _cancelled(channel, thread_ts, ph):
         return
+    if gen_buttons:
+        # LLM이 스레드 컨텍스트에서 복사한 확정 꼬리말 제거 (버튼으로 대체되므로 불필요)
+        answer = re.sub(r"\n+_?📝\s*초안[^\n]*저장하세요[._]*\s*$", "", answer or "",
+                        flags=re.S | re.I).strip()
+        answer = re.sub(r"\n+_?📝\s*초안[^\n]*\[입력\][^\n]*\s*$", "", answer,
+                        flags=re.S | re.I).strip()
     _post_chunks(channel, thread_ts, answer or "(빈 응답)", replace_ts=ph)
     if gen_buttons:
         _post_revise_actions(channel, thread_ts, *gen_buttons)
