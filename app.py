@@ -2594,7 +2594,99 @@ def _do_export(channel: str, thread_ts: str, rest: str, cmd: str = "파일") -> 
                f"파일 업로드에서 막혔어요: {e}\n(앱에 *files:write* 권한이 필요해요)")
 
 
+# ── 처리 중 요청 추적: 재시작(kickstart) 등으로 처리 도중 죽으면 기동 시 자동 재실행 ──
+_INFLIGHT = config.BASE_DIR / "data" / "inflight.json"
+_INFLIGHT_LOCK = threading.Lock()
+_INFLIGHT_KEYS = ("channel", "ts", "thread_ts", "text", "user", "channel_type")
+
+
+def _inflight_load() -> dict:
+    try:
+        return json.loads(_INFLIGHT.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _inflight_save(d: dict) -> None:
+    try:
+        _INFLIGHT.parent.mkdir(parents=True, exist_ok=True)
+        _INFLIGHT.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        log.warning("inflight 저장 실패")
+
+
+def _inflight_add(event: dict) -> str | None:
+    key = event.get("ts") or event.get("event_ts")
+    if not key:
+        return None
+    with _INFLIGHT_LOCK:
+        d = _inflight_load()
+        prev = d.get(key) or {}
+        d[key] = {"event": {k: event.get(k) for k in _INFLIGHT_KEYS},
+                  "attempts": prev.get("attempts", 0)}
+        _inflight_save(d)
+    return key
+
+
+def _inflight_done(key: str | None) -> None:
+    if not key:
+        return
+    with _INFLIGHT_LOCK:
+        d = _inflight_load()
+        if d.pop(key, None) is not None:
+            _inflight_save(d)
+
+
+def _replay_inflight() -> None:
+    """기동 시: 이전 실행에서 완료 못 하고 남은(=처리 중 죽은) 요청을 다시 실행.
+    반복 크래시 방지 위해 재시도는 1회까지만."""
+    time.sleep(8)   # 소켓·시트 준비 대기
+    with _INFLIGHT_LOCK:
+        d = _inflight_load()
+    if not d:
+        return
+    replay, keep = [], {}
+    for key, rec in d.items():
+        if rec.get("attempts", 0) >= 1:      # 이미 한 번 재시도 → 무한루프 방지 위해 포기
+            log.warning("중단 요청 재시도 포기(반복 실패 가능): %s", key)
+            continue
+        replay.append((key, rec))
+        rec["attempts"] = rec.get("attempts", 0) + 1
+        keep[key] = rec
+    with _INFLIGHT_LOCK:
+        _inflight_save(keep)                 # attempts 반영·포기분 제거(성공 시 _handle이 지움)
+    for key, rec in replay:
+        ev = rec.get("event") or {}
+        ch = ev.get("channel")
+        th = ev.get("thread_ts") or ev.get("ts")
+        if not ch:
+            _inflight_done(key)
+            continue
+        log.info("중단 요청 재실행: ch=%s text=%r", ch, (ev.get("text") or "")[:60])
+        try:
+            app.client.chat_postMessage(
+                channel=ch, thread_ts=th,
+                text="🔄 봇이 재시작되며 이전 요청이 중단됐어요. 다시 실행할게요…")
+        except Exception:
+            pass
+        try:
+            _handle_dispatch(ev)             # 재실행 (성공하면 finally에서 inflight 제거)
+            _inflight_done(key)
+        except Exception:
+            log.exception("중단 요청 재실행 실패: %s", key)
+
+
 def _handle(event: dict) -> None:
+    """디스패치 래퍼: 처리 시작을 파일에 기록, 완료(또는 예외)되면 제거.
+    처리 도중 프로세스가 죽으면 기록이 남아 기동 시 _replay_inflight가 재실행."""
+    key = _inflight_add(event)
+    try:
+        _handle_dispatch(event)
+    finally:
+        _inflight_done(key)
+
+
+def _handle_dispatch(event: dict) -> None:
     channel = event["channel"]
     thread_ts = event.get("thread_ts") or event["ts"]
     query = _clean(event.get("text", ""))
@@ -2934,4 +3026,5 @@ if __name__ == "__main__":
         threading.Thread(target=_notion_autosync_loop, daemon=True).start()
         log.info("배경 동기화 ON (레퍼런스 pull=%s · 노션 %d작품 · %d초 주기)",
                  _ref_is_repo, _n_works, _NOTION_POLL_SEC)
+    threading.Thread(target=_replay_inflight, daemon=True).start()  # 재시작으로 중단된 요청 자동 재실행
     SocketModeHandler(app, config.SLACK_APP_TOKEN).start()
