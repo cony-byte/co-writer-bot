@@ -80,6 +80,18 @@ CMD_DISLIKE = {"별로", "별로야", "싫어", "노", "dislike", "👎"}
 _CANCEL: set[str] = set()   # 취소 요청된 thread_ts (생성 결과를 버림)
 CMD_REFRESH = {"새로고침", "refresh"}
 CMD_RELOAD = {"리로드", "reload"}
+CMD_HELP = {"도움말", "help", "명령어", "가이드", "?"}
+
+# 명령 없이 아무 말이나 왔을 때: 전체 목록 대신 '뭘 할지' 짧은 안내
+_GUIDE = (
+    "안녕하세요! 무엇을 도와드릴까요? 이렇게 시작하면 돼요 👇\n"
+    "• *작품 등록*: 노션 기획안 페이지 **링크만** 붙여넣기\n"
+    "• *개요·대본*: `[생성] <작품> 2화 개요` (또는 그냥 `2화 개요 써줘`)\n"
+    "• *기획안*: `[기획] 라이벌 아이돌 룸메 BL` (+노션링크 주면 그 페이지에 기록)\n"
+    "• *검토*: `[피드백] <작품> 3화` / *발상*: `[아이디어] <작품> …`\n"
+    "• *트렌드*: `[트렌드] 요즘 뭐가 유행?` / *조회*: `[확인] <작품> 캐릭터 누구 있지?`\n"
+    "_스레드 안에선 작품 이름 없이 자연어로 이어 말해도 돼요. 전체 명령은 `[도움말]`._"
+)
 
 _HELP = (
     "명령은 `[명령] <작품> 경로` 형식이에요 👇\n"
@@ -2507,7 +2519,7 @@ def _handle(event: dict) -> None:
         if in_thread and query.strip():
             _do_revise(channel, thread_ts, query)
         else:
-            _reply(channel, thread_ts, _HELP)
+            _reply(channel, thread_ts, _GUIDE)   # 명령 없이 아무 말 → 짧은 안내('뭘 할지')
         return
     cmd, rest = m.group(1).strip(), m.group(2)
     # 스니펫/파일 첨부가 있으면 그 내용을 명령 뒤에 이어붙임 (긴 대본·노션 문서용)
@@ -2582,8 +2594,10 @@ def _handle(event: dict) -> None:
         _do_input(channel, thread_ts, rest, mode="update")
     elif cmd in CMD_GEN:
         _do_generate(channel, thread_ts, rest, files_text=ft)
+    elif cmd in CMD_HELP:
+        _reply(channel, thread_ts, _HELP)
     else:
-        _reply(channel, thread_ts, f"`[{cmd}]` 는 모르는 명령이에요.\n\n" + _HELP)
+        _reply(channel, thread_ts, f"`[{cmd}]` 는 모르는 명령이에요.\n\n" + _GUIDE)
 
 
 @app.event("app_mention")
