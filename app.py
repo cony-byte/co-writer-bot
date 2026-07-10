@@ -19,9 +19,11 @@
 """
 import json
 import logging
+import os
 import re
 import threading
 import time
+import unicodedata
 import urllib.request
 
 from slack_bolt import App
@@ -62,6 +64,17 @@ CMD_FEEDBACK = {"피드백", "feedback", "평가", "리뷰", "review"}          
 CMD_FB_FUN = {"재미", "피드백 재미", "피드백재미", "fun"}                 # 재미만
 CMD_FB_LOGIC = {"개연성", "피드백 개연성", "피드백개연성", "논리", "logic"}  # 개연성만
 CMD_STOP = {"멈춰", "멈춤", "중지", "정지", "스톱", "그만", "stop", "cancel"}
+# 스레드의 마지막 봇 답변(또는 명령 아래 줄 내용/첨부)을 md·txt·csv 파일로 내보내 슬랙에 업로드.
+CMD_FILE = {"파일", "내보내기", "다운로드", "export", "file", "md", "markdown", "txt", "csv"}
+_EXPORT_TYPES = {
+    "md": ".md", "markdown": ".md", "마크다운": ".md",
+    "txt": ".txt", "text": ".txt", "텍스트": ".txt",
+    "csv": ".csv", "시트": ".csv",
+}
+# 첨부 이미지를 캐릭터 참조(얼굴 고정값)로 등록 → data/refs/<작품>/<인물>.png. [이미지] 생성이 자동으로 씀.
+CMD_REF = {"참조", "레퍼런스", "캐릭터", "얼굴", "인물참조", "ref", "reference"}
+_REF_SAVE_EXTS = (".png", ".jpg", ".jpeg", ".webp")     # openrouter_image._REF_EXTS와 동일해야 함
+_IMG_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".heic", ".tiff")
 CMD_LIKE = {"좋아", "좋아요", "굿", "like", "👍"}
 CMD_DISLIKE = {"별로", "별로야", "싫어", "노", "dislike", "👎"}
 _CANCEL: set[str] = set()   # 취소 요청된 thread_ts (생성 결과를 버림)
@@ -88,7 +101,9 @@ _HELP = (
     "[스토리보드1] <날혐남> 3화   ← 노션 대본 자동 인식 → 씬 설계(분할·시간)\n"
     "[스토리보드2] <날혐남>       ← 스레드의 씬 설계를 읽어 GPT 이미지용 상세 콘티\n"
     "[이미지] <날혐남>            ← 스레드의 상세 콘티 → 컷별 GPT 이미지 → 그리드 1장 (참조로 얼굴 유지)\n"
+    "[참조] <날혐남> 강태혁       ← 이미지 첨부하면 그 인물 '얼굴 고정값'으로 등록 ([이미지]가 자동으로 씀)\n"
     "  (수정: 같은 명령 뒤에 지시 — 예 `[스토리보드1] <날혐남> 씬3 8초로` / `[스토리보드2] <날혐남> 씬3 더 세게`)\n"
+    "[파일] csv 회차분배   ← 스레드 마지막 봇 답변을 md·txt·csv 파일로 내보내기 ([md]/[txt]/[csv]도 가능)\n"
     "[트렌드] 요즘 뭐가 유행?          ← 쉬운 요약\n"
     "[아이디어] <날혐남> 서아 힘든 거 어떻게 보여주지?  ← 구체적 상황 제안\n"
     "[피드백] <날혐남> (대본)  ← 재미+개연성 / [재미]·[개연성]로 따로도 가능\n"
@@ -774,7 +789,11 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "") 
     path_clean = re.sub(r"\s*" + _INTPAT, "", path_line).strip()
     triple = parse_path(path_clean)
     if not triple:
-        _reply(channel, thread_ts, "형식: `[생성] <작품> 대본 / 24화` (또는 개요 / N화)")
+        _reply(channel, thread_ts,
+               "무엇을 만들지 못 알아들었어요. 이렇게 해보세요:\n"
+               "• `[생성] <작품> 2화 개요` / `[생성] <작품> 3화 대본` / `[생성] <작품> 전체 줄거리`\n"
+               "• 자연어도 OK: `[생성] <작품> 1~3화 대본 써줘`\n"
+               "• 스레드 안에선 작품 생략 가능: `2화 개요 써줘`")
         return
     top, mid, sub = triple
     # 개요·대본: 같은 줄에서 경로('개요/4화') 뒤에 붙인 텍스트는 mid가 아니라 '넣고 싶은 포인트'다.
@@ -910,6 +929,11 @@ def _do_convert(channel: str, thread_ts: str, rest: str) -> None:
     if wm:                              # <작품> 지정 시 인물 이름·호칭 참고
         work = works.resolve(wm.group(1).strip()) or wm.group(1).strip()
         q = wm.group(2).strip()
+    if not work:                        # <작품> 없으면 스레드에서 회수 (인물 이름 매칭용)
+        w = _work_from_thread("\n".join(m["content"] for m in _thread_messages(channel, thread_ts)))
+        if w:
+            work = works.resolve(w) or w
+    if work:
         sheet = reference.sheet()
         if sheet:
             try:
@@ -919,10 +943,8 @@ def _do_convert(channel: str, thread_ts: str, rest: str) -> None:
     epm = re.search(r"(\d+)\s*화", q[:200])
     target = int(epm.group(1)) if epm else None
     draft = q
-    if len(draft) < 10:                 # 본문 거의 없음 → 스레드 직전 봇 출력을 변환
-        prior = [m["content"] for m in _thread_messages(channel, thread_ts)
-                 if m["role"] == "assistant"]
-        draft = prior[-1] if prior else ""
+    if len(draft) < 10:                 # 본문 거의 없음 → 스레드 직전 봇 초안을 변환 (오류·확정문 제외)
+        draft = _last_assistant_draft(channel, thread_ts) or ""
     if len(draft) < 5:
         _reply(channel, thread_ts,
                "줄글로 상황을 써서 `[변환]` 뒤에 붙이면 드라마 대본식 지문으로 바꿔드려요.\n"
@@ -1603,6 +1625,11 @@ def _do_idea(channel: str, thread_ts: str, rest: str) -> None:
     if wm:
         work = works.resolve(wm.group(1).strip()) or wm.group(1).strip()
         q = wm.group(2).strip()
+    if not work:                       # <작품> 없으면 스레드(첫 댓글의 작품/노션 링크)에서 회수
+        w = _work_from_thread("\n".join(m["content"] for m in _thread_messages(channel, thread_ts)))
+        if w:
+            work = works.resolve(w) or w
+    if work:
         sheet = reference.sheet()
         if sheet:
             try:
@@ -2034,8 +2061,10 @@ def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both") ->
             draft = _clean_draft(d)
     if len(draft) < 30:
         _reply(channel, thread_ts,
-               "형식: `[피드백] <작품> (대본 붙여넣기)` 또는 `[피드백] <작품> N화`"
-               " (시트 저장본으로 평가 · 기본 대본, `N화 개요`라 쓰면 개요).")
+               "평가할 대본/개요를 못 찾았어요. 이렇게 해보세요:\n"
+               "• 대본을 **바로 붙여넣기**: `[피드백] <작품> (여기에 대본)`\n"
+               "• 시트 저장본으로: `[피드백] <작품> 3화` (개요면 `3화 개요`)\n"
+               "• 생성 스레드 안에선: 그 초안 아래 답글로 `[피드백]`만")
         return
     em = re.search(r"(\d+)\s*화", draft[:200])   # 대본 앞부분에 회차가 있으면 그 흐름 앵커
     target = (ep_cmd and int(ep_cmd.group(1))) or (int(em.group(1)) if em else _progress_episode(bible, ["대본", "개요"]))
@@ -2183,6 +2212,11 @@ def _files_text(event: dict) -> tuple[str, int]:
             continue
         name = (f.get("name") or "").lower()
         ftype = (f.get("filetype") or "").lower()
+        mt = (f.get("mimetype") or "").lower()
+        # 이미지는 텍스트로 디코딩하면 깨진 글자만 나옴 → 여기선 건너뜀([참조]가 별도로 다룸)
+        if mt.startswith("image/") or ftype in {"png", "jpg", "jpeg", "webp", "gif", "bmp", "heic", "tiff"} \
+                or name.endswith(_IMG_EXTS):
+            continue
         try:
             req = urllib.request.Request(
                 url, headers={"Authorization": f"Bearer {config.SLACK_BOT_TOKEN}"})
@@ -2206,6 +2240,184 @@ def _files_text(event: dict) -> tuple[str, int]:
             continue
         out.append(body)
     return "\n".join(out).strip(), blocked
+
+
+def _image_files(event: dict) -> list[tuple[str, str, bytes]]:
+    """메시지에 붙은 이미지들을 봇 토큰으로 내려받아 [(원본파일명 stem, 확장자, bytes)] 반환.
+    참조 등록에 못 쓰는 형식(gif/heic 등)은 png/jpg/jpeg/webp가 아니라서 제외한다."""
+    out = []
+    for f in event.get("files") or []:
+        name = f.get("name") or ""
+        ftype = (f.get("filetype") or "").lower()
+        mt = (f.get("mimetype") or "").lower()
+        ext = os.path.splitext(name)[1].lower()
+        if not ext and ftype:
+            ext = "." + ftype
+        if ext == ".jpeg":
+            ext = ".jpg"
+        is_img = mt.startswith("image/") or ftype in {"png", "jpg", "jpeg", "webp"} or ext in _REF_SAVE_EXTS
+        if not is_img or ext not in _REF_SAVE_EXTS:
+            continue
+        url = f.get("url_private_download") or f.get("url_private")
+        if not url:
+            continue
+        try:
+            req = urllib.request.Request(
+                url, headers={"Authorization": f"Bearer {config.SLACK_BOT_TOKEN}"})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                data = r.read()
+        except Exception:
+            log.exception("이미지 첨부 다운로드 실패")
+            continue
+        stem = os.path.splitext(os.path.basename(name))[0] or "ref"
+        out.append((stem, ext, data))
+    return out
+
+
+def _do_ref(channel: str, thread_ts: str, rest: str, event: dict) -> None:
+    """[참조] <작품> 인물[, 인물2] + 이미지 첨부 → data/refs/<작품>/<인물>.<ext> 저장(얼굴 고정값).
+    - 이미지 1장 + 이름 1개 → 그 이름으로 저장
+    - 이미지 N장 + 이름 N개(콤마/줄바꿈 구분) → 순서대로 매칭
+    - 이름 생략 → 첨부 파일명(강태혁.png)을 이름으로 사용
+    - 첨부 없음 → 그 작품에 등록된 참조 목록만 보여줌"""
+    from bot import openrouter_image as oi
+
+    wm = SUB_RE.match(rest or "")
+    if not wm:
+        _reply(channel, thread_ts,
+               "작품을 `<작품>`으로 알려주세요: `[참조] <날혐남> 강태혁` + 이미지 첨부")
+        return
+    work = works.resolve(wm.group(1).strip()) or wm.group(1).strip()
+    names = [n.strip() for n in re.split(r"[,/\n]|\s{2,}", (wm.group(2) or "").strip()) if n.strip()]
+
+    imgs = _image_files(event)
+    if not imgs:
+        regs = oi.registered_refs(work)
+        if regs:
+            _reply(channel, thread_ts,
+                   f"<{work}> 등록된 참조: {', '.join(regs)}\n"
+                   "새로 등록하려면 이미지를 첨부하고 `[참조] <작품> 인물`로 보내주세요.")
+        else:
+            _reply(channel, thread_ts,
+                   f"이미지 첨부가 없어요. `[참조] <{work}> 강태혁` 처럼 쓰고 얼굴 이미지를 함께 올려주세요.\n"
+                   "(png·jpg·jpeg·webp)")
+        return
+
+    # 이미지 ↔ 이름 매핑
+    if not names:
+        pairs = [(stem, ext, data) for stem, ext, data in imgs]
+    elif len(names) == len(imgs):
+        pairs = [(names[i], imgs[i][1], imgs[i][2]) for i in range(len(imgs))]
+    elif len(names) == 1:
+        pairs = [(names[0], imgs[0][1], imgs[0][2])]     # 이름 하나면 첫 이미지에만
+    else:
+        _reply(channel, thread_ts,
+               f"이미지 {len(imgs)}장과 이름 {len(names)}개가 안 맞아요. "
+               "이미지 1장에 이름 1개로 보내거나, 이미지 수만큼 이름을 콤마로 나눠주세요.")
+        return
+
+    d = config.OPENROUTER_REFS_DIR / work
+    d.mkdir(parents=True, exist_ok=True)
+    saved, extra = [], max(0, len(imgs) - len(pairs))
+    for nm, ext, data in pairs:
+        nm = unicodedata.normalize("NFC", nm).strip()
+        if not nm:
+            continue
+        for e in _REF_SAVE_EXTS:                          # 같은 이름의 기존 참조는 확장자 불문 교체
+            p = d / f"{nm}{e}"
+            if p.exists():
+                p.unlink()
+        (d / f"{nm}{ext}").write_bytes(data)
+        saved.append(nm)
+
+    if not saved:
+        _reply(channel, thread_ts, "저장할 인물 이름을 못 읽었어요. `[참조] <작품> 강태혁`처럼 이름을 적어주세요.")
+        return
+    msg = (f"✅ <{work}> 캐릭터 참조 등록: *{', '.join(saved)}*\n"
+           "이제 `[이미지]` 생성 때 이 얼굴로 고정돼요. (콘티에 이 이름이 나오면 자동 첨부)")
+    if extra:
+        msg += f"\n(이미지 {extra}장은 이름이 없어 건너뛰었어요 — 이름을 콤마로 나눠 다시 보내주세요.)"
+    _reply(channel, thread_ts, msg)
+
+
+def _md_table_to_csv(text: str) -> str | None:
+    """마크다운 표(| a | b |) → CSV 문자열. 표 행이 2줄 미만이면 None(표 아님)."""
+    rows = []
+    for ln in text.splitlines():
+        s = ln.strip()
+        if not (s.startswith("|") and s.endswith("|") and len(s) > 1):
+            continue
+        cells = [c.strip() for c in s[1:-1].split("|")]
+        if cells and all(re.fullmatch(r":?-{2,}:?", c or "") for c in cells):
+            continue                                   # |---|:--| 구분선 행 스킵
+        rows.append(cells)
+    if len(rows) < 2:
+        return None
+    import csv
+    import io
+    buf = io.StringIO()
+    csv.writer(buf).writerows(rows)
+    return buf.getvalue()
+
+
+def _do_export(channel: str, thread_ts: str, rest: str, cmd: str = "파일") -> None:
+    """[파일] <md|txt|csv> [파일명] — 내보낼 내용은 (1)명령 아래 줄/첨부, 없으면 (2)스레드의 마지막 봇 답변.
+    `[md]`/`[txt]`/`[csv]`처럼 형식을 명령으로 바로 줄 수도 있음. CSV는 마크다운 표를 자동 변환."""
+    rest = (rest or "").strip("\n")
+    head, _, inline = rest.partition("\n")
+    if cmd in _EXPORT_TYPES:                            # [csv] ... 처럼 형식을 명령으로 준 경우
+        ftype, name_toks = cmd, head.split()
+    else:
+        toks = head.split()
+        if toks and toks[0].lower() in _EXPORT_TYPES:
+            ftype, name_toks = toks[0].lower(), toks[1:]
+        else:
+            ftype, name_toks = "md", toks              # 형식 미지정 → md, head 전체를 파일명으로
+    ext = _EXPORT_TYPES[ftype]
+
+    content = inline.strip()
+    if not content:                                    # 인라인 내용 없으면 스레드의 마지막 봇 답변
+        for m in reversed(_thread_messages(channel, thread_ts)):
+            if m["role"] == "assistant" and m["content"].strip():
+                content = m["content"]
+                break
+    if not content:
+        _reply(channel, thread_ts,
+               "파일로 내보낼 내용을 못 찾았어요. 명령 아래 줄에 내용을 붙이거나, 봇 답변이 있는 스레드에서 써주세요.")
+        return
+
+    base = "_".join(name_toks).strip()
+    base = re.sub(r"[^\w가-힣.\-]+", "_", base).strip("_.")
+    if not base:
+        base = f"cowriter_{int(time.time())}"
+    if base.lower().endswith(ext):
+        base = base[: -len(ext)]
+    filename = base + ext
+
+    if ext == ".csv":
+        csv_text = _md_table_to_csv(content)
+        if csv_text is None:                           # 표가 아니면 줄 단위 1열 CSV
+            import csv as _csv
+            import io
+            buf = io.StringIO()
+            for ln in content.splitlines():
+                _csv.writer(buf).writerow([ln])
+            csv_text, note = buf.getvalue(), "줄 단위 CSV로"
+        else:
+            note = "표를 인식해 CSV로"
+        data = ("﻿" + csv_text).encode("utf-8")   # 엑셀 한글 안 깨지게 BOM
+    else:
+        data, note = content.encode("utf-8"), f"{ftype.upper()} 파일로"
+
+    try:
+        app.client.files_upload_v2(
+            channel=channel, thread_ts=thread_ts, file=data,
+            filename=filename, title=filename,
+            initial_comment=f"📄 {note} 내보냈어요 — `{filename}`")
+    except Exception as e:
+        log.exception("export upload failed")
+        _reply(channel, thread_ts,
+               f"파일 업로드에서 막혔어요: {e}\n(앱에 *files:write* 권한이 필요해요)")
 
 
 def _handle(event: dict) -> None:
@@ -2292,6 +2504,10 @@ def _handle(event: dict) -> None:
         _do_storyboard(channel, thread_ts, rest_f, stage=2)
     elif cmd in CMD_STORYBOARD_IMG:
         _do_storyboard_images(channel, thread_ts, rest_f)
+    elif cmd in CMD_FILE:
+        _do_export(channel, thread_ts, rest_f, cmd=cmd)
+    elif cmd in CMD_REF:
+        _do_ref(channel, thread_ts, rest, event)
     elif cmd in CMD_TREND:
         _do_trend(channel, thread_ts, rest)
     elif cmd in CMD_SYNC:
