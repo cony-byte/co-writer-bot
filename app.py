@@ -2202,8 +2202,10 @@ def _decode_text(data: bytes) -> str:
     return data.decode("utf-8", "replace")   # 최후: 깨져도 최대한
 
 
-# '기획안 만들어줘' 류 수락 (파일 기반 기획안 제안에 대한 답)
+# '기획안 만들어줘' 류 수락 (기획 제안에 대한 답)
 _PLAN_ACCEPT_RE = re.compile(r"기획|만들어\s*줘|만들자|생성해?\s*줘|해\s*줘|응|네|좋아|ㅇㅋ|ㅇㅇ|고고|가자")
+# '이걸로 작품/기획(안) 만들어줘' 류 (트렌드·아이디어 스레드에서 기획 착수 의도)
+_MAKE_WORK_RE = re.compile(r"(작품|기획안?)\s*(을|를|으로|로)?\s*(만들|짜|잡아|써|생성|시작)|이걸로\s*\S*\s*(작품|기획)")
 
 
 def _thread_parent_files_text(channel: str, thread_ts: str) -> str:
@@ -2492,6 +2494,20 @@ def _handle(event: dict) -> None:
                 _reply(channel, thread_ts,
                        "무엇을 확정할지 못 찾았어요. `[입력] <작품> 개요 / 1화` 처럼 경로를 알려주세요.")
             return
+        # '이걸로 작품/기획 만들어줘'(트렌드·아이디어 스레드) → 물어보고, 수락하면 그 대화로 [기획]
+        if in_thread:
+            _asked = any(m["role"] == "assistant" and "기획 초안을 생성할까요" in m["content"]
+                         for m in _thread_messages(channel, thread_ts))
+            _has_link = re.search(r"https?://\S*notion\.\S+", query)
+            if _asked and (_has_link or _PLAN_ACCEPT_RE.search(query)) and len(query.strip()) <= 60:
+                _do_plan(channel, thread_ts, query if _has_link else "")   # 링크 있으면 그 페이지에 기록
+                return
+            if _MAKE_WORK_RE.search(query):
+                _reply(channel, thread_ts,
+                       "이걸로 **기획 초안을 생성할까요**? 이 스레드에 `응`(또는 `만들어줘`)라고 답해주세요.\n"
+                       "📎 **노션 링크를 함께 주면** 그 페이지에 **새 작품으로 기록**해드려요 "
+                       "(예: `<노션링크> 만들어줘`).")
+                return
         # 스레드 안의 후속 메시지(명령 없음) → 이전 초안 수정 지시로 처리
         if in_thread and query.strip():
             _do_revise(channel, thread_ts, query)
