@@ -2883,6 +2883,7 @@ def _notion_autosync_loop() -> None:
     변경 없으면 아무것도 안 함(LLM 미사용). 봇에 링크가 등록된 작품만 대상."""
     from bot import notion_sync
     time.sleep(20)   # 기동 직후 소켓 안정될 때까지 대기
+    failed_le: dict[str, str] = {}   # {작품: 실패한 last_edited} — 같은 내용 무한 재시도 방지
     while True:
         try:
             _reference_pull()                     # 레퍼런스 DB 최신화 (사본 없이 직접)
@@ -2903,16 +2904,19 @@ def _notion_autosync_loop() -> None:
                     except Exception:
                         log.warning("노션 수정시각 조회 실패: %s", work)
                         continue
-                    if le and le != st.get(work):
+                    # 이미 실패한 것과 동일한 편집본이면 재시도 안 함(페이지가 또 수정되면 le가 바뀌어 재시도됨)
+                    if le and le != st.get(work) and le != failed_le.get(work):
                         log.info("노션 변경 감지 → 자동 동기화: %s", work)
                         try:
                             content = notion_sync.page_text(page_id)
                             done, failed, _ = _sync_apply(sheet, work, content)
                             st[work] = le
                             _save_notion_state(st)
+                            failed_le.pop(work, None)
                             log.info("자동 동기화 완료: %s (%d 반영, %d 실패)", work, done, failed)
                         except Exception:
-                            log.exception("자동 동기화 실패: %s", work)
+                            failed_le[work] = le   # 이 편집본은 다시 수정될 때까지 건너뜀
+                            log.warning("자동 동기화 실패(재시도 보류): %s — 노션 수정 시 재시도됨", work)
         except Exception:
             log.exception("autosync 루프 오류")
         time.sleep(_NOTION_POLL_SEC)
