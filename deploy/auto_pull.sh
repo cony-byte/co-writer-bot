@@ -10,6 +10,28 @@ LABEL="ai.tain.co-writer-bot"
 LOG="logs/autopull.log"
 mkdir -p logs
 
+# ── 생성 진행 중이면 이번 주기 건너뜀(재시작이 진행 중 생성을 끊지 않도록) ──
+# 진행중 작업 원장(inflight.json=요청 처리중, jobs.json=이미지/스틸 생성중)이 '비어있지
+# 않고' 최근(<=900s) 갱신됐으면 생성 중으로 보고 pull·재시작을 미룬다. 다음 주기에 재시도.
+# 900s 초과분은 죽은 프로세스가 남긴 잔재로 보고 무시(무한 지연 방지).
+_busy() {
+  local f content age
+  for f in data/inflight.json data/jobs.json; do
+    [ -f "$f" ] || continue
+    content=$(tr -d '[:space:]' < "$f" 2>/dev/null || true)
+    [ -z "$content" ] && continue
+    [ "$content" = "{}" ] && continue
+    [ "$content" = "[]" ] && continue
+    age=$(( $(date +%s) - $(stat -f %m "$f" 2>/dev/null || echo 0) ))
+    [ "$age" -le 900 ] && return 0
+  done
+  return 1
+}
+if _busy; then
+  echo "[$(date '+%F %T')] 생성 진행 중 — 이번 주기 건너뜀(pull·재시작 안 함)" >> "$LOG"
+  exit 0
+fi
+
 BEFORE=$(git rev-parse HEAD)
 {
   echo "[$(date '+%F %T')] pull 시작"
