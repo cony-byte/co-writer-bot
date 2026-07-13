@@ -31,6 +31,12 @@ REFERENCE_DIR = Path(os.environ.get("COWRITER_REFERENCE_DIR", BASE_DIR / "data" 
 # 이 디렉터리에 *.md 파일이 생기면 자동으로 시스템 프롬프트에 주입된다.
 TEMPLATES_DIR = Path(os.environ.get("COWRITER_TEMPLATES_DIR", BASE_DIR / "templates"))
 
+# 대본 확정 저장 시 생성되는 흐름 요약 캐시(회차 연속성 참고용, 시트에는 없는 로컬 전용 데이터).
+SCRIPT_SUMMARIES_PATH = BASE_DIR / "data" / "script_summaries.json"
+
+# 노션에서 직접 읽은 대본 캐시(page last_edited 기준 무효화 — 안 바뀌었으면 풀 페치 생략).
+NOTION_SCRIPTS_CACHE_PATH = BASE_DIR / "data" / "notion_scripts_cache.json"
+
 # 스레드 히스토리를 몇 메시지까지 모델에 넘길지
 THREAD_HISTORY_LIMIT = int(os.environ.get("COWRITER_THREAD_LIMIT", "40"))
 

@@ -16,6 +16,7 @@ import re
 import time
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from . import config
@@ -121,6 +122,58 @@ def parse_path(path_str: str) -> tuple[str, str, str] | None:
     return None
 
 
+def _load_script_summaries(work: str) -> dict:
+    """대본 확정 저장 시 app.py가 쌓아둔 흐름 요약 캐시(로컬, 시트에는 없음) 중 이 작품 것만."""
+    try:
+        all_st = json.loads(config.SCRIPT_SUMMARIES_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return all_st.get(work, {})
+
+
+def _load_notion_scripts_cache() -> dict:
+    try:
+        return json.loads(config.NOTION_SCRIPTS_CACHE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_notion_scripts_cache(cache: dict) -> None:
+    try:
+        config.NOTION_SCRIPTS_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        config.NOTION_SCRIPTS_CACHE_PATH.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _notion_scripts(work: str) -> dict:
+    """실무자가 최종 대본을 노션에서 직접 관리하는 작품 대응 — 대본은 시트에 안 옮기고
+    노션에서 매번 직접 읽는다(2026-07-13 결정: [동기화] LLM 요약이 긴 원문을 요약해버려
+    시트 값이 오염되는 문제가 있었음). 등록 안 됐거나 실패하면 조용히 {} — 시트 값이 폴백.
+
+    풀 페이지 재귀 페치(수 초~10초대)는 비싸므로, 먼저 page_last_edited(단일 호출, 0.2~0.3초)로
+    페이지가 실제 바뀌었는지 확인 → 안 바뀌었으면 로컬 캐시를 그대로 반환하고 풀 페치를 생략."""
+    if not config.NOTION_TOKEN:
+        return {}
+    try:
+        from . import notion_sync, works
+        pid = works.page_of(work)
+        if not pid:
+            return {}
+        le = notion_sync.page_last_edited(pid)
+        cache = _load_notion_scripts_cache()
+        entry = cache.get(work)
+        if entry and le and entry.get("last_edited") == le:
+            return entry.get("scripts") or {}
+        full = notion_sync.page_text(pid)
+        scripts = notion_sync.parse_episode_scripts(full)
+        cache[work] = {"last_edited": le, "scripts": scripts}
+        _save_notion_scripts_cache(cache)
+        return scripts
+    except Exception:
+        return {}
+
+
 class SheetBible:
     def __init__(self, url: str | None = None, secret: str | None = None,
                  ttl: int | None = None):
@@ -185,10 +238,12 @@ class SheetBible:
     def list_works(self) -> list[str]:
         return self._get().get("works", [])
 
-    def _assemble(self, work: str, data: dict) -> dict:
+    def _assemble(self, work: str, data: dict, notion_scripts: dict | None = None) -> dict:
         """구조화 JSON(Apps Script가 표 레이아웃을 파싱해 반환) → bible dict.
         data = {single:{...}, 등장인물:[{이름,성별,...}], 회차분배:[{막,구간,화수,핵심사건}],
-                개요:[{화,내용}], 대본:[{화,내용}]}"""
+                개요:[{화,내용}], 대본:[{화,내용}]}
+        notion_scripts: get()에서 시트 fetch와 병렬로 미리 받아온 노션 대본(없으면 여기서 직접 fetch —
+        순차 폴백, _assemble을 단독 호출하는 다른 경로 대비)."""
         s = data.get("single", {}) or {}
         status = s.get("진행상태", "") or ""
         m = re.search(r"\d+", status)
@@ -236,9 +291,15 @@ class SheetBible:
             "outlines": {(r.get("화") or "").strip(): r.get("내용", "")
                          for r in (data.get("개요") or [])
                          if (r.get("화") or "").strip() and (r.get("내용") or "").strip()},
-            "scripts": {(r.get("화") or "").strip(): r.get("내용", "")
-                        for r in (data.get("대본") or [])
-                        if (r.get("화") or "").strip() and (r.get("내용") or "").strip()},
+            # 대본은 시트 값(봇이 직접 생성·확정한 화) 위에 노션 원문(실무자가 직접 관리하는 화)을
+            # 덮어써서 합친다 — 노션이 있으면 그게 최종본, 없는 화만 시트 값이 남는다.
+            "scripts": {
+                **{(r.get("화") or "").strip(): r.get("내용", "")
+                   for r in (data.get("대본") or [])
+                   if (r.get("화") or "").strip() and (r.get("내용") or "").strip()},
+                **(notion_scripts if notion_scripts is not None else _notion_scripts(work)),
+            },
+            "script_summaries": _load_script_summaries(work),
             "last_synced": datetime.now(timezone.utc).isoformat(),
         }
         return b
@@ -250,8 +311,20 @@ class SheetBible:
         if not force and cached and (now - cached[0]) < self._ttl:
             return cached[1]
         try:
+            # 시트(Apps Script)와 노션 풀 페이지 fetch는 서로 무관한 HTTP 호출이라 병렬 실행 —
+            # 순차면 둘 합산 시간(최대 11초 실측)이 들지만, 병렬이면 둘 중 느린 쪽 시간만 든다.
+            import threading
+            notion_scripts: dict = {}
+
+            def _fetch_notion():
+                nonlocal notion_scripts
+                notion_scripts = _notion_scripts(work)
+
+            t = threading.Thread(target=_fetch_notion, daemon=True)
+            t.start()
             data = self._get(work=work)
-            bible = self._assemble(work, data)
+            t.join(timeout=20)   # 노션이 20초 넘게 걸리면 포기 — 시트 값만으로 진행(늦게 끝나도 무해)
+            bible = self._assemble(work, data, notion_scripts=notion_scripts)
             self._cache[work] = (now, bible)
             return bible
         except Exception as e:

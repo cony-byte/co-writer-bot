@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import urllib.request
 
 from . import config
@@ -99,6 +100,41 @@ def page_text(page_id: str, token: str | None = None) -> str:
     if not token:
         raise RuntimeError("NOTION_TOKEN 미설정")
     return _render(_children(page_id, token), token).strip()
+
+
+_EP_SCRIPT_HEAD = re.compile(r"^\s*#*\s*대본\s*(\d+)\s*화\b.*$", re.M)
+_EP_COLON_HEAD = re.compile(r"^\s*#{1,3}\s*.*?\b(\d+)\s*화\s*:.*$", re.M)
+_ANY_HEAD_LINE = re.compile(r"^\s*#{1,3}\s.*$", re.M)
+
+
+def parse_episode_scripts(full_text: str) -> dict[str, str]:
+    """노션 페이지 텍스트에서 화별 대본을 전부 추출. 사람이 직접 정리한 기획안 페이지(대본이
+    시트를 안 거치고 노션에만 있는 경우)를 위한 것 — 두 포맷 지원:
+    ① '## 대본 N화' 헤딩(다음 '대본 M화' 전까지) — 봇이 자동 push한 페이지.
+    ② '### N화:' 헤딩 — 손으로 정리한 기획안 페이지. 이 헤딩과 다음 'M화:' 헤딩 사이에는
+       '연출 레퍼런스'·'콘티'·'스토리보드' 같은 무관한 소제목·토글이 섞여 있는 경우가 많아서,
+       그 구간 안의 **마지막 소제목 줄 다음부터**를 실제 대본 본문으로 본다(그 앞은 참고자료).
+       소제목이 하나도 없으면 구간 전체를 그대로 쓴다."""
+    if not full_text:
+        return {}
+    out: dict[str, str] = {}
+    heads1 = list(_EP_SCRIPT_HEAD.finditer(full_text))
+    if heads1:
+        for i, m in enumerate(heads1):
+            end = heads1[i + 1].start() if i + 1 < len(heads1) else len(full_text)
+            out[f"{m.group(1)}화"] = full_text[m.start():end].strip()
+        return out
+    heads2 = list(_EP_COLON_HEAD.finditer(full_text))
+    for i, m in enumerate(heads2):
+        end = heads2[i + 1].start() if i + 1 < len(heads2) else len(full_text)
+        window = full_text[m.end():end]
+        inner = list(_ANY_HEAD_LINE.finditer(window))
+        if inner:
+            window = window[inner[-1].end():]
+        text = window.strip()
+        if text:
+            out[f"{m.group(1)}화"] = text
+    return out
 
 
 def _post(path: str, body: dict, token: str) -> dict:

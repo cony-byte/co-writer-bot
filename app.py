@@ -17,6 +17,7 @@
 
 실행: python3 app.py  (Socket Mode — 공개 URL 불필요)
 """
+import hashlib
 import json
 import logging
 import os
@@ -543,6 +544,44 @@ def _push_section_to_notion(work: str, top: str, mid: str, content: str) -> bool
         return False
 
 
+def _load_script_summaries() -> dict:
+    try:
+        return json.loads(config.SCRIPT_SUMMARIES_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_script_summaries(st: dict) -> None:
+    try:
+        config.SCRIPT_SUMMARIES_PATH.parent.mkdir(parents=True, exist_ok=True)
+        config.SCRIPT_SUMMARIES_PATH.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        log.warning("script_summaries 저장 실패")
+
+
+def _summarize_script(work: str, hwa: str, content: str) -> None:
+    """대본 확정 저장 시 다음 화 연속성 참고용 흐름 요약을 생성해 캐시.
+    내용이 그대로면(해시 일치) 재생성 생략. 실패해도 저장 자체는 막지 않음."""
+    if not (content or "").strip():
+        return
+    h = hashlib.md5(content.encode("utf-8")).hexdigest()
+    st = _load_script_summaries()
+    cur = st.get(work, {}).get(hwa)
+    if cur and cur.get("hash") == h:
+        return
+    try:
+        summary = generator.complete(
+            prompts.script_summary_system(), prompts.script_summary_user(content), timeout=60
+        ).strip()
+    except Exception:
+        log.exception("대본 요약 생성 실패: %s / %s", work, hwa)
+        return
+    if not summary:
+        return
+    st.setdefault(work, {})[hwa] = {"hash": h, "summary": summary}
+    _save_script_summaries(st)
+
+
 def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
     """[입력](신규) / [수정](기존) / 'save'(확정 저장) — <작품> 경로 + 내용 → 시트 저장 + 노션 반영.
     내용이 비고 개요/대본/줄거리면 스레드 직전 봇 초안을 자동으로 가져와 저장.
@@ -645,6 +684,8 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
                     return
                 if _push_section_to_notion(work, top, hwa, body):
                     pushed += 1
+                if top == "대본":
+                    threading.Thread(target=_summarize_script, args=(work, hwa, body), daemon=True).start()
             sheet.invalidate(work)
             names = ", ".join(hwa for hwa, _ in records)
             note = " · 노션에도 반영" if pushed else ""
@@ -668,6 +709,8 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
             return
         sheet.invalidate(work)
         note = " · 노션에도 반영" if _push_section_to_notion(work, top, mid, content) else ""
+        if top == "대본" and mid:
+            threading.Thread(target=_summarize_script, args=(work, mid, content), daemon=True).start()
         verb = "수정" if mode == "update" else "저장"
         icon = "✏️" if mode == "update" else "✅"
         _reply(channel, thread_ts, f"{icon} *{work}* / {label} {verb}했어요.{note}")
@@ -965,6 +1008,11 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "",
             except Exception:
                 log.exception("generation failed (lvl %s)", lvl)
                 ans = "생성 오류"
+            # 초안 대신 확인 질문이면(작품/화 특정 불가) 나머지 강도는 생성 안 하고 질문만 보여줌
+            if ans.strip().startswith("[확인필요]"):
+                _post_chunks(channel, thread_ts, ans.strip()[len("[확인필요]"):].strip(),
+                             replace_ts=(ph if first else None))
+                return
             _post_chunks(channel, thread_ts, f"*🎚️ 강도 {lvl}단계*\n\n{_clean_draft(ans)}", replace_ts=(ph if first else None))
             first = False
         # 강도 비교: 5개 초안 중 원하는 강도를 통과(저장)하거나 재생성
@@ -988,6 +1036,12 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "",
         _post_chunks(channel, thread_ts, "생성 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
         return
     if _cancelled(channel, thread_ts, ph):
+        return
+
+    # 모델이 초안 대신 확인 질문을 낸 경우(작품/화를 특정 못함) — 초안이 아니므로 검증·저장
+    # 버튼 없이 질문 그대로만 보여준다. (FAILSAFE 프롬프트의 '[확인필요]' 마커 규칙과 짝)
+    if answer.strip().startswith("[확인필요]"):
+        _post_chunks(channel, thread_ts, answer.strip()[len("[확인필요]"):].strip(), replace_ts=ph)
         return
 
     # 3단계 검증 관문: 생성과 분리된 감사자가 바이블 준수 재검.
@@ -1572,12 +1626,16 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
                                         _convo_text(messages))
         else:  # gen — 초안 수정
             answer = generator.generate(messages, feedback, bible=bible, target_episode=target)
-            # work 유무와 무관하게 항상 버튼 부착 (work=None이면 "생성" 버튼만 숨김)
-            _kind = next((k for k in ("개요", "대본", "줄거리") if k in feedback), None)
-            if not _kind:
-                _kind = _thread_gen_context(messages)[1] \
-                    or next((k for k in ("개요", "대본", "줄거리") if k in joined), None)
-            gen_buttons = (work or "", _kind or "개요", target)
+            if answer.strip().startswith("[확인필요]"):
+                # 초안이 아니라 확인 질문 — 버튼 없이 질문만 보여줌
+                answer = answer.strip()[len("[확인필요]"):].strip()
+            else:
+                # work 유무와 무관하게 항상 버튼 부착 (work=None이면 "생성" 버튼만 숨김)
+                _kind = next((k for k in ("개요", "대본", "줄거리") if k in feedback), None)
+                if not _kind:
+                    _kind = _thread_gen_context(messages)[1] \
+                        or next((k for k in ("개요", "대본", "줄거리") if k in joined), None)
+                gen_buttons = (work or "", _kind or "개요", target)
     except Exception:
         log.exception("revise failed")
         _post_chunks(channel, thread_ts, "이어가는 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
@@ -2201,11 +2259,8 @@ def _sync_apply(sheet, work: str, content: str) -> tuple[int, int, list]:
         _up("개요", r["화"].strip(), "", str(r["내용"]).strip())
     if outs:
         summary.append(f"개요 {len(outs)}화")
-    scr = [r for r in (data.get("대본") or []) if (r.get("화") or "").strip() and r.get("내용")]
-    for r in scr:
-        _up("대본", r["화"].strip(), "", str(r["내용"]).strip())
-    if scr:
-        summary.append(f"대본 {len(scr)}화")
+    # 대본은 시트로 안 옮긴다 — SYNC_SYSTEM이 애초에 안 뽑지만, 혹시 모델이 넣어도 방어적으로 무시.
+    # 대본은 노션에서 매번 직접 읽는다(bot/sheet_bible.py의 _notion_scripts) — 2026-07-13 결정.
 
     sheet.invalidate(work)
     return done, failed, summary
@@ -3139,6 +3194,9 @@ def _notion_autosync_loop() -> None:
                         try:
                             content = notion_sync.page_text(page_id)
                             done, failed, _ = _sync_apply(sheet, work, content)
+                            for hwa, script_text in notion_sync.parse_episode_scripts(content).items():
+                                _summarize_script(work, hwa, script_text)   # 실무자가 노션에 직접
+                                # 쓴 화도 연속성 요약 캐시가 쌓이게(해시 동일하면 내부에서 스킵)
                             st[work] = le
                             _save_notion_state(st)
                             failed_le.pop(work, None)

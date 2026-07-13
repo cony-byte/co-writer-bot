@@ -6,6 +6,8 @@ data/prefs/
 data/notion_state.json
 data/notion_pages.json
 data/inflight.json
+data/script_summaries.json
+data/notion_scripts_cache.json
 
 # 캐릭터 참조 이미지 (개인 에셋, 용량)
 data/refs/
