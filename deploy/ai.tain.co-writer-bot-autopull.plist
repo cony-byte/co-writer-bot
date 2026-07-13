@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.tain.co-writer-bot-autopull</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/zsh</string>
+        <string>-c</string>
+        <string>export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; /Users/cony/dev/my-bot/co-writer-bot/deploy/auto_pull.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/cony/dev/my-bot/co-writer-bot</string>
+
+    <key>StartInterval</key>
+    <integer>300</integer>
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/cony/dev/my-bot/co-writer-bot/logs/autopull.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/cony/dev/my-bot/co-writer-bot/logs/autopull.log</string>
+</dict>
+</plist>
