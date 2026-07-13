@@ -10,6 +10,7 @@ env NOTION_PAGES({이름:page_id})도 기본값으로 병합(파일이 우선).
 from __future__ import annotations
 
 import json
+import re
 
 from . import config
 
@@ -70,8 +71,23 @@ def page_of(name: str) -> str | None:
     return all_works().get(w, {}).get("page") if w else None
 
 
+_BAD_WORK_TOKEN_RE = re.compile(r"^[@#!]|^[UBWC][A-Z0-9]{6,}(\||$)")   # <@U..>/<#C..|이름>/<!here> 등
+_BAD_WORK_LITERALS = {"작품", "undefined", "none", "null"}
+
+
+def _looks_like_bad_work(work: str) -> bool:
+    """멘션 토큰(<@U..> 등)이나 '작품' 플레이스홀더를 작품명으로 등록하지 않게(2026-07-13,
+    sheet_bible.py의 동명 함수와 같은 방어 — 실제로 가짜 탭/매핑이 생겼던 문제)."""
+    w = (work or "").strip()
+    if not w or w in _BAD_WORK_LITERALS:
+        return True
+    return bool(_BAD_WORK_TOKEN_RE.match(w))
+
+
 def register(work: str, page_id: str, aliases: list | None = None) -> None:
     """작품 등록/갱신 (페이지 매핑 + 선택 별칭)."""
+    if _looks_like_bad_work(work):
+        return
     d = _load()
     entry = d.get(work) or {"page": "", "aliases": []}
     entry["page"] = page_id

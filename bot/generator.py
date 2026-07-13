@@ -38,7 +38,7 @@ async def _agent_generate(system_text: str, prompt: str, timeout: int | None = N
     options = ClaudeAgentOptions(
         system_prompt=system_text,
         model=config.AGENT_MODEL or None,   # None = Claude Code 기본 모델
-        max_turns=6,                        # 입력이 크면 1턴으로 못 끝내 'max turns' 에러 → 여유
+        max_turns=config.AGENT_MAX_TURNS,    # 입력이 크면 1턴으로 못 끝내 'max turns' 에러 → 여유
         allowed_tools=[],                   # 순수 텍스트 생성 — 도구 사용 없음
     )
 

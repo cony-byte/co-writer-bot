@@ -146,6 +146,20 @@ def _save_notion_scripts_cache(cache: dict) -> None:
         pass
 
 
+_BAD_WORK_TOKEN_RE = re.compile(r"^[@#!]|^[UBWC][A-Z0-9]{6,}(\||$)")   # <@U..>/<#C..|이름>/<!here> 등
+_BAD_WORK_LITERALS = {"작품", "undefined", "none", "null"}
+
+
+def _looks_like_bad_work(work: str) -> bool:
+    """슬랙 멘션 토큰이나 '작품' 같은 도움말 플레이스홀더가 실수로 작품명으로 들어와 시트에
+    가짜 탭이 생기는 걸 막는 마지막 방어선(2026-07-13, 실제로 '@U0BGBH3DQKG'/'작품' 탭이 생겼었음).
+    호출부가 어디든(지금·앞으로) 이 upsert 관문 하나로 다 막힌다."""
+    w = (work or "").strip()
+    if not w or w in _BAD_WORK_LITERALS:
+        return True
+    return bool(_BAD_WORK_TOKEN_RE.match(w))
+
+
 def _notion_scripts(work: str) -> dict:
     """실무자가 최종 대본을 노션에서 직접 관리하는 작품 대응 — 대본은 시트에 안 옮기고
     노션에서 매번 직접 읽는다(2026-07-13 결정: [동기화] LLM 요약이 긴 원문을 요약해버려
@@ -209,6 +223,8 @@ class SheetBible:
 
     # ---------------- 쓰기 ----------------
     def upsert(self, work: str, top: str, mid: str = "", sub: str = "", content: str = "") -> dict:
+        if _looks_like_bad_work(work):
+            return {"error": f"작품명이 올바르지 않아 저장을 막았어요: {work!r}"}
         return self._post({"work": work, "top": top, "mid": mid, "sub": sub, "content": content})
 
     def exists(self, work: str, top: str, mid: str = "", sub: str = "") -> bool | None:

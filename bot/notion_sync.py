@@ -317,7 +317,8 @@ def append_markdown(page_id: str, md: str, token: str | None = None,
 
 def upsert_section(page_id: str, heading: str, body_md: str, token: str | None = None) -> None:
     """'## <heading>' 섹션을 업서트. 같은 제목 heading_2가 있으면 그 아래 내용만 교체,
-    없으면 페이지 끝에 '## heading' + 내용 추가. (개요/대본/줄거리를 노션에 중복 없이 반영)"""
+    완전히 새 섹션이면 같은 종류(개요/대본 등 첫 단어가 같은) 마지막 섹션 바로 뒤에 삽입
+    (없으면 페이지 끝). '개요 4화'가 '대본 3화' 뒤에 뜬금없이 붙지 않고 다른 개요들 옆에 모이게."""
     import re
     token = token or config.NOTION_TOKEN
     if not token:
@@ -330,8 +331,22 @@ def upsert_section(page_id: str, heading: str, body_md: str, token: str | None =
         if b.get("type") == "heading_2" and norm(_rt((b.get("heading_2") or {}).get("rich_text"))) == tgt:
             hidx = i
             break
-    if hidx is None:                                  # 없으면 끝에 새 섹션
-        append_markdown(page_id, f"## {heading}\n{body_md}", token)
+    if hidx is None:                                  # 완전히 새 섹션
+        prefix_m = re.match(r"^(\S+)\s", heading)      # 예: '개요 4화' → '개요'
+        after_id = None
+        if prefix_m:
+            pfx = prefix_m.group(1)
+            last_h2_idx = None
+            for i, b in enumerate(children):
+                if (b.get("type") == "heading_2"
+                        and _rt((b.get("heading_2") or {}).get("rich_text")).strip().startswith(pfx)):
+                    last_h2_idx = i
+            if last_h2_idx is not None:                # 그 섹션(다음 heading_2 전까지)의 마지막 블록 뒤에
+                j = last_h2_idx + 1
+                while j < len(children) and children[j].get("type") != "heading_2":
+                    j += 1
+                after_id = children[j - 1]["id"]
+        append_markdown(page_id, f"## {heading}\n{body_md}", token, after=after_id)
         return
     hid = children[hidx]["id"]                         # 있으면 그 heading 아래~다음 heading_2 전까지 비우고 교체
     for b in children[hidx + 1:]:
