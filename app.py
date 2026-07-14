@@ -327,18 +327,23 @@ def _post_code(channel: str, thread_ts: str, text: str) -> None:
         _reply(channel, thread_ts, f"```\n{c}\n```")
 
 
-def _post_draft_actions(channel: str, thread_ts: str, work: str, top: str, mid: str) -> None:
+def _post_draft_actions(channel: str, thread_ts: str, work: str, top: str, mid: str,
+                        level: int | None = None) -> None:
     """생성 초안 밑에 [✅ 통과 (저장)] / [🔄 재생성] 버튼 메시지를 붙인다.
-    버튼 클릭 → _on_draft_approve(저장) / _on_draft_regen(같은 걸 다시 생성)."""
+    버튼 클릭 → _on_draft_approve(저장) / _on_draft_regen(같은 걸 다시 생성).
+    level(강도 비교 시): 그 단계 버튼임을 표시 + 저장 시 그 단계 초안을 콕 집어 저장 (2026-07-14, C2 —
+    원래 5개 초안 비교 후 버튼이 하나뿐이라 [✅ 통과]가 늘 '가장 최근'(=강도5)만 저장했음)."""
     label = " / ".join(x for x in [top, mid] if x)
-    val = json.dumps({"w": work, "t": top, "m": mid or ""}, ensure_ascii=False)
+    val = json.dumps({"w": work, "t": top, "m": mid or "", "l": level or ""}, ensure_ascii=False)
+    btn_text = f"✅ 강도 {level} 저장" if level else "✅ 통과 (저장)"
+    msg_text = f"강도 {level} — {btn_text} 또는 🔄 재생성" if level else f"이 {label} 초안 — ✅ 통과(저장) 또는 🔄 재생성"
     try:
         app.client.chat_postMessage(
             channel=channel, thread_ts=thread_ts,
-            text=f"이 {label} 초안 — ✅ 통과(저장) 또는 🔄 재생성",
+            text=msg_text,
             blocks=[{"type": "actions", "block_id": "draft_actions", "elements": [
                 {"type": "button", "action_id": "draft_approve", "style": "primary",
-                 "text": {"type": "plain_text", "text": "✅ 통과 (저장)"}, "value": val},
+                 "text": {"type": "plain_text", "text": btn_text}, "value": val},
                 {"type": "button", "action_id": "draft_regen", "style": "danger",
                  "text": {"type": "plain_text", "text": "🔄 재생성"}, "value": val}]}])
     except Exception:
@@ -503,11 +508,21 @@ def _strip_draft_footer(text: str) -> str:
     return body
 
 
-def _last_assistant_draft(channel: str, thread_ts: str, top: str | None = None, mid: str | None = None) -> str:
+def _last_assistant_draft(channel: str, thread_ts: str, top: str | None = None, mid: str | None = None,
+                          level: int | None = None) -> str:
     """스레드에서 가장 최근의 '실제 초안' 본문. 오류·확정 안내 텍스트에 안 흔들리게,
     초안 꼬리말(초안입니다·확정하려면·[입력] …)이 붙은 메시지를 우선으로 찾는다.
-    top·mid를 주면 그 화/종류(예: 개요 2화)에 해당하는 초안을 먼저 고른다."""
+    top·mid를 주면 그 화/종류(예: 개요 2화)에 해당하는 초안을 먼저 고른다.
+    level을 주면(강도 비교 결과 중 특정 단계 저장, 2026-07-14 C2) 그 '🎚️ 강도 N단계' 메시지를 콕 집는다
+    — 안 그러면 5개 초안이 다 top/mid가 똑같아서 항상 '가장 최근'(=강도5)만 저장됐음."""
     msgs = _thread_messages(channel, thread_ts)
+    if level:
+        pat = re.compile(rf"🎚️\s*강도\s*{level}\s*단계")
+        for m in reversed(msgs):
+            if m["role"] == "assistant" and pat.search(m["content"]):
+                t = _strip_draft_footer(m["content"])
+                if len(t) >= 20:
+                    return t
     # 0) 대상(개요/대본 + N화) 지정 시 그 초안 우선 ('개요 / 2화' 꼬리말 or '2화 개요' 본문)
     if top and mid:
         pat = re.compile(rf"{re.escape(top)}\s*/\s*{re.escape(mid)}|{re.escape(mid)}\s*{re.escape(top)}")
@@ -760,6 +775,12 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
     if not sheet:
         _reply(channel, thread_ts, "시트가 아직 연결 안 됐어요 (SHEET_WEBAPP_URL 미설정).")
         return
+    # '강도 N으로 저장' 류 — 강도 비교 결과 중 특정 단계를 콕 집어 저장 (2026-07-14, C2).
+    # 경로 파싱을 오염시키지 않게 먼저 떼어낸다.
+    _lvl_m = re.search(r"강도\s*([1-5])\s*(?:로|으로)?\s*저장", rest)
+    save_level = int(_lvl_m.group(1)) if _lvl_m else None
+    if _lvl_m:
+        rest = rest[:_lvl_m.start()] + rest[_lvl_m.end():]
     sm = SUB_RE.match(rest)
     if not sm:
         _reply(channel, thread_ts, _HELP)
@@ -787,7 +808,7 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
     # 내용을 안 적었고 서사 항목이면 → 스레드 직전 봇 초안을 확정 저장 (사람이 "이걸로 확정" 하는 흐름)
     captured = False
     if not content.strip() and top in ("개요", "대본", "줄거리"):
-        draft = _last_assistant_draft(channel, thread_ts, top, mid)   # 그 화/종류 초안 우선
+        draft = _last_assistant_draft(channel, thread_ts, top, mid, level=save_level)   # 그 화/종류(+강도) 초안 우선
         if draft:
             content = _clean_for_save(draft, top, mid)   # 강도 뱃지·메모·요청확인·중복제목 제거
             captured = True
@@ -1215,9 +1236,10 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "",
                 return
             _post_chunks(channel, thread_ts, f"*🎚️ 강도 {lvl}단계*\n\n{_clean_draft(ans)}", replace_ts=(ph if first else None))
             first = False
-        # 강도 비교: 5개 초안 중 원하는 강도를 통과(저장)하거나 재생성
-        if work and top in ("개요", "대본", "줄거리"):
-            _post_draft_actions(channel, thread_ts, work, top, mid)
+            # 강도 비교: 각 단계 바로 밑에 그 단계 전용 저장 버튼 (2026-07-14, C2 — 끝에 버튼 하나만
+            # 있으면 [✅ 통과]가 항상 '가장 최근 초안'(=강도5)을 저장해서 특정 단계 선택 저장이 안 됐음)
+            if work and top in ("개요", "대본", "줄거리"):
+                _post_draft_actions(channel, thread_ts, work, top, mid, level=lvl)
         return
 
     # 강도 명시 안 했으면 기본 4로 고정
@@ -2855,10 +2877,22 @@ def _sync_apply(sheet, work: str, content: str) -> tuple[int, int, list]:
         if v:
             _up(top, mid, sub, v if isinstance(v, str) else str(v)); summary.append(key)
     chars = [r for r in (data.get("등장인물") or []) if (r.get("이름") or "").strip()]
+    # 인물 이름은 재동기화마다 LLM 추출 표기가 달라질 수 있어(예: '민재'↔'김민재') 그대로 upsert
+    # 키로 쓰면 회차분배 막처럼 중복 행이 쌓일 위험이 있음(2026-07-14, D2) — 기존 등록된 이름과
+    # 오타/표기 수준으로만 다르면 기존 이름으로 합친다.
+    try:
+        _existing_names = list(((sheet.get(work) or {}).get("characters") or {}).keys())
+    except Exception:
+        _existing_names = []
     for r in chars:
+        nm = r["이름"].strip()
+        if nm not in _existing_names:
+            hit = difflib.get_close_matches(nm, _existing_names, n=1, cutoff=0.6)
+            if hit:
+                nm = hit[0]
         for k in CHAR_SUBS:
             if r.get(k):
-                _up("등장인물", r["이름"].strip(), k, str(r[k]).strip())
+                _up("등장인물", nm, k, str(r[k]).strip())
     if chars:
         summary.append(f"인물 {len(chars)}명")
     plan = [r for r in (data.get("회차분배") or []) if (r.get("막") or "").strip()]
@@ -3642,23 +3676,24 @@ def _handle_dispatch(event: dict) -> None:
 
 
 def _draft_action_ctx(body: dict):
-    """버튼 payload → (channel, thread_ts, message_ts, work, top, mid)."""
+    """버튼 payload → (channel, thread_ts, message_ts, work, top, mid, level)."""
     v = json.loads(body["actions"][0]["value"])
     ch = (body.get("channel") or {}).get("id")
     msg = body.get("message") or {}
     th = msg.get("thread_ts") or msg.get("ts")
-    return ch, th, msg.get("ts"), v.get("w"), v.get("t"), v.get("m", "")
+    return ch, th, msg.get("ts"), v.get("w"), v.get("t"), v.get("m", ""), v.get("l") or None
 
 
 @app.action("draft_approve")
 def on_draft_approve(ack, body):
     ack()
     try:
-        ch, th, mts, work, top, mid = _draft_action_ctx(body)
-        log.info("draft_approve: work=%s top=%s mid=%s", work, top, mid)
-        path = f"<{work}> {top}" + (f" / {mid}" if mid else "")
+        ch, th, mts, work, top, mid, level = _draft_action_ctx(body)
+        log.info("draft_approve: work=%s top=%s mid=%s level=%s", work, top, mid, level)
+        path = f"<{work}> {top}" + (f" / {mid}" if mid else "") + (f" 강도 {level}로 저장" if level else "")
         try:                                   # 버튼 비활성화(중복 클릭 방지)
-            app.client.chat_update(channel=ch, ts=mts, text="✅ 통과 — 저장할게요.", blocks=[])
+            app.client.chat_update(channel=ch, ts=mts,
+                                   text=(f"✅ 강도 {level} 저장할게요." if level else "✅ 통과 — 저장할게요."), blocks=[])
         except Exception:
             pass
         _do_input(ch, th, path, mode="save")   # 스레드 직전 초안 캡처 → 시트+노션 저장
@@ -3670,8 +3705,8 @@ def on_draft_approve(ack, body):
 def on_draft_regen(ack, body):
     ack()
     try:
-        ch, th, mts, work, top, mid = _draft_action_ctx(body)
-        path = f"<{work}> {top}" + (f" / {mid}" if mid else "")
+        ch, th, mts, work, top, mid, level = _draft_action_ctx(body)
+        path = f"<{work}> {top}" + (f" / {mid}" if mid else "") + (f" 강도 {level}" if level else "")
         try:
             app.client.chat_update(channel=ch, ts=mts, text="🔄 재생성할게요…", blocks=[])
         except Exception:
