@@ -1952,7 +1952,7 @@ def _do_field_edit_nl(channel: str, thread_ts: str, work: str | None, field_name
 
 # 순수 질문(수정 지시 아님) 감지 — E2. 물음표로 끝나거나 전형적 질문 어미.
 _QUESTION_RE = re.compile(
-    r"[?？]\s*$|뭐야|뭐지|뭔가요|무엇인가요|누구야|누구지|누구인가요"
+    r"[?？]|뭐야|뭐지|뭔가요|무엇인가요|누구야|누구지|누구인가요|뭐가\s*있을까|뭐\s*없을까"
     r"|몇\s*화(?:야|지|인가요)|언제야|언제지|어디야|어디지|어떻게\s*되|왜\s*(?:이런|그런|저런)")
 
 _PROGRESS_NL_RE = re.compile(
@@ -2058,8 +2058,11 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
 
     # 1순위: 답글에 '대본/개요/줄거리 + 만들어줘' 류 생성 요청이 있으면 → 그 종류를 새로 생성
     #        (예: "그럼 2화 대본도 써줘", "전체 줄거리 만들어줘")
+    # 질문형("2화 대본 다시 봐줄래? 나레이션 줄일 데 있을까?")은 제외 — 원래 여기 가드가 없어서
+    # 조언을 구하는 질문이 "대본 만들게요"로 오인돼 원치 않는 생성이 시작되던 문제(2026-07-14, F3②).
     _jobs = _parse_gen_jobs(feedback)
-    if _jobs and work and re.search(r"(만들|작성|생성|뽑|그려|써|쓰|짜|추가|다시)", feedback):
+    if (_jobs and work and re.search(r"(만들|작성|생성|뽑|그려|써|쓰|짜|추가|다시)", feedback)
+            and not _QUESTION_RE.search(feedback)):
         _CANCEL.discard(thread_ts)
         _reply(channel, thread_ts, "요청 확인: " + ", ".join(
             (t if e is None else f"{e}화 {t}") for t, e in _jobs) + " 만들게요.")
