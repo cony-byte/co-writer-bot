@@ -6,6 +6,7 @@
   [가변] 이번 요청의 유사 사례 2~3편          ← 캐시 뒤에 배치
 """
 import hashlib
+import json
 import re
 
 from . import reference, retrieval
@@ -903,6 +904,22 @@ def field_edit_system(field_name: str) -> str:
 def field_edit_user(field_name: str, current: str, instruction: str) -> str:
     return (f"기존 {field_name}:\n{current or '(아직 없음)'}\n\n작가의 수정 지시: {instruction}\n\n"
             f"위 지시를 반영한 새 {field_name}을(를) 써라.")
+
+
+def episode_plan_edit_system() -> str:
+    """회차분배(막 구성) 자연어 수정 — 단일 필드와 달리 표(레코드 배열)라 JSON으로만 주고받는다 (2026-07-13)."""
+    return ("너는 숏폼 로맨스 드라마 보조 작가다. 이 작품의 '회차분배'(막 구성 표)를 작가의 자연어 지시에 "
+            "맞춰 고친다. 결과는 JSON 배열만 출력하라 — 설명·마크다운 펜스 없이.\n"
+            '형식: [{"막":"1막","구간":"...","화수":"1~5화","핵심사건":"..."}, ...]')
+
+
+def episode_plan_edit_user(current: dict, instruction: str) -> str:
+    rows = []
+    for gu, subs in (current or {}).items():
+        rows.append({"막": gu, **{k: subs.get(k, "") for k in ("구간", "화수", "핵심사건")}})
+    current_json = json.dumps(rows, ensure_ascii=False, indent=2) if rows else "(아직 없음)"
+    return (f"기존 회차분배:\n{current_json}\n\n작가의 수정 지시: {instruction}\n\n"
+            f"위 지시를 반영한 새 회차분배 전체를 JSON 배열로 써라.")
 
 
 INTENSITY_NOTE = """## 🎚️ 강도 기준 (급상승·막장 방지 — 반드시 지킬 것)
