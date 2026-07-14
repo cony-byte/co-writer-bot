@@ -3715,7 +3715,9 @@ def on_message(event, ack):
     _handle(event)
 
 
-_NOTION_POLL_SEC = 600                                   # 노션 변경 확인 주기(초)
+_NOTION_POLL_SEC = int(os.environ.get("COWRITER_NOTION_POLL_SEC", "60"))  # 노션 변경 확인 주기(초)
+# page_last_edited 단일 호출(가벼움, ~0.25초)이라 짧게 잡아도 부담 적음. 반영 자체(LLM 파싱)는
+# 감지와 별개로 여전히 시간이 걸림 — 이건 '알아채는' 속도만 앞당김(2026-07-13, 기존 600초).
 _NOTION_STATE = config.BASE_DIR / "data" / "notion_state.json"
 
 
