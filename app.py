@@ -1928,6 +1928,11 @@ def _do_field_edit_nl(channel: str, thread_ts: str, work: str | None, field_name
     _post_field_draft(channel, thread_ts, work, field_name, triple, feedback, new_val, ph=ph)
 
 
+# 순수 질문(수정 지시 아님) 감지 — E2. 물음표로 끝나거나 전형적 질문 어미.
+_QUESTION_RE = re.compile(
+    r"[?？]\s*$|뭐야|뭐지|뭔가요|무엇인가요|누구야|누구지|누구인가요"
+    r"|몇\s*화(?:야|지|인가요)|언제야|언제지|어디야|어디지|어떻게\s*되|왜\s*(?:이런|그런|저런)")
+
 _PROGRESS_NL_RE = re.compile(
     r"(?:지금|이제|현재)?\s*(\d+)\s*화\s*(개요|대본|회차분배)?\s*"
     r"(?:작업|하고\s*있|진행\s*중|쓰는|쓰고\s*있|만들고\s*있)")
@@ -2086,6 +2091,26 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
     if _fword and _EDIT_INTENT_RE.search(feedback) and work:
         _do_field_edit_nl(channel, thread_ts, work, _fword, _ftriple, feedback, bible)
         return
+    # 순수 질문("민재 설정 뭐야?")은 'gen' 스레드 안에서도 대본/개요 재생성 초안으로 새지 않고
+    # 바로 답만 하고 끝냄 (2026-07-14, E2 — 질문 vs 수정 지시 구분 없이 다 revise로 새서
+    # 질문했는데 수정 초안이 나오던 문제). 수정 의도 신호(_EDIT_INTENT_RE)가 같이 있으면
+    # 지시로 보고 이 분기를 건너뛴다.
+    if mode == "gen" and _QUESTION_RE.search(feedback) and not _EDIT_INTENT_RE.search(feedback):
+        qph = _thinking(channel, thread_ts, "확인 중이에요…")
+        qsys = prompts.freeform_system(bible)
+        qem = re.search(r"(\d+)\s*화", feedback)
+        if bible and qem:
+            qextra = prompts.freeform_episode_context(bible, int(qem.group(1)))
+            if qextra:
+                qsys += "\n\n" + qextra
+        try:
+            qans = generator.complete(qsys, feedback).strip()
+        except Exception:
+            log.exception("revise question answer failed")
+            _post_chunks(channel, thread_ts, "답하는 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=qph)
+            return
+        _post_chunks(channel, thread_ts, qans or "(빈 응답)", replace_ts=qph)
+        return
     _CANCEL.discard(thread_ts)
     # 스토리보드 스레드: 지금 설계안(plan) 단계인지 상세(detail) 단계인지에 따라 후속 처리가 다름
     sb_stage = _sb_stage(messages) if mode == "sb" else None
@@ -2203,6 +2228,15 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
                         flags=re.S | re.I).strip()
         answer = re.sub(r"\n+_?📝\s*초안[^\n]*\[입력\][^\n]*\s*$", "", answer,
                         flags=re.S | re.I).strip()
+    # 스레드가 이어받은 모드가 'gen'(대본/개요 수정)이 아니면 답 위에 짧게 표시 (2026-07-14, E1 —
+    # 원래 _thinking 플레이스홀더에만 모드가 잠깐 떴다가 답으로 교체되며 사라져서, 이 스레드가
+    # 지금 어떤 모드로 이어지고 있는지(예: 여전히 '아이디어'로 잡혀서 수정 지시가 또 아이디어로
+    # 나가는 경우) 사용자가 눈치채기 어려웠음.
+    _mode_tag = {"idea": "💡 아이디어 모드", "trend": "📈 트렌드 모드", "plan": "📋 기획안 모드",
+                 "sb": "🎬 스토리보드 모드", "fun": "🎭 피드백(재미) 모드",
+                 "logic": "🧩 피드백(개연성) 모드", "feedback": "📝 피드백 모드"}.get(mode)
+    if _mode_tag:
+        answer = f"_{_mode_tag}로 이어서 답할게요 — 대본/개요를 고치려면 `[생성]`으로 다시 불러주세요._\n\n" + (answer or "")
     _post_chunks(channel, thread_ts, answer or "(빈 응답)", replace_ts=ph)
     if gen_buttons:
         _post_revise_actions(channel, thread_ts, *gen_buttons)
