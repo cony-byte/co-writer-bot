@@ -43,8 +43,20 @@ BEFORE=$(git rev-parse HEAD)
 AFTER=$(git rev-parse HEAD)
 
 if [ "$BEFORE" != "$AFTER" ]; then
-  echo "[$(date '+%F %T')] 변경 감지 $BEFORE → $AFTER, 재설치·재시작" >> "$LOG"
+  echo "[$(date '+%F %T')] 변경 감지 $BEFORE → $AFTER, 검증 중…" >> "$LOG"
   python3 -m pip install -q -r requirements.txt >> "$LOG" 2>&1 || true
+
+  # ── 배포 전 검증: import만 시도 — 새 파일 git add 누락(2026-07-14 사고) 같은
+  # ImportError를 여기서 잡는다. 실패하면 재시작을 건너뛰어 "기존(정상) 프로세스가
+  # 계속 서비스"하게 하고, git HEAD만 깨진 커밋을 가리킨 채 다음 pull까지 대기.
+  # (Slack 연결·스레드는 전부 __main__ 가드 안에 있어 단순 import는 부작용 없음.)
+  # perl alarm+exec: macOS 기본 내장 perl로 타임아웃 구현(timeout 커맨드 미보장 대응).
+  if ! ( set -a; [ -f .env ] && source .env; set +a
+         perl -e 'alarm shift; exec @ARGV' 30 python3 -c "import app" ) >> "$LOG" 2>&1; then
+    echo "[$(date '+%F %T')] ❌ 새 코드 import 검증 실패 — 재시작 취소(기존 프로세스 계속 서비스). HEAD=$AFTER 확인 필요" >> "$LOG"
+    exit 1
+  fi
+  echo "[$(date '+%F %T')] 검증 통과 — 재시작" >> "$LOG"
   launchctl kickstart -k "gui/$(id -u)/$LABEL" >> "$LOG" 2>&1 || true
 else
   echo "[$(date '+%F %T')] 변경 없음" >> "$LOG"
