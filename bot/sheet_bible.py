@@ -278,15 +278,23 @@ class SheetBible:
             if "회차" in chunk or "분배" in chunk:
                 progress["회차분배"] = ep
 
-        def _rows_to_map(rows, key, keep):
-            """[{key:.., col:..}] → {키: {col: 값}} (빈 값·키 없는 행 제외)"""
+        def _rows_to_map(rows, key, keep, normalize=None):
+            """[{key:.., col:..}] → {키: {col: 값}} (빈 값·키 없는 행 제외).
+            normalize가 있으면 키를 통일해서(예: '1막'/'1막. 제목' → '1막') 예전에 재동기화마다
+            다르게 뽑혀 쌓인 중복 행이 하나로 합쳐지게 한다(2026-07-13)."""
             out = {}
             for r in rows or []:
                 name = (r.get(key) or "").strip()
                 if not name:
                     continue
+                if normalize:
+                    name = normalize(name)
                 out[name] = {k: r[k] for k in keep if r.get(k)}
             return out
+
+        def _normalize_gu(raw):
+            m = re.match(r"\s*(\d+)\s*막", raw or "")
+            return f"{m.group(1)}막" if m else raw
 
         b = {
             "title": work,
@@ -302,7 +310,8 @@ class SheetBible:
             "emotion": s.get("핵심정서", ""),
             "plot": s.get("줄거리", ""),
             "characters": _rows_to_map(data.get("등장인물"), "이름", CHAR_SUBS),
-            "episode_plan": _rows_to_map(data.get("회차분배"), "막", ["구간", "화수", "핵심사건"]),
+            "episode_plan": _rows_to_map(data.get("회차분배"), "막", ["구간", "화수", "핵심사건"],
+                                        normalize=_normalize_gu),
             # 내용이 빈 개요/대본 행은 '없는 것'으로 취급 (빈칸저장 잔재·환각 방지)
             "outlines": {(r.get("화") or "").strip(): r.get("내용", "")
                          for r in (data.get("개요") or [])

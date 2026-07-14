@@ -2594,6 +2594,14 @@ def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
     _post_chunks(channel, thread_ts, msg, replace_ts=ph)
 
 
+def _normalize_gu(raw: str) -> str:
+    """'1막. 지옥 같은 결혼생활' / '1막' 등 표기가 재동기화마다 달라져서 같은 막이 시트에
+    중복 행으로 계속 쌓이던 문제 방지(2026-07-13, 실측: 날혐남 회차분배 6막이 12행으로 중복).
+    항상 'N막' 형태로만 통일해서 upsert 키가 매번 같게 만든다."""
+    m = re.match(r"\s*(\d+)\s*막", raw or "")
+    return f"{m.group(1)}막" if m else (raw or "").strip()
+
+
 def _sync_apply(sheet, work: str, content: str) -> tuple[int, int, list]:
     """동기화 소스 텍스트 → LLM 스키마 파싱 → 시트 upsert. 슬랙 무관(백그라운드 재사용).
     반환 (done, failed, summary). JSON 파싱 실패 시 ValueError."""
@@ -2626,9 +2634,10 @@ def _sync_apply(sheet, work: str, content: str) -> tuple[int, int, list]:
         summary.append(f"인물 {len(chars)}명")
     plan = [r for r in (data.get("회차분배") or []) if (r.get("막") or "").strip()]
     for r in plan:
+        gu = _normalize_gu(r["막"])
         for k in ("구간", "화수", "핵심사건"):
             if r.get(k):
-                _up("회차분배", r["막"].strip(), k, str(r[k]).strip())
+                _up("회차분배", gu, k, str(r[k]).strip())
     if plan:
         summary.append(f"회차분배 {len(plan)}막")
     outs = [r for r in (data.get("개요") or []) if (r.get("화") or "").strip() and r.get("내용")]
