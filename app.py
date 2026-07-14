@@ -1810,6 +1810,24 @@ _PROGRESS_NL_RE = re.compile(
     r"(?:지금|이제|현재)?\s*(\d+)\s*화\s*(개요|대본|회차분배)?\s*"
     r"(?:작업|하고\s*있|진행\s*중|쓰는|쓰고\s*있|만들고\s*있)")
 
+# '노션 방금 고쳤어, 다시 읽어줘' 류 — 즉시 재동기화 요청 인식 (2026-07-13).
+# [새로고침]은 캐시만 지우고 노션은 안 읽어왔는데, 자연어로도 같은 오해가 있었던 지점이라
+# 여기선 아예 실제 재동기화(_do_sync)를 태운다.
+_RESYNC_NL_RE = re.compile(
+    r"노션.{0,10}(?:고쳤|수정했|바꿨|업데이트).{0,10}(?:다시\s*읽|재\s*동기화|반영|새로고침)"
+    r"|노션.{0,15}(?:다시\s*읽|재\s*동기화)"
+    r"|(?:다시\s*읽|재\s*동기화)\S*.{0,10}노션")
+
+
+def _do_resync_nl(channel: str, thread_ts: str, work: str) -> None:
+    """자연어로 '노션 다시 읽어줘' 요청 → 실제 노션 재조회 후 시트 반영 (2026-07-13)."""
+    from bot import works
+    if works.page_of(work) and config.NOTION_TOKEN:
+        _do_sync(channel, thread_ts, f"<{work}>")
+    else:
+        _reply(channel, thread_ts, f"*{work}* 은 등록된 노션 페이지가 없어서 다시 읽어올 게 없어요. "
+                                    "`[동기화] <노션링크>` 로 먼저 등록해주세요.")
+
 
 def _do_progress_nl(channel: str, thread_ts: str, work: str, m: re.Match) -> None:
     """'지금 4화 작업 중이야' 류 — 진행상태(회차 생략 시 기준값)를 자연어로 즉시 갱신 (2026-07-13).
@@ -1928,6 +1946,10 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
     # 문제가 있었음(2026-07-13) — 실제로 없는지 확인하고, 없으면 만들어서 시트에 진짜로 저장한다.
     if _CHAR_ADD_RE.search(feedback) and mode == "gen":
         _do_char_add(channel, thread_ts, work, feedback, bible)
+        return
+    # '노션 방금 고쳤어, 다시 읽어줘' 류 — 즉시 재동기화 (2026-07-13)
+    if _RESYNC_NL_RE.search(feedback) and work:
+        _do_resync_nl(channel, thread_ts, work)
         return
     # '지금 4화 작업 중이야' 류 — 진행상태 자연어 즉시 갱신 (2026-07-13)
     _pm = _PROGRESS_NL_RE.search(feedback)
@@ -3391,10 +3413,20 @@ def _handle_dispatch(event: dict) -> None:
         _reply(channel, thread_ts,
                ("최신 레퍼런스를 받아 " if pulled else "") + "레퍼런스 DB·템플릿을 다시 불러왔어요.")
     elif cmd in CMD_REFRESH:
-        sheet = reference.sheet()
-        if sheet:
-            sheet.invalidate()
-        _reply(channel, thread_ts, "시트 바이블 캐시를 비웠어요. 다음 요청부터 최신으로 읽어옵니다.")
+        # 이름과 달리 캐시만 지우고 노션은 안 읽어와서, 노션을 방금 고쳤어도 캐시 TTL 안엔
+        # 여전히 옛 내용이 나갔음(2026-07-13) — 등록된 노션 페이지가 있으면 실제로 다시 읽어온다.
+        from bot import works
+        _sm = SUB_RE.match(rest_f.strip())
+        _rf_work = (works.resolve(_sm.group(1).strip()) or _sm.group(1).strip()) if _sm else None
+        _rf_work = _rf_work or _work_from_thread(
+            "\n".join(mm["content"] for mm in _thread_messages(channel, thread_ts)))
+        if _rf_work and works.page_of(_rf_work) and config.NOTION_TOKEN:
+            _do_sync(channel, thread_ts, f"<{_rf_work}>")
+        else:
+            sheet = reference.sheet()
+            if sheet:
+                sheet.invalidate()
+            _reply(channel, thread_ts, "시트 바이블 캐시를 비웠어요. 다음 요청부터 최신으로 읽어옵니다.")
     elif cmd in CMD_CONVERT:
         _do_convert(channel, thread_ts, rest_f)
     elif cmd in (CMD_STORYBOARD | CMD_STORYBOARD2 | CMD_STORYBOARD_IMG | CMD_FILE | CMD_REF):
