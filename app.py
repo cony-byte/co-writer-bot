@@ -422,13 +422,18 @@ _FIELD_EDIT_MAP = {
 }
 # 확정(저장) 인식: 문장이 확정/저장/입력(+해줘류)로 '끝나면' 확정으로 본다.
 # ('음 이걸로 2화 개요 확정'처럼 중간에 대상 말이 껴도 잡히게). 부정·질문은 제외.
-_CONFIRM_END_RE = re.compile(r"(?:확정|저장|입력)\s*(?:해\s*줘|해|하자|할게|해둬|요|좀|부탁해?)?\s*[.!~ ]*$")
+_CONFIRM_END_RE = re.compile(
+    r"(?:확정|저장|입력)\s*(?:해\s*줘|해|하자|할게|해둬|요|좀|부탁해?)?\s*[.!~ ]*$"
+    r"|(?:확정|저장|입력)\s*(?:하고|한\s*다음|한\s*후|해서|하자)\b")  # '확정하고 다음 진행하자' 류(2026-07-13)
 _CONFIRM_NEG_RE = re.compile(r"안\s*[돼되]|못\s|하지\s*마|왜|어떻게|뭐가|뭐야|취소|말고|\?\s*$")
 
 
 def _is_confirm(q: str) -> bool:
+    """확정 의도 인식. 기존엔 30자 이하 + 문장이 확정/저장/입력으로 '끝나야'만 잡혔는데,
+    '좋네 이거 4화 대본으로 확정하고 다음 진행하자'처럼 길거나 뒤에 말이 붙으면 놓쳤음
+    (2026-07-13) — 길이 완화(80자) + '확정하고 ~' 중간 패턴 추가."""
     q = (q or "").strip()
-    return len(q) <= 30 and bool(_CONFIRM_END_RE.search(q)) and not _CONFIRM_NEG_RE.search(q)
+    return len(q) <= 80 and bool(_CONFIRM_END_RE.search(q)) and not _CONFIRM_NEG_RE.search(q)
 
 
 def _strip_draft_footer(text: str) -> str:
@@ -1801,6 +1806,28 @@ def _do_field_edit_nl(channel: str, thread_ts: str, work: str | None, field_name
     _post_field_draft(channel, thread_ts, work, field_name, triple, feedback, new_val, ph=ph)
 
 
+_PROGRESS_NL_RE = re.compile(
+    r"(?:지금|이제|현재)?\s*(\d+)\s*화\s*(개요|대본|회차분배)?\s*"
+    r"(?:작업|하고\s*있|진행\s*중|쓰는|쓰고\s*있|만들고\s*있)")
+
+
+def _do_progress_nl(channel: str, thread_ts: str, work: str, m: re.Match) -> None:
+    """'지금 4화 작업 중이야' 류 — 진행상태(회차 생략 시 기준값)를 자연어로 즉시 갱신 (2026-07-13).
+    짧은 상태 마커라 초안 검토 없이 바로 반영 — 잘못돼도 다시 말하면 그만이라 저위험."""
+    ep, kind = m.group(1), m.group(2)
+    status = f"{ep}화 {kind} 작업 중" if kind else f"{ep}화 작업 중"
+    sheet = reference.sheet()
+    if not sheet:
+        _reply(channel, thread_ts, "시트가 아직 연결 안 됐어요 (SHEET_WEBAPP_URL 미설정).")
+        return
+    r = sheet.upsert(work, "진행상태", "", "", status)
+    if isinstance(r, dict) and r.get("error"):
+        _reply(channel, thread_ts, f"⚠️ 진행상태 저장 실패: {r['error']}")
+        return
+    sheet.invalidate(work)
+    _reply(channel, thread_ts, f"✅ 진행상태를 *{status}* 로 갱신했어요. (회차 생략 시 이 화 기준으로 생성돼요)")
+
+
 def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
     """스레드 후속 답글 → 스레드를 시작한 명령의 모드로 이어감 (아이디어는 아이디어, 생성은 수정 등)."""
     # '✏️ 수정' 버튼 클릭 후 대기 중인 캐릭터 카드가 있으면, 이 답글을 그 수정 지시로 반영
@@ -1901,6 +1928,11 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
     # 문제가 있었음(2026-07-13) — 실제로 없는지 확인하고, 없으면 만들어서 시트에 진짜로 저장한다.
     if _CHAR_ADD_RE.search(feedback) and mode == "gen":
         _do_char_add(channel, thread_ts, work, feedback, bible)
+        return
+    # '지금 4화 작업 중이야' 류 — 진행상태 자연어 즉시 갱신 (2026-07-13)
+    _pm = _PROGRESS_NL_RE.search(feedback)
+    if _pm and work:
+        _do_progress_nl(channel, thread_ts, work, _pm)
         return
     # 단일 바이블 필드(줄거리 등)를 자연어로 바꿔달라는 요청 (2026-07-13,
     # ex: "줄거리를 좀 더 재미있게 바꿔야겠어")
