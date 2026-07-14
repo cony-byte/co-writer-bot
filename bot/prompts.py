@@ -659,6 +659,22 @@ def freeform_system(bible: dict | None = None) -> str:
     return s
 
 
+def freeform_episode_context(bible: dict, episode: int) -> str:
+    """자유 질문이 특정 화를 콕 집으면(예: '2화 나레이션 줄일 데 있을까?') 그 화 **자체**의
+    개요·대본을 직접 보여준다. build_bible_block의 '직전 화' 로직은 '다음 화를 쓸 때 이전 화
+    참고'용이라 질문 대상인 '그 화 자체'는 못 보여줌 — 별도 블록으로 보강(2026-07-13,
+    실측: 2화를 물었는데 대본을 못 봐서 못 답한 문제)."""
+    key = f"{episode}화"
+    parts = []
+    outline = (bible.get("outlines") or {}).get(key)
+    if outline:
+        parts.append(f"## {key} 개요\n{outline}")
+    script = (bible.get("scripts") or {}).get(key)
+    if script:
+        parts.append(f"## {key} 대본 전문 (질문 대상 — 이 화 자체를 보고 답하라)\n{script}")
+    return "\n\n".join(parts)
+
+
 def plan_system(concept: str = "", trend_ctx: str = "") -> str:
     """[기획]용: 컨셉 → 기획안 초안(노션 구조). DB 유사 사례 + (있으면) 트렌드 근거 주입."""
     parts = [PLAN_ROLE]

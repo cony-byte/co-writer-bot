@@ -2371,8 +2371,17 @@ def _do_freeform(channel: str, thread_ts: str, query: str) -> None:
                 log.exception("freeform bible load failed")
     _CANCEL.discard(thread_ts)
     ph = _thinking(channel, thread_ts, "생각 중이에요…")
+    system = prompts.freeform_system(bible)
+    if bible:
+        # 질문이 특정 화를 콕 집으면(예: '2화 나레이션 줄일 데') 그 화 자체의 개요·대본을
+        # 직접 보여준다 — build_bible_block은 '다음 화 참고'용이라 질문 대상 화 자체는 안 보여줌
+        em = re.search(r"(\d+)\s*화", q)
+        if em:
+            extra = prompts.freeform_episode_context(bible, int(em.group(1)))
+            if extra:
+                system += "\n\n" + extra
     try:
-        ans = generator.complete(prompts.freeform_system(bible), q).strip()
+        ans = generator.complete(system, q).strip()
     except Exception:
         log.exception("freeform failed")
         _post_chunks(channel, thread_ts, _GUIDE, replace_ts=ph)
