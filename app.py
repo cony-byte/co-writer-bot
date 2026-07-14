@@ -87,6 +87,35 @@ _CHAR_EDIT_PENDING: dict[str, dict] = {}   # thread_ts → {work,name,feedback} 
 _CHAR_DRAFT_CACHE: dict[str, dict] = {}
 _FIELD_EDIT_PENDING: dict[str, dict] = {}   # thread_ts → {work,field,triple,feedback} ('✏️ 수정' 대기
 _FIELD_DRAFT_CACHE: dict[str, dict] = {}    # 단일 필드(줄거리 등) 자연어 수정 초안 캐시(버튼 value용)
+
+# 위 4개 캐시는 원래 메모리 전용이라 봇 재시작(자동 push→재시작 훅) 때마다 눌러둔 버튼이 전부
+# "만료됐어요"로 죽었음(2026-07-14, C1) — 파일에도 같이 써서 재시작 후에도 복원.
+_DRAFT_CACHE_PATH = config.BASE_DIR / "data" / "draft_caches.json"
+
+
+def _save_draft_caches() -> None:
+    try:
+        _DRAFT_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _DRAFT_CACHE_PATH.write_text(json.dumps({
+            "char_draft": _CHAR_DRAFT_CACHE, "field_draft": _FIELD_DRAFT_CACHE,
+            "char_pending": _CHAR_EDIT_PENDING, "field_pending": _FIELD_EDIT_PENDING,
+        }, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        log.exception("draft cache save failed")
+
+
+def _load_draft_caches() -> None:
+    try:
+        d = json.loads(_DRAFT_CACHE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    _CHAR_DRAFT_CACHE.update(d.get("char_draft") or {})
+    _FIELD_DRAFT_CACHE.update(d.get("field_draft") or {})
+    _CHAR_EDIT_PENDING.update(d.get("char_pending") or {})
+    _FIELD_EDIT_PENDING.update(d.get("field_pending") or {})
+
+
+_load_draft_caches()
 CMD_REFRESH = {"새로고침", "refresh"}
 CMD_RELOAD = {"리로드", "reload"}
 CMD_HELP = {"도움말", "help", "명령어", "가이드", "?"}
@@ -1679,6 +1708,17 @@ def _find_name_context(name: str, bible: dict | None, thread_text: str = "", max
 # 카드 생성·표시용 키 순서. 시트 저장 스키마(CHAR_SUBS)엔 '외형' 컬럼이 따로 없어서, 카드엔
 # 별도 필드로 상세히 보여주고 저장 시에만 '설정' 필드 안에 라벨 붙여 합친다 (2026-07-13).
 _CHAR_DISPLAY_KEYS = ["성별", "나이", "포지션", "외형", "설정", "핵심대사", "설명"]
+_APPEARANCE_PREFIX_RE = re.compile(r"^외형:\s*(.*?)\n\n(.*)$", re.S)
+
+
+def _split_appearance(char: dict) -> dict:
+    """저장 시 '설정' 안에 합쳐 넣은 '외형: ...' 을 다시 별도 키로 복원 (2026-07-14, C4 —
+    안 그러면 기존 인물을 다시 수정할 때 카드에 외형이 안 보이고, 모델이 재작성하며 설정과 섞을 위험)."""
+    out = dict(char)
+    m = _APPEARANCE_PREFIX_RE.match(out.get("설정") or "")
+    if m and not out.get("외형"):
+        out["외형"], out["설정"] = m.group(1).strip(), m.group(2).strip()
+    return out
 
 
 def _generate_char_card(work: str | None, name: str, feedback: str,
@@ -1729,6 +1769,7 @@ def _post_char_draft(channel: str, thread_ts: str, work: str, name: str, feedbac
     _post_chunks(channel, thread_ts, _char_card_text(name, data), replace_ts=ph)
     key = uuid.uuid4().hex[:12]
     _CHAR_DRAFT_CACHE[key] = {"w": work, "n": name, "fb": feedback, "d": data, "ctx": context, "ex": existing}
+    _save_draft_caches()
     val = json.dumps({"id": key}, ensure_ascii=False)
     try:
         app.client.chat_postMessage(
@@ -1794,7 +1835,7 @@ def _do_char_edit_nl(channel: str, thread_ts: str, work: str | None, name: str,
     if not reference.sheet():
         _reply(channel, thread_ts, "시트가 아직 연결 안 됐어요 (SHEET_WEBAPP_URL 미설정).")
         return
-    existing = ((bible or {}).get("characters") or {}).get(name) or {}
+    existing = _split_appearance(((bible or {}).get("characters") or {}).get(name) or {})
     joined = "\n".join(m["content"] for m in _thread_messages(channel, thread_ts))
     context = _find_name_context(name, bible, joined)
     ph = _thinking(channel, thread_ts, f"{name} 설정 수정하는 중이에요…")
@@ -1830,6 +1871,7 @@ def _post_field_draft(channel: str, thread_ts: str, work: str, field_name: str, 
     _post_chunks(channel, thread_ts, _field_draft_text(field_name, new_val), replace_ts=ph)
     key = uuid.uuid4().hex[:12]
     _FIELD_DRAFT_CACHE[key] = {"w": work, "f": field_name, "t": list(triple), "fb": feedback, "v": new_val}
+    _save_draft_caches()
     val = json.dumps({"id": key}, ensure_ascii=False)
     try:
         app.client.chat_postMessage(
@@ -1922,6 +1964,7 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
     # '✏️ 수정' 버튼 클릭 후 대기 중인 캐릭터 카드가 있으면, 이 답글을 그 수정 지시로 반영
     pend = _CHAR_EDIT_PENDING.pop(thread_ts, None)
     if pend:
+        _save_draft_caches()
         bible = None
         sheet = reference.sheet()
         if sheet and pend["work"]:
@@ -1946,6 +1989,7 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
     # '✏️ 수정' 버튼 클릭 후 대기 중인 단일 필드(줄거리 등) 수정안이 있으면 반영
     fpend = _FIELD_EDIT_PENDING.pop(thread_ts, None)
     if fpend:
+        _save_draft_caches()
         bible = None
         sheet = reference.sheet()
         if sheet and fpend["work"]:
@@ -3737,6 +3781,7 @@ def on_char_edit(ack, body):
             pass
         _CHAR_EDIT_PENDING[th] = {"work": work, "name": name, "feedback": feedback, "context": ctx,
                                   "existing": existing}
+        _save_draft_caches()
         _reply(ch, th,
                f"✏️ *{name}* 카드를 어떻게 바꿀지 이 스레드에 답글로 알려주세요.\n"
                "예: `나이를 더 어리게` / `포지션을 리더로` / `더 위협적인 느낌으로`")
@@ -3860,6 +3905,7 @@ def on_field_edit(ack, body):
         except Exception:
             pass
         _FIELD_EDIT_PENDING[th] = {"work": work, "field": field_name, "triple": triple, "feedback": feedback}
+        _save_draft_caches()
         _reply(ch, th, f"✏️ *{field_name}*를 어떻게 바꿀지 이 스레드에 답글로 알려주세요.")
     except Exception:
         log.exception("field_edit 실패")
