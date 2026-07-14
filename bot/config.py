@@ -46,7 +46,9 @@ THREAD_HISTORY_LIMIT = int(os.environ.get("COWRITER_THREAD_LIMIT", "40"))
 # URL·SECRET 둘 다 설정돼야 바이블 기능 활성. 없으면 봇은 바이블 없이 동작(패턴·사례 기반 생성만).
 SHEET_WEBAPP_URL = os.environ.get("SHEET_WEBAPP_URL", "")
 SHEET_SECRET = os.environ.get("SHEET_SECRET", "")
-SHEET_CACHE_TTL = int(os.environ.get("COWRITER_SHEET_TTL", "300"))  # 초 (기본 5분)
+SHEET_CACHE_TTL = int(os.environ.get("COWRITER_SHEET_TTL", "60"))  # 초 (기본 1분, 2026-07-13: 5분→1분 —
+# 대본이 이 캐시 안에서 노션 직접 읽기(_notion_scripts)를 하므로, 이 값이 노션 대본 수정 반영
+# 지연의 상한이기도 함. 짧게 잡을수록 시트/노션 조회가 그만큼 자주 일어남(호출당 ~2초).
 
 # 노션 통합(읽기 전용) — [동기화]가 이 토큰으로 기획안 페이지를 직접 읽어 시트에 반영.
 # NOTION_PAGES: 작품명 → 페이지ID 매핑(JSON). 예: {"날혐남":"679beda6e49082b6963d01ddbc5c24a4"}
