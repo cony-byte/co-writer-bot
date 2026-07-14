@@ -687,7 +687,16 @@ def _push_character_to_notion(work: str, name: str, data: dict) -> bool:
         body_end = m.end() + nxt.start() if nxt else len(full)
         body = full[m.end():body_end].strip()
         card = _char_notion_card(name, data)
-        new_body = (body + "\n\n" + card).strip() if body else card
+        # 기존 인물 수정이면 그 인물의 기존 카드 블록을 in-place 교체(2026-07-14, C3 — 원래
+        # 신규 추가만 지원해서 기존 인물 수정 시 "노션은 직접 고쳐주세요"로 반쪽 저장이었음).
+        # 카드 블록 = '**이름'으로 시작하는 줄부터 다음 '**...**' 헤딩 줄 직전까지.
+        card_re = re.compile(rf"^\*\*{re.escape(name)}\b.*$(?:\n(?!\*\*[^\n]+\*\*\s*$).*)*", re.M)
+        m2 = card_re.search(body)
+        if m2:
+            rest = body[m2.end():].lstrip("\n")
+            new_body = (body[:m2.start()] + card + ("\n\n" + rest if rest else "")).strip()
+        else:
+            new_body = (body + "\n\n" + card).strip() if body else card
         notion_sync.upsert_section(pid, heading_text, new_body)
         log.info("노션 등장인물 섹션 갱신 완료: %s / %s", work, name)
         try:
@@ -3554,8 +3563,14 @@ def _handle_dispatch(event: dict) -> None:
     elif cmd in CMD_CONVERT:
         _do_convert(channel, thread_ts, rest_f)
     elif cmd in (CMD_STORYBOARD | CMD_STORYBOARD2 | CMD_STORYBOARD_IMG | CMD_FILE | CMD_REF):
+        # 원래 "별도 봇으로 분리"라고만 답해서 어느 봇을 어떻게 부르는지 안내가 없었음(2026-07-14, C5).
         _reply(channel, thread_ts,
-               "이 기능(스토리보드·이미지·참조·파일)은 현재 이 봇에서 빠져 있어요. (별도 봇으로 분리)")
+               "스토리보드·이미지 기능은 이 워크스페이스에 별도로 설치된 **스토리보드 봇**을 멘션해서 써주세요 "
+               "(슬랙 멤버 목록에서 '스토리보드'로 검색하면 찾을 수 있어요) — 명령은 여기와 똑같아요:\n"
+               "• `[스토리보드1] <작품> N화` — 씬 설계(분할·시간)\n"
+               "• `[스토리보드2] <작품>` — 상세 콘티\n"
+               "• `[이미지] <작품>` — 컷별 이미지 생성\n"
+               "• `[참조] <작품> <인물>` (+이미지 첨부) / `[파일]`(내보내기)")
     elif cmd in CMD_TREND:
         _do_trend(channel, thread_ts, rest)
     elif cmd in CMD_SYNC:
@@ -3723,13 +3738,10 @@ def on_char_save(ack, body):
                 return
             lines.append(f"- **{k}**: {v}")
         sheet.invalidate(work)
-        if existing:
-            # 기존 인물 수정 — 노션엔 카드가 이미 있고 자동으로 안전하게 in-place 교체하는 로직이
-            # 없어서(중복 카드 위험), 자동 반영은 생략하고 직접 고치도록 안내한다.
-            verb, note = "수정해서", " (노션은 직접 고쳐주세요 — 자동 반영 안 함)"
-        else:
-            verb = "새 등장인물로"
-            note = " · 노션에도 반영" if _push_character_to_notion(work, name, data) else ""
+        # 기존 인물 수정도 이제 노션 카드 블록을 in-place 교체(2026-07-14, C3 — _push_character_to_notion이
+        # 이름으로 기존 카드를 찾아 바꿔치기하므로 중복 카드 걱정 없이 새 카드와 동일하게 처리 가능).
+        verb = "수정해서" if existing else "새 등장인물로"
+        note = " · 노션에도 반영" if _push_character_to_notion(work, name, data) else ""
         _reply(ch, th, f"✅ *{name}* {verb} 시트에 저장했어요.{note}\n" + "\n".join(lines))
     except Exception:
         log.exception("char_save 실패")
