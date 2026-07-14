@@ -2604,12 +2604,28 @@ def _do_freeform(channel: str, thread_ts: str, query: str) -> None:
                "새 작품·기획안을 만들까요? `[기획] <컨셉/로그라인>` (노션 링크 주면 그 페이지에 기록)\n"
                "예: `[기획] 라이벌 아이돌 룸메 BL, 스캔들 나면 끝장`")
         return
-    # 2) 작품 맥락(명시 <작품> or 스레드) 있으면 바이블 근거로 일반 답변
+    # 2) 작품 맥락(명시 <작품> or 문장 속 등록명/노션링크) 있으면 바이블 근거로 일반 답변.
+    # (2026-07-14) 기존엔 <작품> 태그가 없으면 바로 work=None으로 빠져서, 'N화 나레이션 줄일
+    # 데 있을까' 같은 화-특정 질문도 바이블 없이(=그 화 대본 못 읽고) 답하던 문제 —
+    # _do_generate 등과 같은 순서(태그 → 문장 속 작품명/링크 → 등록 1개뿐이면 그거)로 회수.
     work, bible = None, None
     wm = SUB_RE.match(q)
     if wm:
         work = works.resolve(wm.group(1).strip()) or wm.group(1).strip()
         q = wm.group(2).strip() or q
+    if not work:
+        w = _work_from_thread(q)
+        work = (works.resolve(w) or w) if w else None
+    if not work:
+        work = _single_registered_work()
+    # 화 번호까지 콕 집었는데 어느 작품인지 여러 개라 못 골랐으면, 바이블 없이 얼버무려 답하는
+    # 대신 바로 되물어서 정확한 답을 받게 한다(오늘 실측: 2화 대본을 못 읽어 애매하게 답함).
+    if not work and re.search(r"\d+\s*화", q) and len(works.all_works()) > 1:
+        names = ", ".join(works.all_works().keys())
+        _reply(channel, thread_ts,
+               f"어느 작품인지 알려주세요 🙂 그래야 그 화 대본을 실제로 보고 답할 수 있어요.\n"
+               f"등록된 작품: {names}\n예: `<작품명> {q}`")
+        return
     if work:
         sheet = reference.sheet()
         if sheet:
