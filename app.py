@@ -17,6 +17,7 @@
 
 실행: python3 app.py  (Socket Mode — 공개 URL 불필요)
 """
+import difflib
 import hashlib
 import json
 import logging
@@ -191,6 +192,17 @@ def _work_from_thread(joined: str) -> str | None:
         if w.startswith("http") or "notion." in w or _looks_like_mention(w) or w == "작품":
             continue
         return w
+    # 꺾쇠 없이도 등록된 작품명/별칭이 문장에 그대로 있으면 인식 (2026-07-14, B1 —
+    # storyboard-bot엔 이미 있던 로직. 가장 긴 매칭 우선(짧은 이름이 다른 이름의 부분문자열일 때 오매칭 방지).
+    text = joined or ""
+    cands = []
+    for w, v in (works.all_works() or {}).items():
+        for nm in ({w} | set(v.get("aliases") or [])):
+            if nm and len(nm) >= 2 and nm in text:
+                cands.append((len(nm), w))
+    if cands:
+        cands.sort(reverse=True)
+        return cands[0][1]
     return None
 
 
@@ -714,7 +726,15 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
     if not sm:
         _reply(channel, thread_ts, _HELP)
         return
-    work = works.resolve(sm.group(1).strip()) or sm.group(1).strip()
+    _raw_w = sm.group(1).strip()
+    work = works.resolve(_raw_w) or _raw_w
+    if work == _raw_w:   # resolve 실패 → 등록된 이름과 오타 수준으로 비슷하면 확인부터
+        _typo = _typo_suspect(_raw_w)
+        if _typo:
+            _reply(channel, thread_ts,
+                   f"⚠️ *{_raw_w}* 로는 등록된 작품이 없어요. 혹시 *{_typo}* 를 말씀하신 거면 그 이름으로 다시 보내주세요.\n"
+                   f"정말 새 작품이면 먼저 `[동기화] <{_raw_w}> <노션링크>` 로 등록해 주세요.")
+            return
     after = sm.group(2).splitlines()
     first = after[0].strip() if after else ""
     path_line, inline = split_command(first)        # 한 줄에 붙여쓴 내용도 인식
@@ -1012,6 +1032,28 @@ def _parse_gen_jobs(text: str) -> list[tuple[str, int | None]]:
     return out
 
 
+def _typo_suspect(raw_work: str) -> str | None:
+    """등록된 작품명/별칭과 비슷한데 정확히 일치하진 않는 이름이면 그 정식명을 반환 (2026-07-14, B3 —
+    오타(예: '날협남'≠'날혐남')가 resolve 실패 후 그대로 새 시트 탭을 만들던 문제 방지).
+    이미 정확히 일치하면(신규 등록 의도일 수 있어) None — resolve()가 이미 잡아줌."""
+    reg = works.all_works()
+    names = list(reg) + [a for v in reg.values() for a in (v.get("aliases") or [])]
+    if raw_work in names or not raw_work:
+        return None
+    m = difflib.get_close_matches(raw_work, names, n=1, cutoff=0.6)
+    if not m:
+        return None
+    hit = m[0]
+    return hit if hit in reg else works.resolve(hit)
+
+
+def _single_registered_work() -> str | None:
+    """등록된 작품이 정확히 1개면 그 이름을 반환 (2026-07-14, B2 —
+    원래 [확인]에만 있던 폴백을 [생성]·[아이디어]·[피드백]에도 동일 적용해 기능 간 비일관 제거)."""
+    reg = works.all_works()
+    return next(iter(reg)) if len(reg) == 1 else None
+
+
 def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "",
                  force_generic: bool = False) -> None:
     """[생성] <작품> 경로(대본/N화 등) 또는 자연어('에피1~3 대본 써줘') → 바이블 참고 생성 + 시트 저장.
@@ -1026,6 +1068,7 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "",
         # <작품> 안 쓰면 스레드(첫 댓글의 작품/노션 링크)에서 회수
         w = _work_from_thread("\n".join(m["content"] for m in _thread_messages(channel, thread_ts)))
         work = (works.resolve(w) or w) if w else None
+        work = work or _single_registered_work()
         raw_gen = rest
         if not work and not force_generic:   # 작품 못 잡음 → 일반으로 할지 물어봄
             _reply(channel, thread_ts,
@@ -2304,6 +2347,7 @@ def _do_idea(channel: str, thread_ts: str, rest: str, force_generic: bool = Fals
         w = _work_from_thread("\n".join(m["content"] for m in _thread_messages(channel, thread_ts)))
         if w:
             work = works.resolve(w) or w
+    work = work or _single_registered_work()
     if not work and q and not force_generic:   # 작품 못 잡음 → 일반으로 할지 물어봄
         _reply(channel, thread_ts,
                "작품명이 없어요 🙂 이대로면 작품 설정 없이 **일반 아이디어**로 드려요.\n"
@@ -2499,10 +2543,7 @@ def _do_check(channel: str, thread_ts: str, rest: str) -> None:
         w2 = _work_from_thread(joined)
         if w2:
             work = works.resolve(w2) or w2
-    if not work:                                   # 등록 작품이 하나뿐이면 그걸로
-        reg = works.all_works()
-        if len(reg) == 1:
-            work = next(iter(reg))
+    work = work or _single_registered_work()      # 등록 작품이 하나뿐이면 그걸로
     if not work:
         _reply(channel, thread_ts, "어느 작품인지 알려주세요: `[확인] <작품> 지금 캐릭터 누구 있지?`")
         return
@@ -2792,6 +2833,7 @@ def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both",
         w = _work_from_thread(joined0)
         if w:
             work = works.resolve(w) or w
+    work = work or _single_registered_work()
     if not work and not force_generic:   # 작품 못 잡음 → 일반 기준으로 할지 물어봄
         _reply(channel, thread_ts,
                "작품명이 없어요 🙂 이대로면 작품 설정 대조 없이 **일반 기준**으로만 평가해요 (개연성 대조 약함).\n"
