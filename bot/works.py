@@ -60,10 +60,24 @@ def work_by_page(page_id: str) -> str | None:
     return None
 
 
+_TRAILING_SUFFIXES = ("기획안", "기획서")
+
+
 def sanitize(name: str) -> str:
-    """구글 시트 탭명으로 못 쓰는 문자 제거 → 노션 제목을 안전한 작품명으로."""
+    """구글 시트 탭명으로 못 쓰는 문자 제거 → 노션 제목을 안전한 작품명으로.
+    (2026-07-15) 노션 페이지 제목을 그대로 정식명으로 쓰다 보니 중복 공백이나
+    '…기획안/기획서' 같은 꼬리표가 그대로 등록돼 부르기 지저분했던 문제 —
+    공백을 하나로 줄이고, 끝단어가 그 꼬리표면 떼어낸다."""
     import re
-    return re.sub(r"[\[\]:*?/\\]", " ", name or "").strip()
+    s = re.sub(r"[\[\]:*?/\\]", " ", name or "").strip()
+    s = re.sub(r"\s+", " ", s)
+    for suf in _TRAILING_SUFFIXES:
+        if s.endswith(suf) and len(s) > len(suf):
+            stripped = s[: -len(suf)].strip()
+            if stripped:
+                s = stripped
+            break
+    return s
 
 
 def page_of(name: str) -> str | None:
