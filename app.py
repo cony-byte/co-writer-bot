@@ -177,6 +177,22 @@ def _reply(channel: str, thread_ts: str, text: str) -> None:
     app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
 
 
+def _is_dup_last(channel: str, thread_ts: str, text: str) -> bool:
+    """스레드의 마지막 봇 메시지가 이 문구와 완전히 같은지(같은 오류/안내가 재시도 중
+    연달아 두 번 나가는 것 방지, 2026-07-15)."""
+    msgs = _thread_messages(channel, thread_ts)
+    if not msgs or msgs[-1]["role"] != "assistant":
+        return False
+    return msgs[-1]["content"].strip() == text.strip()
+
+
+def _reply_dedup(channel: str, thread_ts: str, text: str) -> None:
+    """같은 안내/오류 문구가 스레드 마지막 봇 메시지와 완전히 같으면 다시 보내지 않는다."""
+    if _is_dup_last(channel, thread_ts, text):
+        return
+    _reply(channel, thread_ts, text)
+
+
 def _thread_messages(channel: str, thread_ts: str) -> list[dict]:
     """스레드 전체를 슬랙에서 다시 읽어 모델 메시지로 변환 (무상태 — 재시작에 안전)."""
     resp = app.client.conversations_replies(
@@ -447,6 +463,9 @@ def _parse_outline_records(content: str, seed: str | None = None) -> list[tuple[
 
 
 _DRAFT_FOOT_RE = re.compile(r"(확정하려면|초안입니다|수정하고 싶은 부분|저장하세요|📝 초안|_✅|_⚠️|다듬어서)")
+# 버튼 안내 전용 메시지(내용 없는 UI 프롬프트) — '초안'을 찾을 때 이걸 대본/개요 본문으로
+# 오인하면 안 됨(2026-07-15). _post_draft_actions()가 붙이는 텍스트와 일치.
+_BUTTON_PROMPT_RE = re.compile(r"통과\s*\(저장\)|✅.*재생성|🔄\s*재생성")
 # 아이디어 '요청'만 (불평 "사건이 없어서~"는 제외 — 그건 수정 피드백)
 _IDEA_INTENT_RE = re.compile(
     r"아이디어|브레인스토|떠올려|뭐하지|뭐 하지|뭐가 좋을까|뭘 넣을까"
@@ -527,20 +546,23 @@ def _last_assistant_draft(channel: str, thread_ts: str, top: str | None = None, 
     if top and mid:
         pat = re.compile(rf"{re.escape(top)}\s*/\s*{re.escape(mid)}|{re.escape(mid)}\s*{re.escape(top)}")
         for m in reversed(msgs):
-            if m["role"] == "assistant" and pat.search(m["content"]):
+            if (m["role"] == "assistant" and pat.search(m["content"])
+                    and not _BUTTON_PROMPT_RE.search(m["content"])):
                 t = _strip_draft_footer(m["content"])
                 if len(t) >= 20:
                     return t
     # 1) 초안 꼬리말이 있는 봇 메시지 = 진짜 생성 초안 (에러/확정성공 메시지엔 꼬리말 없음)
     for m in reversed(msgs):
-        if m["role"] != "assistant" or not _DRAFT_FOOT_RE.search(m["content"]):
+        if (m["role"] != "assistant" or not _DRAFT_FOOT_RE.search(m["content"])
+                or _BUTTON_PROMPT_RE.search(m["content"])):
             continue
         t = _strip_draft_footer(m["content"])
         if len(t) >= 20:
             return t
-    # 2) 폴백: 가장 최근의 충분히 긴 봇 메시지
+    # 2) 폴백: 가장 최근의 충분히 긴 봇 메시지 — 버튼 안내문(내용 없는 UI 텍스트)은 건너뜀
+    #    ('이 개요 초안 — ✅ 통과(저장) 또는 🔄 재생성' 같은 문구를 대본/개요 본문으로 오인하던 문제)
     for m in reversed(msgs):
-        if m["role"] != "assistant":
+        if m["role"] != "assistant" or _BUTTON_PROMPT_RE.search(m["content"]):
             continue
         t = _strip_draft_footer(m["content"])
         if len(t) >= 40:
@@ -2620,6 +2642,12 @@ def _do_freeform(channel: str, thread_ts: str, query: str) -> None:
     if (_parse_gen_jobs(_gen_src)
             and re.search(r"(만들|작성|생성|뽑|그려|써|쓰|짜)", _gen_src)
             and not re.search(r"(뭐|뭔|무엇|어때|어떻|어케|알려|설명|였지|궁금|인가|일까|해야|\?)", _gen_src)):
+        # 복합 요청('로그라인과 키워드 평가하고 1~3화 개요를 써봐')이 생성 의도로만 라우팅되면서
+        # 평가(피드백) 절반이 조용히 버려지던 문제(2026-07-15, 6번) — 평가 동사가 같이 있으면
+        # 먼저 피드백을 실행하고 이어서 생성한다.
+        if re.search(r"평가|피드백|리뷰|review", _gen_src):
+            _reply(channel, thread_ts, "①피드백 ②개요/대본 생성 순서로 진행할게요.")
+            _do_feedback(channel, thread_ts, q, mode="both")
         _do_generate(channel, thread_ts, q)
         return
     if re.search(r"트렌드|유행|요즘 (뭐|뭔)|뜨는|인기\s*(있|많|글)", q):
@@ -2869,9 +2897,21 @@ def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
     try:
         done, failed, summary = _sync_apply(sheet, work, content)
     except ValueError:   # JSON 파싱 실패
-        _post_chunks(channel, thread_ts,
-                     "노션 내용을 구조로 못 읽었어요. 소제목(줄거리/등장인물/회차분배/개요)이 있으면 더 잘 됩니다.",
-                     replace_ts=ph)
+        # 인식된 섹션이 0개일 때 뭘 찾았는지(헤딩/블록)까지 보여줘야 사용자가 뭘 고쳐야
+        # 할지 알 수 있음(2026-07-15) — 소제목 후보로 보이는 줄만 추려 함께 안내.
+        found = [ln.strip("# ").strip() for ln in content.split("\n")
+                 if ln.strip().startswith("#") or (ln.strip() and len(ln.strip()) <= 20
+                                                    and ln.strip().endswith((":", "："))
+                                                    )][:5]
+        found = [f for f in found if f]
+        detail = (f" 지금 페이지엔 {', '.join(found)} 같은 블록만 보이고 "
+                  "줄거리/등장인물/회차분배/개요 소제목이 안 보여요." if found
+                  else " 지금 페이지엔 소제목으로 보이는 줄이 하나도 없어요.")
+        msg = ("노션 내용을 구조로 못 읽었어요." + detail
+               + " 예: `## 줄거리` 처럼 소제목을 달아주세요.")
+        if _is_dup_last(channel, thread_ts, msg):
+            msg = "(바로 위와 같은 이유로) 이번에도 반영된 항목이 없어요."
+        _post_chunks(channel, thread_ts, msg, replace_ts=ph)
         return
     except Exception:
         log.exception("sync failed")
@@ -3033,22 +3073,32 @@ def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both",
     eval_kind = "개요" if want_outline else "대본"
     src_kind = ""
     draft = q if len(q) >= 30 else ""                    # ① 직접 붙여넣은 내용 우선
+    # ①.5 '로그라인 피드백'류 요청은 스레드의 마지막 메시지를 무작정 긁어오는 대신
+    # 등록된 작품의 바이블/노션 로그라인을 우선 사용한다(2026-07-15, 3번 — 버튼 안내
+    # 문구를 '대본'으로 오인해 평가하던 문제의 근본 대응).
+    if not draft and bible and re.search(r"로그라인", q):
+        logline = (bible.get("logline") or "").strip()
+        if logline:
+            draft = logline
+            eval_kind = "로그라인"
+            src_kind = "등록된 로그라인"
     if not draft and bible and ep_cmd:                   # ② 'N화 (개요/대본)' 명시 → 시트 저장본
         key = "outlines" if want_outline else "scripts"
         saved = (bible.get(key) or {}).get(f"{ep_cmd.group(1)}화", "")
         if len(saved.strip()) >= 30:
             draft = saved
             src_kind = f"시트의 {ep_cmd.group(1)}화 {eval_kind}"
-    if not draft:                                        # ③ 스레드 직전 '실제 초안'(확정·오류 메시지 제외)
+    if not draft:                                        # ③ 스레드 직전 '실제 초안'(확정·오류·버튼안내 제외)
         d = _last_assistant_draft(channel, thread_ts)
         if d:
             draft = _clean_draft(d)
-    if len(draft) < 30:
-        _reply(channel, thread_ts,
-               "평가할 대본/개요를 못 찾았어요. 이렇게 해보세요:\n"
+    min_len = 10 if eval_kind == "로그라인" else 30
+    if len(draft) < min_len:
+        msg = ("평가할 대본/개요를 못 찾았어요. 이렇게 해보세요:\n"
                "• 대본을 **바로 붙여넣기**: `[피드백] <작품> (여기에 대본)`\n"
                "• 시트 저장본으로: `[피드백] <작품> 3화` (개요면 `3화 개요`)\n"
                "• 생성 스레드 안에선: 그 초안 아래 답글로 `[피드백]`만")
+        _reply_dedup(channel, thread_ts, msg)
         return
     em = re.search(r"(\d+)\s*화", draft[:200])   # 대본 앞부분에 회차가 있으면 그 흐름 앵커
     target = (ep_cmd and int(ep_cmd.group(1))) or (int(em.group(1)) if em else _progress_episode(bible, ["대본", "개요"]))
@@ -3720,7 +3770,20 @@ def _handle_dispatch(event: dict) -> None:
     elif cmd in CMD_HELP:
         _reply(channel, thread_ts, _HELP)
     else:
-        _reply(channel, thread_ts, f"`[{cmd}]` 는 모르는 명령이에요.\n\n" + _GUIDE)
+        # 대괄호를 명령이 아니라 제목 강조·작품태그로 쓴 경우 대응(2026-07-15, 5·6번):
+        # · 노션 링크가 같이 왔으면 '모르는 명령' 대신 등록 흐름을 우선한다.
+        # · 링크는 없지만 생성 동사가 있으면 자연어 처리로 넘긴다.
+        # · 대괄호 안 텍스트가 이미 등록된 작품명/별칭이면 <작품> 태그로 봐서 그대로 재처리한다.
+        _has_link = bool(_NOTION_LINK.search(rest_f) or _NOTION_LINK.search(cmd))
+        _resolved_tag = works.resolve(cmd)
+        if _has_link:
+            _do_sync(channel, thread_ts, f"{cmd} {rest_f}".strip())
+        elif _resolved_tag:
+            _do_freeform(channel, thread_ts, f"<{_resolved_tag}> {rest_f}".strip())
+        elif re.search(r"(만들|작성|생성|뽑|그려|써|쓰|짜)(?:어|아)?\s*(?:봐|줘|줄래|주세요)?", rest_f):
+            _do_freeform(channel, thread_ts, f"{cmd} {rest_f}".strip())
+        else:
+            _reply_dedup(channel, thread_ts, f"`[{cmd}]` 는 모르는 명령이에요.\n\n" + _GUIDE)
 
 
 def _draft_action_ctx(body: dict):
