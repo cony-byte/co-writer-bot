@@ -2283,7 +2283,16 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
                  "sb": "🎬 스토리보드 모드", "fun": "🎭 피드백(재미) 모드",
                  "logic": "🧩 피드백(개연성) 모드", "feedback": "📝 피드백 모드"}.get(mode)
     if _mode_tag:
-        answer = f"_{_mode_tag}로 이어서 답할게요 — 대본/개요를 고치려면 `[생성]`으로 다시 불러주세요._\n\n" + (answer or "")
+        banner = f"_{_mode_tag}로 이어서 답할게요 — 대본/개요를 고치려면 `[생성]`으로 다시 불러주세요._"
+        # 한 메시지에 배너가 두 번 붙는 사고 방지(2026-07-15, 8번) — 답변에 이미 같은
+        # 배너가 섞여 있으면 먼저 지운다.
+        answer = re.sub(re.escape(banner) + r"\n*", "", answer or "").strip()
+        # 이 스레드의 직전 봇 메시지가 이미 같은 모드 배너로 시작했으면(=모드가 안 바뀜)
+        # 또 붙이지 않는다 — 원래는 거의 매 응답마다 붙어서 소음이었음.
+        _prev_assistant = next((m["content"] for m in reversed(messages)
+                                if m["role"] == "assistant"), "")
+        if not _prev_assistant.strip().startswith(banner):
+            answer = f"{banner}\n\n" + answer
     _post_chunks(channel, thread_ts, answer or "(빈 응답)", replace_ts=ph)
     if gen_buttons:
         _post_revise_actions(channel, thread_ts, *gen_buttons)
