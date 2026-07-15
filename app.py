@@ -32,7 +32,7 @@ import uuid
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
-from bot import config, generator, prefs, prompts, reference, verify, works
+from bot import config, generator, job_ledger, prefs, prompts, reference, verify, works
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("co-writer")
@@ -343,12 +343,40 @@ def _post_code(channel: str, thread_ts: str, text: str) -> None:
         _reply(channel, thread_ts, f"```\n{c}\n```")
 
 
+def _mark_stale_drafts(channel: str, thread_ts: str, work: str, top: str, mid: str) -> None:
+    """같은 작품/종류/회차의 예전 [✅ 통과(저장)/🔄 재생성] 버튼 메시지가 남아있으면
+    새 초안이 그걸 대체한다는 걸 알 수 있게 표시(2026-07-15, 4번) — 재시작으로 끊긴 생성이
+    재실행되며 예전 초안과 새 초안이 둘 다 남아 어느 게 최신인지 헷갈리던 문제."""
+    try:
+        resp = app.client.conversations_replies(
+            channel=channel, ts=thread_ts, limit=config.THREAD_HISTORY_LIMIT)
+    except Exception:
+        return
+    for m in resp.get("messages", []):
+        if not (m.get("user") == BOT_USER_ID or m.get("bot_id")):
+            continue
+        blocks = m.get("blocks") or []
+        if not any(b.get("block_id") == "draft_actions" for b in blocks):
+            continue
+        try:
+            val = json.loads(blocks[0]["elements"][0]["value"])
+        except Exception:
+            continue
+        if val.get("w") == work and val.get("t") == top and val.get("m", "") == (mid or ""):
+            try:
+                app.client.chat_update(channel=channel, ts=m["ts"],
+                                       text="⚠️ 이 초안은 중단됨(아래가 최신)", blocks=[])
+            except Exception:
+                pass
+
+
 def _post_draft_actions(channel: str, thread_ts: str, work: str, top: str, mid: str,
                         level: int | None = None) -> None:
     """생성 초안 밑에 [✅ 통과 (저장)] / [🔄 재생성] 버튼 메시지를 붙인다.
     버튼 클릭 → _on_draft_approve(저장) / _on_draft_regen(같은 걸 다시 생성).
     level(강도 비교 시): 그 단계 버튼임을 표시 + 저장 시 그 단계 초안을 콕 집어 저장 (2026-07-14, C2 —
     원래 5개 초안 비교 후 버튼이 하나뿐이라 [✅ 통과]가 늘 '가장 최근'(=강도5)만 저장했음)."""
+    _mark_stale_drafts(channel, thread_ts, work, top, mid)
     label = " / ".join(x for x in [top, mid] if x)
     val = json.dumps({"w": work, "t": top, "m": mid or "", "l": level or ""}, ensure_ascii=False)
     btn_text = f"✅ 강도 {level} 저장" if level else "✅ 통과 (저장)"
@@ -3514,7 +3542,8 @@ def _inflight_add(event: dict) -> str | None:
         d = _inflight_load()
         prev = d.get(key) or {}
         d[key] = {"event": {k: event.get(k) for k in _INFLIGHT_KEYS},
-                  "attempts": prev.get("attempts", 0)}
+                  "attempts": prev.get("attempts", 0),
+                  "created": prev.get("created", time.time())}
         _inflight_save(d)
     return key
 
@@ -3536,10 +3565,17 @@ def _replay_inflight() -> None:
         d = _inflight_load()
     if not d:
         return
+    _RESUME_MAX_AGE = 20 * 60   # 20분 지난 중단 기록은 되살리지 않음(2026-07-15, 10번 —
+                                 # 기존엔 만료 없이 무조건 1회 재시도해서, 한참 지나 이미
+                                 # 다른 얘기로 넘어간 스레드에 뜬금없이 옛 요청이 되살아났음)
     replay, keep = [], {}
+    now = time.time()
     for key, rec in d.items():
         if rec.get("attempts", 0) >= 1:      # 이미 한 번 재시도 → 무한루프 방지 위해 포기
             log.warning("중단 요청 재시도 포기(반복 실패 가능): %s", key)
+            continue
+        if now - rec.get("created", now) > _RESUME_MAX_AGE:
+            log.warning("중단 요청 재시도 포기(너무 오래됨): %s", key)
             continue
         replay.append((key, rec))
         rec["attempts"] = rec.get("attempts", 0) + 1
@@ -3550,7 +3586,24 @@ def _replay_inflight() -> None:
         ev = rec.get("event") or {}
         ch = ev.get("channel")
         th = ev.get("thread_ts") or ev.get("ts")
+        own_ts = ev.get("ts")
         if not ch:
+            _inflight_done(key)
+            continue
+        # 중단된 요청 이후 그 스레드에 사용자가 이미 새 메시지를 보냈으면(=이미 다른 얘기로
+        # 넘어갔으면) 되살리지 않는다(2026-07-15, 10번 — 로그라인 피드백만 물었는데 지나간
+        # '개요 생성' 요청이 뒤늦게 부활해 헷갈리게 했던 문제).
+        try:
+            resp = app.client.conversations_replies(
+                channel=ch, ts=th, limit=config.THREAD_HISTORY_LIMIT)
+            newer_user = any(
+                m.get("user") and m.get("user") != BOT_USER_ID and not m.get("bot_id")
+                and float(m.get("ts", 0)) > float(own_ts or 0)
+                for m in resp.get("messages", []))
+        except Exception:
+            newer_user = False
+        if newer_user:
+            log.info("중단 요청 재개 건너뜀(이후 새 메시지 있음): %s", key)
             _inflight_done(key)
             continue
         log.info("중단 요청 재실행: ch=%s text=%r", ch, (ev.get("text") or "")[:60])
@@ -3824,6 +3877,9 @@ def on_draft_approve(ack, body):
 @app.action("draft_regen")
 def on_draft_regen(ack, body):
     ack()
+    # 버튼 클릭으로 트리거되는 재생성은 message 이벤트의 inflight 추적 바깥이라, 재생성
+    # 도중 auto-pull이 봇을 재시작해도 안 걸렸음(2026-07-15, 4번) — jobs.json에 직접 기록.
+    job = None
     try:
         ch, th, mts, work, top, mid, level = _draft_action_ctx(body)
         path = f"<{work}> {top}" + (f" / {mid}" if mid else "") + (f" 강도 {level}" if level else "")
@@ -3831,9 +3887,12 @@ def on_draft_regen(ack, body):
             app.client.chat_update(channel=ch, ts=mts, text="🔄 재생성할게요…", blocks=[])
         except Exception:
             pass
+        job = job_ledger.start_job("draft_regen", ch, th, path)
         _do_generate(ch, th, path)             # 같은 작품/종류/회차 다시 생성(새 초안+버튼)
     except Exception:
         log.exception("draft_regen 실패")
+    finally:
+        job_ledger.finish_job(job)
 
 
 def _revise_action_ctx(body: dict):
@@ -3849,6 +3908,7 @@ def _revise_action_ctx(body: dict):
 @app.action("revise_generate")
 def on_revise_generate(ack, body):
     ack()
+    job = None
     try:
         ch, th, mts, work, kind, ep = _revise_action_ctx(body)
         log.info("revise_generate: work=%s kind=%s ep=%s", work, kind, ep)
@@ -3857,9 +3917,12 @@ def on_revise_generate(ack, body):
             app.client.chat_update(channel=ch, ts=mts, text=f"🆕 {kind} 생성할게요…", blocks=[])
         except Exception:
             pass
+        job = job_ledger.start_job("revise_generate", ch, th, path)
         _do_generate(ch, th, path)             # 위 대화(제안) 맥락 그대로 반영해 새로 생성
     except Exception:
         log.exception("revise_generate 실패")
+    finally:
+        job_ledger.finish_job(job)
 
 
 @app.action("revise_specify")
@@ -3939,6 +4002,7 @@ def on_char_save(ack, body):
 @app.action("char_regen")
 def on_char_regen(ack, body):
     ack()
+    job = None
     try:
         ch, th, mts, work, name, feedback, _data, ctx, existing = _char_action_ctx(body)
         if not name:
@@ -3948,6 +4012,7 @@ def on_char_regen(ack, body):
             app.client.chat_update(channel=ch, ts=mts, text="🔄 재생성할게요…", blocks=[])
         except Exception:
             pass
+        job = job_ledger.start_job("char_regen", ch, th, name)
         bible = None
         sheet = reference.sheet()
         if sheet and work:
@@ -3966,6 +4031,8 @@ def on_char_regen(ack, body):
         _post_char_draft(ch, th, work, name, feedback, data, ph=ph, context=ctx, existing=existing)
     except Exception:
         log.exception("char_regen 실패")
+    finally:
+        job_ledger.finish_job(job)
 
 
 @app.action("char_edit")
@@ -4054,6 +4121,7 @@ def on_field_save(ack, body):
 @app.action("field_regen")
 def on_field_regen(ack, body):
     ack()
+    job = None
     try:
         ch, th, mts, work, field_name, triple, feedback, _old_val = _field_action_ctx(body)
         if not field_name:
@@ -4063,6 +4131,7 @@ def on_field_regen(ack, body):
             app.client.chat_update(channel=ch, ts=mts, text="🔄 재생성할게요…", blocks=[])
         except Exception:
             pass
+        job = job_ledger.start_job("field_regen", ch, th, field_name)
         bible = None
         sheet = reference.sheet()
         if sheet and work:
@@ -4091,6 +4160,8 @@ def on_field_regen(ack, body):
         _post_field_draft(ch, th, work, field_name, triple, feedback, new_val, ph=ph)
     except Exception:
         log.exception("field_regen 실패")
+    finally:
+        job_ledger.finish_job(job)
 
 
 @app.action("field_edit")
