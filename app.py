@@ -2544,7 +2544,21 @@ def _do_alias(channel: str, thread_ts: str, rest: str) -> None:
       · (스레드에서) [별칭] 코니테스트          ← 그 스레드가 다룬 작품에 자동 연결"""
     txt = rest.strip()
     work = None
-    wm = SUB_RE.match(txt)                                   # 1) <작품> 명시
+    from_link = False
+    # 0) 노션 링크가 함께 왔으면 그 링크가 가리키는 작품을 최우선으로 확정
+    #    (스레드가 기억한 이전 작품에 엉뚱하게 별칭이 등록되던 문제, 2026-07-15)
+    txt_unwrapped = re.sub(r"<(https?://[^>|]+)(?:\|[^>]*)?>", r"\1", txt)
+    lm = _NOTION_LINK.search(txt_unwrapped)
+    if lm:
+        no_link = _NOTION_LINK.sub("", txt_unwrapped).strip()
+        _sm = SUB_RE.match(no_link)
+        _exp = (works.resolve(_sm.group(1).strip()) or _sm.group(1).strip()) if _sm else None
+        w = _autosync_link(channel, thread_ts, lm.group(0), explicit=_exp)
+        if w:
+            work = w
+            from_link = True
+            txt = _sm.group(2).strip() if _sm else no_link
+    wm = None if from_link else SUB_RE.match(txt)            # 1) <작품> 명시
     if wm:
         work = wm.group(1).strip()
         txt = wm.group(2).strip()
@@ -2552,11 +2566,19 @@ def _do_alias(channel: str, thread_ts: str, rest: str) -> None:
         parts = re.split(r"\s*(?:=|:|→|->|⇒)\s*", txt, maxsplit=1)
         if len(parts) == 2 and parts[0].strip() and parts[1].strip():
             work, txt = parts[0].strip(), parts[1].strip()
-    if not work:                                             # 3) 스레드에서 다룬 작품 회수
+    if not work:                                             # 3) 스레드에서 다룬 작품 회수 (링크 없을 때만)
         joined = "\n".join(m["content"] for m in _thread_messages(channel, thread_ts))
         work = _work_from_thread(joined)
     work = (works.resolve(work) or work) if work else None
-    aliases = [_alias_clean(a) for a in re.split(r"[,、/]| 그리고 ", txt) if _alias_clean(a)]
+    aliases_raw = [_alias_clean(a) for a in re.split(r"[,、/]| 그리고 ", txt) if _alias_clean(a)]
+    # 2) 자연어 문장 전체가 별칭으로 딸려오는 것 방지: 너무 길거나(>15자) 문장 구조(괄호/조사)면 거부
+    _SENTENTIAL_RE = re.compile(r"[()（）]|(?:는데요|인데요|거든요|이에요|예요|습니다|입니다)")
+    aliases, rejected = [], []
+    for a in aliases_raw:
+        if len(a) > 15 or _SENTENTIAL_RE.search(a):
+            rejected.append(a)
+        else:
+            aliases.append(a)
     if not work:
         known = ", ".join(works.all_works().keys()) or "(아직 없음)"
         _reply(channel, thread_ts,
@@ -2567,13 +2589,20 @@ def _do_alias(channel: str, thread_ts: str, rest: str) -> None:
     if not works.resolve(work):
         _reply(channel, thread_ts, f"'{work}' 라는 작품을 아직 못 찾았어요. 먼저 노션 링크로 등록해 주세요.")
         return
+    if rejected and not aliases:
+        _reply(channel, thread_ts,
+               f"*{work}* 에 등록하려던 게 문장처럼 길어서(`{rejected[0][:30]}{'…' if len(rejected[0]) > 30 else ''}`) "
+               "별칭으로 등록하지 않았어요. 15자 이내 짧은 이름으로 다시 알려주세요 → "
+               f"`[별칭] <{work}> 짧은이름`")
+        return
     if not aliases:
         _reply(channel, thread_ts, f"`{work}`을(를) 뭐라고 부를까요? 예: `[별칭] <{work}> 코니테스트`")
         return
     canon = works.add_aliases(work, aliases)
     nice = ", ".join(f"`{a}`" for a in aliases)
+    note = f"\n_(너무 길어서 등록 안 함: `{rejected[0][:30]}…`)_" if rejected else ""
     _reply(channel, thread_ts,
-           f"✅ 이제 *{canon}* 을(를) {nice} (으)로도 부를 수 있어요!\n예: `[생성] <{aliases[0]}> 3화`")
+           f"✅ *{canon}* 에 별칭 등록: {nice}{note}\n예: `[생성] <{aliases[0]}> 3화`")
 
 
 def _do_freeform(channel: str, thread_ts: str, query: str) -> None:
