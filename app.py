@@ -2135,7 +2135,18 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
     bible = _override_intensity(bible, feedback)   # '강도 N으로 바꿔' → 이번 수정만 그 레벨로 재보정
     mode = _thread_origin_mode(messages)
     # 답글이 '아이디어 떠올려줘 / 사건 뭐하지?' 류면 직전 활동과 무관하게 아이디어 모드로
+    # 단, 원래 트렌드 스레드였으면(2026-07-14) 그 트렌드 데이터를 아이디어 프롬프트로 넘겨서
+    # "방금 그 데이터 기반으로 구체적으로"를 요청했는데 데이터 근거가 끊기는 문제 방지
+    # (실측: cathy가 "신분숨김 재회물 구체적인 아이디어" 요청 시 트렌드 근거 없이 일반 창작만 나옴).
+    _idea_trend_ctx = ""
     if _IDEA_INTENT_RE.search(feedback):
+        if mode == "trend":
+            try:
+                _tr = reference.load_trend()
+                if _tr:
+                    _idea_trend_ctx = _tr.answer(feedback, llm=_trend_filter_llm)
+            except Exception:
+                log.exception("idea-from-trend 데이터 로드 실패")
         mode = "idea"
     # 스레드 모드와 무관하게 '이미 있는 인물 이름 + 필드어(설정/포지션/외형 등) + 바꿔야겠어' 류면
     # 자연어 캐릭터 수정으로 인식 (2026-07-13, ex: "민재 설정은 서브남주로 바꿔야겠어")
@@ -2260,8 +2271,11 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
                         answer += "\n\n_⚠️ 노션 업데이트 실패 — 권한/연결 확인. (초안은 위에)_"
         elif mode == "idea":
             bible_i = _idea_intensity(bible, feedback)   # 아이디어 기본 강도 3 고정
+            _idea_user = _convo_text(messages)
+            if _idea_trend_ctx:
+                _idea_user += f"\n\n[참고 트렌드 데이터 — 방금 트렌드 대화에서 이어짐]\n{_idea_trend_ctx}"
             answer = generator.complete(prompts.idea_system(bible_i, feedback, target_episode=target),
-                                        _convo_text(messages))
+                                        _idea_user)
         elif mode == "trend":
             trend = reference.load_trend()
             # 스레드가 특정 성향(BL/GL/로맨스)으로 시작했으면 후속도 그 성향 데이터로 유지
