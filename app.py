@@ -120,10 +120,20 @@ CMD_REFRESH = {"새로고침", "refresh"}
 CMD_RELOAD = {"리로드", "reload"}
 CMD_HELP = {"도움말", "help", "명령어", "가이드", "?"}
 
+# 모르는 명령('[생상]' 등 오타)일 때 difflib로 가장 비슷한 걸 제안하기 위한 전체 명령명 모음
+# (2026-07-16, 온보딩 E).
+_ALL_CMD_NAMES = sorted(
+    CMD_INPUT | CMD_EDIT | CMD_GEN | CMD_PLAN | CMD_CONVERT | CMD_STORYBOARD | CMD_STORYBOARD_IMG
+    | CMD_TREND | CMD_IDEA | CMD_SYNC | CMD_CHECK | CMD_ALIAS | CMD_FEEDBACK | CMD_FB_FUN
+    | CMD_FB_LOGIC | CMD_STOP | CMD_FILE | CMD_REF | CMD_LIKE | CMD_DISLIKE
+    | CMD_REFRESH | CMD_RELOAD | CMD_HELP
+)
+
 # 명령 없이 아무 말이나 왔을 때: 전체 목록 대신 '뭘 할지' 짧은 안내
 _GUIDE = (
     "안녕하세요! 무엇을 도와드릴까요? 이렇게 시작하면 돼요 👇\n"
-    "• *작품 등록*: 노션 기획안 페이지 **링크만** 붙여넣기\n"
+    "0️⃣ *가장 먼저*: 노션 기획안 페이지 **링크만** 이 채널에 붙여넣으면 자동으로 작품이 등록돼요\n"
+    "   (또는 `[동기화] <노션링크>` 명령으로 등록해도 똑같아요)\n"
     "• *개요·대본*: `[생성] <작품> 2화 개요` (또는 그냥 `2화 개요 써줘`)\n"
     "• *기획안*: `[기획] 라이벌 아이돌 룸메 BL` (+노션링크 주면 그 페이지에 기록)\n"
     "• *검토*: `[피드백] <작품> 3화` / *발상*: `[아이디어] <작품> …`\n"
@@ -131,34 +141,57 @@ _GUIDE = (
     "_스레드 안에선 작품 이름 없이 자연어로 이어 말해도 돼요. 전체 명령은 `[도움말]`._"
 )
 
+# 첫 인사/모호한 첫 대화 감지 (2026-07-16, 온보딩 A) — '작품 등록'을 아직 모르는
+# 완전 초보 사용자가 가장 먼저 마주칠 문구들.
+_GREETING_RE = re.compile(
+    r"안녕|^hi\b|^hello\b|반가워|처음|뭐\s*할\s*수\s*있|어떻게\s*써|어떻게\s*쓰|사용법|시작\s*(어떻게|할까|하려)",
+    re.I,
+)
+
+_ONBOARD_FIRST_CONTACT = (
+    "안녕하세요! 처음이시군요 🙂 이 봇은 드라마 대본 작업을 도와줘요. 가장 먼저 할 일은 이거예요 👇\n\n"
+    "1️⃣ *작품 등록* — 이 채널에 노션 기획안 페이지 **링크만 붙여넣기**만 하면 자동으로 등록돼요.\n"
+    "   (`[동기화] <노션링크>` 라고 명령을 써도 되고, 그냥 링크만 붙여넣어도 똑같이 동작해요)\n"
+    "2️⃣ *등록되면* — `[생성] <작품> 2화 개요` 처럼 써서 바로 초안을 뽑아볼 수 있어요.\n"
+    "3️⃣ *궁금한 게 있으면* — `[확인] <작품> 캐릭터 누구 있지?` 처럼 물어보면 바이블(작품 설정 정보) 기반으로 답해드려요.\n\n"
+    "_전체 명령이 궁금하면 `[도움말]`을 입력해 주세요._"
+)
+
 _HELP = (
-    "명령은 `[명령] <작품> 경로` 형식이에요 👇\n"
+    "명령은 `[명령] <작품> 경로` 형식이에요 👇\n\n"
+    "*🔹 자주 쓰는 것*\n"
     "```\n"
+    "[생성] <날혐남> 개요 / 11화     ← 다음 줄에 넣고 싶은 포인트 적으면 반영\n"
+    "서아가 처음으로 반격하는 장면 꼭 넣어줘\n"
+    "\n"
+    "[생성] <날혐남> 대본 / 24화     ← 24화 개요+바이블(작품 설정 정보) 참고해 생성 (자동 검증관문(바이블 규칙 위반 자동 점검) ON)\n"
+    "[생성] <날혐남> 대본 / 24화 검증생략   ← 빠르게: 바이블 준수 자동검증 끄기\n"
+    "\n"
     "[입력] <날혐남> 로그라인\n"
     "정략결혼한 여주가 남편을 살리고 도망친다\n"
     "\n"
+    "[기획] 라이벌 아이돌 룸메 BL (+노션링크)  ← 기획안 초안·수정(노션 기록)\n"
+    "[피드백] <날혐남> (대본)  ← 재미+개연성 / [재미]·[개연성]로 따로도 가능\n"
+    "```\n"
+    "• `[생성]` 초안 뽑기 / `[입력]` 새로 저장 / `[기획]` 기획안 만들기 / `[피드백]` 검토\n\n"
+    "———\n"
+    "*🔸 전체 명령 (익숙해지면)*\n"
+    "```\n"
     "[입력] <날혐남> 인물 / 강태혁      ← 소분류 여러 개 한 번에\n"
     "성별: 남\n"
     "나이: 32\n"
     "핵심대사: 알아들었으면 나가.\n"
     "\n"
-    "[생성] <날혐남> 개요 / 11화     ← 다음 줄에 넣고 싶은 포인트 적으면 반영\n"
-    "서아가 처음으로 반격하는 장면 꼭 넣어줘\n"
-    "\n"
-    "[생성] <날혐남> 대본 / 24화     ← 24화 개요+바이블 참고해 생성 (자동 검증 관문 ON)\n"
-    "[생성] <날혐남> 대본 / 24화 검증생략   ← 빠르게: 바이블 준수 자동검증 끄기\n"
     "[변환] 휴대폰 보는 연우, 화내며 나감   ← 줄글 상황 → 드라마 대본식 지문으로\n"
-    "[기획] 라이벌 아이돌 룸메 BL (+노션링크)  ← 기획안 초안·수정(노션 기록)\n"
     "[트렌드] 요즘 뭐가 유행?          ← 쉬운 요약\n"
     "[아이디어] <날혐남> 서아 힘든 거 어떻게 보여주지?  ← 구체적 상황 제안\n"
-    "[피드백] <날혐남> (대본)  ← 재미+개연성 / [재미]·[개연성]로 따로도 가능\n"
     "[동기화] <날혐남> (노션 내용 통째로 붙여넣기)  ← 노션→시트 반영\n"
     "[좋아]/[별로] (생성물 스레드에서, 뒤에 이유)  ← 다음 생성에 학습 (별로는 바로 다시 뽑음)\n"
     "```\n"
     "• `[입력]` 새로 저장 / `[수정]` 기존 고침 / `[생성]` 초안 / `[아이디어]` 상황제안 / `[변환]` 줄글→대본식지문 / `[기획]` 기획안 / `[확인]` 조회 / `[트렌드]` 조회 / `[멈춰]` 중지\n"
     "• 이름만: 로그라인·키워드·타겟층·핵심정서·줄거리·금지사항·진행상태 (뒤에 바로 내용)\n"
     "• 인물/회차분배: 소분류 하나 `인물/강태혁/성별 남` 또는 여러 개를 줄마다 `소분류: 값`\n"
-    "  인물 소분류 = 성별·나이·포지션·설정·핵심대사·설명 / 회차분배 = 구간·화수·핵심사건\n"
+    "  인물 소분류 = 성별·나이·포지션·설정·핵심대사·설명 / 회차분배(회차별로 구간·화수·핵심사건을 나눠 배정) = 구간·화수·핵심사건\n"
     "• 개요 / <N화> · 대본 / <N화>"
 )
 
@@ -371,29 +404,62 @@ def _mark_stale_drafts(channel: str, thread_ts: str, work: str, top: str, mid: s
 
 
 def _post_draft_actions(channel: str, thread_ts: str, work: str, top: str, mid: str,
-                        level: int | None = None) -> None:
+                        level: int | None = None, compare_mode: bool = False) -> None:
     """생성 초안 밑에 [✅ 통과 (저장)] / [🔄 재생성] 버튼 메시지를 붙인다.
     버튼 클릭 → _on_draft_approve(저장) / _on_draft_regen(같은 걸 다시 생성).
     level(강도 비교 시): 그 단계 버튼임을 표시 + 저장 시 그 단계 초안을 콕 집어 저장 (2026-07-14, C2 —
-    원래 5개 초안 비교 후 버튼이 하나뿐이라 [✅ 통과]가 늘 '가장 최근'(=강도5)만 저장했음)."""
+    원래 5개 초안 비교 후 버튼이 하나뿐이라 [✅ 통과]가 늘 '가장 최근'(=강도5)만 저장했음).
+    compare_mode(2026-07-16, C): 강도 1~5 비교 흐름에서는 저장 버튼 5개 대신 맨 끝에 드롭다운
+    하나로 저장하게 바뀌어서(_post_level_picker) 여기선 재생성 버튼만 남긴다."""
     _mark_stale_drafts(channel, thread_ts, work, top, mid)
     label = " / ".join(x for x in [top, mid] if x)
     val = json.dumps({"w": work, "t": top, "m": mid or "", "l": level or ""}, ensure_ascii=False)
     btn_text = f"✅ 강도 {level} 저장" if level else "✅ 통과 (저장)"
-    msg_text = f"강도 {level} — {btn_text} 또는 🔄 재생성" if level else f"이 {label} 초안 — ✅ 통과(저장) 또는 🔄 재생성"
+    elements = [{"type": "button", "action_id": "draft_regen", "style": "danger",
+                 "text": {"type": "plain_text", "text": "🔄 재생성"}, "value": val}]
+    if not compare_mode:
+        elements.insert(0, {"type": "button", "action_id": "draft_approve", "style": "primary",
+                            "text": {"type": "plain_text", "text": btn_text}, "value": val})
+    if compare_mode:
+        msg_text = f"강도 {level} — 🔄 재생성만 다시 뽑고 싶으면 눌러주세요 (저장은 아래 드롭다운에서 한 번에)"
+    else:
+        msg_text = (f"강도 {level} — {btn_text} 또는 🔄 재생성" if level
+                    else f"이 {label} 초안 — ✅ 통과(저장) 또는 🔄 재생성")
     try:
         app.client.chat_postMessage(
             channel=channel, thread_ts=thread_ts,
             text=msg_text,
-            blocks=[{"type": "actions", "block_id": "draft_actions", "elements": [
-                {"type": "button", "action_id": "draft_approve", "style": "primary",
-                 "text": {"type": "plain_text", "text": btn_text}, "value": val},
-                {"type": "button", "action_id": "draft_regen", "style": "danger",
-                 "text": {"type": "plain_text", "text": "🔄 재생성"}, "value": val}]}])
+            blocks=[{"type": "actions", "block_id": "draft_actions", "elements": elements}])
     except Exception:
         log.exception("draft action buttons post failed")
         if label:
             _reply(channel, thread_ts, f"_📝 초안입니다. 확정: `[입력] <{work}> {label}`_")
+
+
+def _post_level_picker(channel: str, thread_ts: str, work: str, top: str, mid: str) -> None:
+    """강도 1~5 비교 흐름 끝에 붙이는 저장용 드롭다운 (2026-07-16, 온보딩 C).
+    예전엔 5개 초안마다 각자 [✅ 강도 N 저장] 버튼이 따로 붙어서(총 5쌍) 첫 사용자에게
+    설명 없이 뭘 눌러야 하는지 헷갈렸음 — 버튼 5개를 드롭다운 1개로 합치고, '강도'가 뭔지
+    한 줄 설명을 붙인다. 저장 로직은 on_draft_approve와 동일 경로(_do_input)를 재사용."""
+    options = []
+    for lvl in range(1, 6):
+        val = json.dumps({"w": work, "t": top, "m": mid or "", "l": lvl}, ensure_ascii=False)
+        options.append({"text": {"type": "plain_text", "text": f"강도 {lvl}"}, "value": val})
+    try:
+        app.client.chat_postMessage(
+            channel=channel, thread_ts=thread_ts,
+            text="어느 강도로 저장할까요? (1=약하게 ~ 5=세게)",
+            blocks=[
+                {"type": "section", "text": {"type": "mrkdwn", "text":
+                    "*어느 강도로 저장할까요?* (1=약하게 ~ 5=세게)\n"
+                    "_강도 = 이 장면의 자극/전개 세기. 위 5개 버전을 비교해서 원하는 강도를 골라주세요._"}},
+                {"type": "actions", "block_id": "draft_level_pick", "elements": [
+                    {"type": "static_select", "action_id": "draft_level_select",
+                     "placeholder": {"type": "plain_text", "text": "강도 선택"},
+                     "options": options}]},
+            ])
+    except Exception:
+        log.exception("draft level picker post failed")
 
 
 def _post_revise_actions(channel: str, thread_ts: str, work: str,
@@ -865,7 +931,8 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
     triple = parse_path(path_line)
     if not triple:
         _reply(channel, thread_ts,
-               f"`{path_line}` 는 모르는 종류예요. 로그라인·키워드·타겟층·핵심정서·인물/<이름>·줄거리·회차분배·개요/<N화>·대본/<N화>")
+               f"`{path_line}` 는 모르는 종류예요. 로그라인·키워드·타겟층·핵심정서·인물/<이름>·줄거리·회차분배·개요/<N화>·대본/<N화>\n"
+               f"예: `[입력] <{work}> 로그라인` 다음 줄에 내용, 또는 `[입력] <{work}> 인물 / 강태혁` 다음 줄에 `성별: 남`")
         return
     top, mid, sub = triple
     # 내용을 안 적었고 서사 항목이면 → 스레드 직전 봇 초안을 확정 저장 (사람이 "이걸로 확정" 하는 흐름)
@@ -1200,7 +1267,8 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "",
             _reply(channel, thread_ts,
                    "작품명이 없어요 🙂 이대로면 작품 설정(바이블) 없이 **일반 초안**으로 만들어요 — 시트 저장은 안 돼요.\n"
                    "• 그대로 원하면 이 스레드에 `응`(또는 `일반으로`) 답글\n"
-                   "• 더 정확·저장까지 하려면 작품을 넣어 다시: `[생성] <작품> 2화 개요`")
+                   "• 더 정확·저장까지 하려면 작품을 넣어 다시: `[생성] <작품> 2화 개요`\n"
+                   "• 아직 작품을 등록 안 하셨다면: 노션 기획안 페이지 **링크만 붙여넣기**(또는 `[동기화] <노션링크>`)하면 자동 등록돼요")
             return
 
     # ── 자연어 모드: 여러 종류/회차를 한 문장에 요청하면 각각을 표준 경로로 재구성해 순차 생성 ──
@@ -1306,7 +1374,9 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "",
             # 강도 비교: 각 단계 바로 밑에 그 단계 전용 저장 버튼 (2026-07-14, C2 — 끝에 버튼 하나만
             # 있으면 [✅ 통과]가 항상 '가장 최근 초안'(=강도5)을 저장해서 특정 단계 선택 저장이 안 됐음)
             if work and top in ("개요", "대본", "줄거리"):
-                _post_draft_actions(channel, thread_ts, work, top, mid, level=lvl)
+                _post_draft_actions(channel, thread_ts, work, top, mid, level=lvl, compare_mode=True)
+        if work and top in ("개요", "대본", "줄거리"):
+            _post_level_picker(channel, thread_ts, work, top, mid)
         return
 
     # 강도 명시 안 했으면 기본 4로 고정
@@ -1338,7 +1408,7 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "",
     # 바이블 없으면(패턴·사례 기반 생성) 기준이 없어 건너뜀. '검증생략'/COWRITER_VERIFY_GATE=0로 off.
     gate_note = ""
     if gate_on and bible:
-        _update_note(channel, ph, f"{what} 초안 검증 중이에요… (바이블 준수 점검)")
+        _update_note(channel, ph, f"{what} 초안 검증 중이에요… (바이블(작품 설정 정보) 준수 점검)")
         v = verify.verify_draft(answer, bible, target_episode=target, kind=top,
                                 llm=generator.complete)
         if v["checked"] and v["fails"]:
@@ -1357,7 +1427,7 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "",
             if flagged:     # 나머지는 고치지 않고 플래그만 — 작가가 보고 판단
                 lines = "\n".join(f"  • *{f.get('name', '?')}*: {(f.get('reason') or '').strip()}"
                                   for f in flagged)
-                parts.append(f"⚠️ 바이블 확인 필요 {len(flagged)}건 (자동 수정 안 함 — 직접 확인하세요)\n{lines}")
+                parts.append(f"⚠️ 바이블(작품 설정 정보) 확인 필요 {len(flagged)}건 (자동 수정 안 함 — 직접 확인하세요)\n{lines}")
             gate_note = "\n".join(parts)
         elif v["checked"]:
             gate_note = "✅ 자동검증: 바이블 준수 이상 없음"
@@ -2798,6 +2868,12 @@ def _do_freeform(channel: str, thread_ts: str, query: str) -> None:
     if not q:
         _reply(channel, thread_ts, _GUIDE)
         return
+    # 0) 첫인사/모호한 첫 대화 → 의도 판별 캐스케이드 전에 먼저 걸러서 항상 같은
+    # 온보딩 안내로 응답 (2026-07-16, 오디오 A). 예전엔 '안녕'/'뭐 할 수 있어?' 같은
+    # 말이 의도 캐스케이드를 타면서 LLM 자유응답이 나오거나 _GUIDE가 나오는 게 뒤죽박죽이었음.
+    if _GREETING_RE.search(q) and not SUB_RE.match(q):
+        _reply(channel, thread_ts, _ONBOARD_FIRST_CONTACT)
+        return
     # 1) 명확한 의도 → 해당 기능
     # 생성 의도('<작품> 2화 대본 만들어줘', '개요 써줘') → 실제 생성으로 라우팅.
     # 질문형('줄거리 뭐였지?', '대본 어떻게 써?')은 제외하고 일반 답변으로 넘김.
@@ -2920,7 +2996,9 @@ def _do_check(channel: str, thread_ts: str, rest: str) -> None:
         except Exception:
             log.exception("check bible load failed")
     if not bible:
-        _reply(channel, thread_ts, f"'{work}' 바이블을 아직 못 찾았어요. 먼저 노션 링크로 동기화해 주세요.")
+        _reply(channel, thread_ts,
+               f"'{work}' 바이블(작품 설정 정보)을 아직 못 찾았어요. 먼저 노션 링크로 동기화해 주세요.\n"
+               "예: `[동기화] <노션링크>` 또는 그냥 노션 페이지 링크를 이 채널에 붙여넣기만 해도 등록돼요.")
         return
     _CANCEL.discard(thread_ts)
     ph = _thinking(channel, thread_ts, "확인 중이에요…")
@@ -3785,6 +3863,12 @@ def _handle_dispatch(event: dict) -> None:
                            "**새 작품 기획안**을 만들 수도 있어요.\n"
                            "만들려면 이 스레드에 `기획안 만들어줘`(또는 `기획`) 라고 답글 주세요.")
             return
+        # 등록된 작품이 하나도 없는 신규 팀 상태 → 뭘 치든 '가장 먼저 할 일'을 안내
+        # (2026-07-16, 온보딩 B3). 유효한 [명령]이나 노션 링크를 이미 쓴 경우는 위에서 먼저
+        # 처리/리턴되므로 여기까지 안 옴 — 진짜로 감 못 잡은 첫 시도만 걸림.
+        if not in_thread and not works.all_works():
+            _reply(channel, thread_ts, _ONBOARD_FIRST_CONTACT)
+            return
         # 파일 기반 기획안 제안('새 작품 기획안')에 대한 수락 답글 → 부모 첨부로 [기획] 실행
         if (in_thread and _PLAN_ACCEPT_RE.search(query)
                 and (len(query.strip()) <= 20 or re.search(r"기획|만들", query))):
@@ -3981,7 +4065,13 @@ def _handle_dispatch(event: dict) -> None:
         elif re.search(r"(만들|작성|생성|뽑|그려|써|쓰|짜)(?:어|아)?\s*(?:봐|줘|줄래|주세요)?", rest_f):
             _do_freeform(channel, thread_ts, f"{cmd} {rest_f}".strip())
         else:
-            _reply_dedup(channel, thread_ts, f"`[{cmd}]` 는 모르는 명령이에요.\n\n" + _GUIDE)
+            # 오타 추정: 아는 명령들과 가장 비슷한 걸 먼저 제안 (2026-07-16, 온보딩 E —
+            # 예전엔 그냥 전체 가이드만 던져서 뭘 잘못 쳤는지 스스로 찾아야 했음).
+            _suggestion = ""
+            _close = difflib.get_close_matches(cmd, _ALL_CMD_NAMES, n=1, cutoff=0.6)
+            if _close:
+                _suggestion = f"혹시 `[{_close[0]}]`를 말씀하신 거예요?\n\n"
+            _reply_dedup(channel, thread_ts, f"`[{cmd}]` 는 모르는 명령이에요.\n\n" + _suggestion + _GUIDE)
 
 
 def _draft_action_ctx(body: dict):
@@ -4008,6 +4098,30 @@ def on_draft_approve(ack, body):
         _do_input(ch, th, path, mode="save")   # 스레드 직전 초안 캡처 → 시트+노션 저장
     except Exception:
         log.exception("draft_approve 실패")
+
+
+@app.action("draft_level_select")
+def on_draft_level_select(ack, body):
+    """강도 1~5 비교 흐름의 저장 드롭다운 선택 → on_draft_approve와 같은 저장 경로(_do_input)
+    재사용 (2026-07-16, 온보딩 C). 버튼 대신 드롭다운이라 payload 모양만 다르고 저장 로직은 동일."""
+    ack()
+    try:
+        action = body["actions"][0]
+        v = json.loads(action["selected_option"]["value"])
+        ch = (body.get("channel") or {}).get("id")
+        msg = body.get("message") or {}
+        th = msg.get("thread_ts") or msg.get("ts")
+        work, top, mid, level = v.get("w"), v.get("t"), v.get("m", ""), v.get("l") or None
+        log.info("draft_level_select: work=%s top=%s mid=%s level=%s", work, top, mid, level)
+        path = f"<{work}> {top}" + (f" / {mid}" if mid else "") + (f" 강도 {level}로 저장" if level else "")
+        try:                                   # 드롭다운 비활성화(중복 선택 방지)
+            app.client.chat_update(channel=ch, ts=msg.get("ts"),
+                                   text=f"✅ 강도 {level} 저장할게요.", blocks=[])
+        except Exception:
+            pass
+        _do_input(ch, th, path, mode="save")   # 스레드 직전 초안 캡처 → 시트+노션 저장
+    except Exception:
+        log.exception("draft_level_select 실패")
 
 
 @app.action("draft_regen")
