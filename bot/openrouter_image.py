@@ -574,7 +574,16 @@ def _shot_mentions(work: str | None, shot: dict) -> list[str]:
     mentions = (list(shot.get("characters") or []) + list(shot.get("places") or [])
                 + list(shot.get("props") or []) + list(shot.get("elements") or []))
     tnorm = _nfc(f"{shot.get('prompt', '')} {shot.get('caption', '')}")
+    # ★2026-07-16: 사용자 실측 — "선우, 리안, 하진 다 같은 사람으로 만들었음". 원인: 이 텍스트
+    # 스캔이 person 타입까지 훑어서, 캡션에 다른 인물 이름이 그저 "언급"만 돼도(예: 리안 단독
+    # 클로즈업 캡션에 "시선이 선우를 향하다가 하진 쪽으로"처럼 서사상 이름이 나오는 경우) 그
+    # 인물이 화면에 없는데도 얼굴 참조가 붙어버렸다(실측: "characters":["리안"]인데 person 참조
+    # 3개 부착). person/place/prop은 이미 3단계가 별도 JSON 필드로 정확히 채워주므로 이 텍스트
+    # 스캔이 필요 없다 — 이 스캔의 원래 목적은 의상(costume, 전용 필드가 없어 캡션/프롬프트
+    # 텍스트에 등장하는 정식 이름으로만 매칭 가능)뿐이었다. costume 타입만 스캔하도록 좁힌다.
     for e in load_elements(work):
+        if e.get("type") != "costume":
+            continue
         for nm in _element_names(e):
             if len(nm) >= 2 and nm in tnorm:
                 mentions.append(e.get("display") or nm)
@@ -641,8 +650,14 @@ _ROLE_INSTRUCTIONS = {
 }
 
 
-def shot_ref_entries(work: str | None, shot: dict) -> list[tuple[str, str]]:
-    """(role, url) 순서쌍 — costume-first 순서 유지. role은 person/costume/place/prop."""
+def shot_ref_entries(work: str | None, shot: dict) -> list[tuple[str, str, str | None]]:
+    """(role, url, gender) 순서쌍 — costume-first 순서 유지. role은 person/costume/place/prop.
+    gender는 role=="person"이고 등록된 성별이 있을 때만 값이 있고, 그 외엔 None — ★2026-07-16:
+    "리안이 갑자기 여자가 됐어" 사고 원인 조사 — 실제 컷 생성 프롬프트에는 성별을 명시하는
+    텍스트가 전혀 없어(_generate_element_candidate의 gender_instr는 얼굴 참조 사진 자체를
+    만들 때만 쓰임) 얼굴 참조 이미지 하나에만 100% 의존하고 있었다. 참조가 그 컷에 어떤 이유로
+    안 붙으면 텍스트에 성별 앵커가 전혀 없어 모델이 이름만 보고 추측(오추측 가능)했다. 이
+    gender를 reference_priority_block에서 텍스트로도 명시해 이중 안전장치로 쓴다."""
     out, seen = [], set()
     for m in _shot_mentions(work, shot):
         e = resolve_element(work, m)
@@ -651,7 +666,9 @@ def shot_ref_entries(work: str | None, shot: dict) -> list[tuple[str, str]]:
         seen.add(e.get("id"))
         u = _element_data_url(work, e)
         if u:
-            out.append((e.get("type") or "person", u))
+            etype = e.get("type") or "person"
+            gender = e.get("gender") if etype == "person" else None
+            out.append((etype, u, gender))
     return out
 
 
@@ -677,18 +694,23 @@ def shot_costume_text_notes(work: str | None, shot: dict) -> list[tuple[str, str
     return out
 
 
-def reference_priority_block(entries: list[tuple[str, str]]) -> str:
+def reference_priority_block(entries: list[tuple[str, str, str | None]]) -> str:
     """★2026-07-15: 참조 이미지가 여러 장(얼굴+의상 등) 섞이면 생성기가 역할 구분 없이 뒤섞어
     반영하는 문제(실측: 잠옷 의상을 등록해도 얼굴 참조 사진 속 옷차림으로 계속 나옴) — 참조
     순서 재배치(costume-first)만으론 부족해서, 프롬프트 텍스트에 각 참조 이미지가 정확히
     몇 번째이고 무슨 역할인지, 그 역할 밖의 정보는 무시하라고 명시적으로 선언한다(사용자 제공
-    문구 기반). refs가 없으면 빈 문자열(생성 자체엔 영향 없음)."""
+    문구 기반). refs가 없으면 빈 문자열(생성 자체엔 영향 없음).
+    ★2026-07-16: person 참조엔 등록된 성별이 있으면 명시 문구를 덧붙인다 — "리안이 갑자기
+    여자가 됐어" 사고 이중 안전장치(위 shot_ref_entries 주석 참고)."""
     if not entries:
         return ""
     lines = ["REFERENCE PRIORITY — each reference image below has ONE role only; "
              "ignore anything outside that role:"]
-    for i, (role, _url) in enumerate(entries, 1):
+    for i, entry in enumerate(entries, 1):
+        role, _url, gender = entry if len(entry) == 3 else (*entry, None)
         instr = _ROLE_INSTRUCTIONS.get(role, _ROLE_INSTRUCTIONS["prop"])
+        if role == "person" and gender in ("male", "female"):
+            instr += f" This character is {gender} — keep the generated character clearly {gender}."
         lines.append(f"Reference image {i}: {instr}")
     return "\n".join(lines)
 

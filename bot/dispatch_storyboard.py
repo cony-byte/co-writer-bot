@@ -1285,8 +1285,8 @@ def _render_cuts(channel, thread_ts, work, bible, source_text, *,
             # 맨 뒤에 붙인다(사용자 요구: "무드는 다른 참조보다 뒤에" — 참조 순서에 민감한 생성기
             # 특성상 costume-first처럼 앞에 놓으면 우세해져 다른 참조 역할을 침범할 위험이 있음).
             if s.get("_mood_ref_url"):
-                ref_entries = list(ref_entries) + [("mood", s["_mood_ref_url"])]
-            refs = [u for _role, u in ref_entries]
+                ref_entries = list(ref_entries) + [("mood", s["_mood_ref_url"], None)]
+            refs = [u for _role, u, *_ in ref_entries]
             if prev_png:
                 refs = list(refs) + [oi.png_data_url(prev_png)]
             prompt = f"{s['prompt']}, {style_suffix}" if style_suffix else s["prompt"]
@@ -4973,7 +4973,7 @@ def _autopilot_regen_shot_png(work, cut: dict, reason: str | None = None) -> byt
     if shot["characters"]:
         shot["focus_char"] = shot["characters"][0]
     ref_entries = oi.shot_ref_entries(work, shot)
-    refs = [u for _role, u in ref_entries]
+    refs = [u for _role, u, *_ in ref_entries]
     reason_note = f", (참조와 안 맞는 부분 수정: {reason})" if reason else ""
     prompt = f"{shot.get('prompt') or ''}, {STILL_STYLE}{reason_note}"
     role_block = oi.reference_priority_block(ref_entries)
