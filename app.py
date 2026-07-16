@@ -388,29 +388,62 @@ def _mark_stale_drafts(channel: str, thread_ts: str, work: str, top: str, mid: s
 
 
 def _post_draft_actions(channel: str, thread_ts: str, work: str, top: str, mid: str,
-                        level: int | None = None) -> None:
+                        level: int | None = None, compare_mode: bool = False) -> None:
     """생성 초안 밑에 [✅ 통과 (저장)] / [🔄 재생성] 버튼 메시지를 붙인다.
     버튼 클릭 → _on_draft_approve(저장) / _on_draft_regen(같은 걸 다시 생성).
     level(강도 비교 시): 그 단계 버튼임을 표시 + 저장 시 그 단계 초안을 콕 집어 저장 (2026-07-14, C2 —
-    원래 5개 초안 비교 후 버튼이 하나뿐이라 [✅ 통과]가 늘 '가장 최근'(=강도5)만 저장했음)."""
+    원래 5개 초안 비교 후 버튼이 하나뿐이라 [✅ 통과]가 늘 '가장 최근'(=강도5)만 저장했음).
+    compare_mode(2026-07-16, C): 강도 1~5 비교 흐름에서는 저장 버튼 5개 대신 맨 끝에 드롭다운
+    하나로 저장하게 바뀌어서(_post_level_picker) 여기선 재생성 버튼만 남긴다."""
     _mark_stale_drafts(channel, thread_ts, work, top, mid)
     label = " / ".join(x for x in [top, mid] if x)
     val = json.dumps({"w": work, "t": top, "m": mid or "", "l": level or ""}, ensure_ascii=False)
     btn_text = f"✅ 강도 {level} 저장" if level else "✅ 통과 (저장)"
-    msg_text = f"강도 {level} — {btn_text} 또는 🔄 재생성" if level else f"이 {label} 초안 — ✅ 통과(저장) 또는 🔄 재생성"
+    elements = [{"type": "button", "action_id": "draft_regen", "style": "danger",
+                 "text": {"type": "plain_text", "text": "🔄 재생성"}, "value": val}]
+    if not compare_mode:
+        elements.insert(0, {"type": "button", "action_id": "draft_approve", "style": "primary",
+                            "text": {"type": "plain_text", "text": btn_text}, "value": val})
+    if compare_mode:
+        msg_text = f"강도 {level} — 🔄 재생성만 다시 뽑고 싶으면 눌러주세요 (저장은 아래 드롭다운에서 한 번에)"
+    else:
+        msg_text = (f"강도 {level} — {btn_text} 또는 🔄 재생성" if level
+                    else f"이 {label} 초안 — ✅ 통과(저장) 또는 🔄 재생성")
     try:
         app.client.chat_postMessage(
             channel=channel, thread_ts=thread_ts,
             text=msg_text,
-            blocks=[{"type": "actions", "block_id": "draft_actions", "elements": [
-                {"type": "button", "action_id": "draft_approve", "style": "primary",
-                 "text": {"type": "plain_text", "text": btn_text}, "value": val},
-                {"type": "button", "action_id": "draft_regen", "style": "danger",
-                 "text": {"type": "plain_text", "text": "🔄 재생성"}, "value": val}]}])
+            blocks=[{"type": "actions", "block_id": "draft_actions", "elements": elements}])
     except Exception:
         log.exception("draft action buttons post failed")
         if label:
             _reply(channel, thread_ts, f"_📝 초안입니다. 확정: `[입력] <{work}> {label}`_")
+
+
+def _post_level_picker(channel: str, thread_ts: str, work: str, top: str, mid: str) -> None:
+    """강도 1~5 비교 흐름 끝에 붙이는 저장용 드롭다운 (2026-07-16, 온보딩 C).
+    예전엔 5개 초안마다 각자 [✅ 강도 N 저장] 버튼이 따로 붙어서(총 5쌍) 첫 사용자에게
+    설명 없이 뭘 눌러야 하는지 헷갈렸음 — 버튼 5개를 드롭다운 1개로 합치고, '강도'가 뭔지
+    한 줄 설명을 붙인다. 저장 로직은 on_draft_approve와 동일 경로(_do_input)를 재사용."""
+    options = []
+    for lvl in range(1, 6):
+        val = json.dumps({"w": work, "t": top, "m": mid or "", "l": lvl}, ensure_ascii=False)
+        options.append({"text": {"type": "plain_text", "text": f"강도 {lvl}"}, "value": val})
+    try:
+        app.client.chat_postMessage(
+            channel=channel, thread_ts=thread_ts,
+            text="어느 강도로 저장할까요? (1=약하게 ~ 5=세게)",
+            blocks=[
+                {"type": "section", "text": {"type": "mrkdwn", "text":
+                    "*어느 강도로 저장할까요?* (1=약하게 ~ 5=세게)\n"
+                    "_강도 = 이 장면의 자극/전개 세기. 위 5개 버전을 비교해서 원하는 강도를 골라주세요._"}},
+                {"type": "actions", "block_id": "draft_level_pick", "elements": [
+                    {"type": "static_select", "action_id": "draft_level_select",
+                     "placeholder": {"type": "plain_text", "text": "강도 선택"},
+                     "options": options}]},
+            ])
+    except Exception:
+        log.exception("draft level picker post failed")
 
 
 def _post_revise_actions(channel: str, thread_ts: str, work: str,
@@ -1315,7 +1348,9 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "",
             # 강도 비교: 각 단계 바로 밑에 그 단계 전용 저장 버튼 (2026-07-14, C2 — 끝에 버튼 하나만
             # 있으면 [✅ 통과]가 항상 '가장 최근 초안'(=강도5)을 저장해서 특정 단계 선택 저장이 안 됐음)
             if work and top in ("개요", "대본", "줄거리"):
-                _post_draft_actions(channel, thread_ts, work, top, mid, level=lvl)
+                _post_draft_actions(channel, thread_ts, work, top, mid, level=lvl, compare_mode=True)
+        if work and top in ("개요", "대본", "줄거리"):
+            _post_level_picker(channel, thread_ts, work, top, mid)
         return
 
     # 강도 명시 안 했으면 기본 4로 고정
@@ -3987,6 +4022,30 @@ def on_draft_approve(ack, body):
         _do_input(ch, th, path, mode="save")   # 스레드 직전 초안 캡처 → 시트+노션 저장
     except Exception:
         log.exception("draft_approve 실패")
+
+
+@app.action("draft_level_select")
+def on_draft_level_select(ack, body):
+    """강도 1~5 비교 흐름의 저장 드롭다운 선택 → on_draft_approve와 같은 저장 경로(_do_input)
+    재사용 (2026-07-16, 온보딩 C). 버튼 대신 드롭다운이라 payload 모양만 다르고 저장 로직은 동일."""
+    ack()
+    try:
+        action = body["actions"][0]
+        v = json.loads(action["selected_option"]["value"])
+        ch = (body.get("channel") or {}).get("id")
+        msg = body.get("message") or {}
+        th = msg.get("thread_ts") or msg.get("ts")
+        work, top, mid, level = v.get("w"), v.get("t"), v.get("m", ""), v.get("l") or None
+        log.info("draft_level_select: work=%s top=%s mid=%s level=%s", work, top, mid, level)
+        path = f"<{work}> {top}" + (f" / {mid}" if mid else "") + (f" 강도 {level}로 저장" if level else "")
+        try:                                   # 드롭다운 비활성화(중복 선택 방지)
+            app.client.chat_update(channel=ch, ts=msg.get("ts"),
+                                   text=f"✅ 강도 {level} 저장할게요.", blocks=[])
+        except Exception:
+            pass
+        _do_input(ch, th, path, mode="save")   # 스레드 직전 초안 캡처 → 시트+노션 저장
+    except Exception:
+        log.exception("draft_level_select 실패")
 
 
 @app.action("draft_regen")
