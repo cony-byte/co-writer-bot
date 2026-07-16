@@ -2128,7 +2128,16 @@ def _do_progress_nl(channel: str, thread_ts: str, work: str, m: re.Match) -> Non
 def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
     """스레드 후속 답글 → 스레드를 시작한 명령의 모드로 이어감 (아이디어는 아이디어, 생성은 수정 등)."""
     # '✏️ 수정' 버튼 클릭 후 대기 중인 캐릭터 카드가 있으면, 이 답글을 그 수정 지시로 반영
+    # Bug6(2026-07-16): pending 상태가 디스크에 영구 저장되고(재시작 후에도 살아남음) 만료가
+    # 없어서, 며칠 전 '✏️ 수정' 클릭 후 방치된 스레드에 완전히 무관한 후속 메시지("고마워!")가
+    # 오면 그걸 옛 수정 지시로 오인·반영했다. 생성 시각(ts)을 기록해두고, 너무 오래됐으면
+    # (30분 — 사용자가 버튼 누르고 답장 준비하는 데 걸릴 법한 시간보다 넉넉히 크게 잡음) 조용히
+    # 버리고 일반 메시지 처리로 넘어간다.
+    _PENDING_EDIT_TTL_SEC = 30 * 60
     pend = _CHAR_EDIT_PENDING.pop(thread_ts, None)
+    if pend and (time.time() - pend.get("ts", 0)) > _PENDING_EDIT_TTL_SEC:
+        pend = None
+        _save_draft_caches()
     if pend:
         _save_draft_caches()
         bible = None
@@ -2152,8 +2161,11 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
         _post_char_draft(channel, thread_ts, pend["work"], pend["name"], combined_fb, data, ph=ph,
                          context=ctx, existing=existing)
         return
-    # '✏️ 수정' 버튼 클릭 후 대기 중인 단일 필드(줄거리 등) 수정안이 있으면 반영
+    # '✏️ 수정' 버튼 클릭 후 대기 중인 단일 필드(줄거리 등) 수정안이 있으면 반영 (Bug6: 위와 동일하게 만료 체크)
     fpend = _FIELD_EDIT_PENDING.pop(thread_ts, None)
+    if fpend and (time.time() - fpend.get("ts", 0)) > _PENDING_EDIT_TTL_SEC:
+        fpend = None
+        _save_draft_caches()
     if fpend:
         _save_draft_caches()
         bible = None
@@ -4167,7 +4179,7 @@ def on_char_edit(ack, body):
         except Exception:
             pass
         _CHAR_EDIT_PENDING[th] = {"work": work, "name": name, "feedback": feedback, "context": ctx,
-                                  "existing": existing}
+                                  "existing": existing, "ts": time.time()}
         _save_draft_caches()
         _reply(ch, th,
                f"✏️ *{name}* 카드를 어떻게 바꿀지 이 스레드에 답글로 알려주세요.\n"
@@ -4295,7 +4307,8 @@ def on_field_edit(ack, body):
             app.client.chat_update(channel=ch, ts=mts, text="✏️ 어떻게 바꿀지 답글로 알려주세요.", blocks=[])
         except Exception:
             pass
-        _FIELD_EDIT_PENDING[th] = {"work": work, "field": field_name, "triple": triple, "feedback": feedback}
+        _FIELD_EDIT_PENDING[th] = {"work": work, "field": field_name, "triple": triple, "feedback": feedback,
+                                   "ts": time.time()}
         _save_draft_caches()
         _reply(ch, th, f"✏️ *{field_name}*를 어떻게 바꿀지 이 스레드에 답글로 알려주세요.")
     except Exception:
