@@ -123,7 +123,8 @@ CMD_HELP = {"도움말", "help", "명령어", "가이드", "?"}
 # 명령 없이 아무 말이나 왔을 때: 전체 목록 대신 '뭘 할지' 짧은 안내
 _GUIDE = (
     "안녕하세요! 무엇을 도와드릴까요? 이렇게 시작하면 돼요 👇\n"
-    "• *작품 등록*: 노션 기획안 페이지 **링크만** 붙여넣기\n"
+    "0️⃣ *가장 먼저*: 노션 기획안 페이지 **링크만** 이 채널에 붙여넣으면 자동으로 작품이 등록돼요\n"
+    "   (또는 `[동기화] <노션링크>` 명령으로 등록해도 똑같아요)\n"
     "• *개요·대본*: `[생성] <작품> 2화 개요` (또는 그냥 `2화 개요 써줘`)\n"
     "• *기획안*: `[기획] 라이벌 아이돌 룸메 BL` (+노션링크 주면 그 페이지에 기록)\n"
     "• *검토*: `[피드백] <작품> 3화` / *발상*: `[아이디어] <작품> …`\n"
@@ -259,7 +260,7 @@ def _work_from_thread(joined: str) -> str | None:
     cands = []
     for w, v in (works.all_works() or {}).items():
         for nm in ({w} | set(v.get("aliases") or [])):
-            if nm and len(nm) >= 2 and nm in text:
+            if nm and len(nm) >= 2 and re.search(rf"(?<![\w가-힣]){re.escape(nm)}(?![\w가-힣])", text):
                 cands.append((len(nm), w))
     if cands:
         cands.sort(reverse=True)
@@ -1207,7 +1208,8 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "",
             _reply(channel, thread_ts,
                    "작품명이 없어요 🙂 이대로면 작품 설정(바이블) 없이 **일반 초안**으로 만들어요 — 시트 저장은 안 돼요.\n"
                    "• 그대로 원하면 이 스레드에 `응`(또는 `일반으로`) 답글\n"
-                   "• 더 정확·저장까지 하려면 작품을 넣어 다시: `[생성] <작품> 2화 개요`")
+                   "• 더 정확·저장까지 하려면 작품을 넣어 다시: `[생성] <작품> 2화 개요`\n"
+                   "• 아직 작품을 등록 안 하셨다면: 노션 기획안 페이지 **링크만 붙여넣기**(또는 `[동기화] <노션링크>`)하면 자동 등록돼요")
             return
 
     # ── 자연어 모드: 여러 종류/회차를 한 문장에 요청하면 각각을 표준 경로로 재구성해 순차 생성 ──
@@ -2894,7 +2896,9 @@ def _do_check(channel: str, thread_ts: str, rest: str) -> None:
         except Exception:
             log.exception("check bible load failed")
     if not bible:
-        _reply(channel, thread_ts, f"'{work}' 바이블을 아직 못 찾았어요. 먼저 노션 링크로 동기화해 주세요.")
+        _reply(channel, thread_ts,
+               f"'{work}' 바이블(작품 설정 정보)을 아직 못 찾았어요. 먼저 노션 링크로 동기화해 주세요.\n"
+               "예: `[동기화] <노션링크>` 또는 그냥 노션 페이지 링크를 이 채널에 붙여넣기만 해도 등록돼요.")
         return
     _CANCEL.discard(thread_ts)
     ph = _thinking(channel, thread_ts, "확인 중이에요…")
@@ -3753,6 +3757,12 @@ def _handle_dispatch(event: dict) -> None:
                            "📎 첨부 파일도 있네요. 방금 링크는 **동기화**했고, 이 파일들로 "
                            "**새 작품 기획안**을 만들 수도 있어요.\n"
                            "만들려면 이 스레드에 `기획안 만들어줘`(또는 `기획`) 라고 답글 주세요.")
+            return
+        # 등록된 작품이 하나도 없는 신규 팀 상태 → 뭘 치든 '가장 먼저 할 일'을 안내
+        # (2026-07-16, 온보딩 B3). 유효한 [명령]이나 노션 링크를 이미 쓴 경우는 위에서 먼저
+        # 처리/리턴되므로 여기까지 안 옴 — 진짜로 감 못 잡은 첫 시도만 걸림.
+        if not in_thread and not works.all_works():
+            _reply(channel, thread_ts, _ONBOARD_FIRST_CONTACT)
             return
         # 파일 기반 기획안 제안('새 작품 기획안')에 대한 수락 답글 → 부모 첨부로 [기획] 실행
         if (in_thread and _PLAN_ACCEPT_RE.search(query)
