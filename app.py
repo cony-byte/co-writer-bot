@@ -2028,6 +2028,33 @@ def _do_resync_nl(channel: str, thread_ts: str, work: str) -> None:
                                     "`[동기화] <노션링크>` 로 먼저 등록해주세요.")
 
 
+# '이거 90초 맞아?'/'분량 괜찮아?' 류 — 물어봤을 때만 체크 (2026-07-15, on-demand 전용.
+# 자동으로 매번 붙는 방식은 원한 적 없음 — 명시적으로 물을 때만 반응한다).
+_LENGTH_CHECK_RE = re.compile(r"(?:분량|90\s*초|시간).{0,10}(?:맞|괜찮|넘|넘치|모자라|긴가|짧|충분)")
+
+
+def _do_length_check(channel: str, thread_ts: str) -> None:
+    """스레드 직전 대본 초안을 소리 내어 읽었을 때 대략 몇 초인지 LLM 추정으로 판정 (2026-07-15).
+    글자수 기반 기계적 계산 대신 LLM에 맡기는 이유: 대사·지문·나레이션 읽는 속도가 달라서
+    단순 글자수/속도 나눗셈보다 LLM이 실제 낭독 느낌을 더 잘 추정함."""
+    draft = _last_assistant_draft(channel, thread_ts, "대본", None)
+    if not draft:
+        _reply(channel, thread_ts, "체크할 대본 초안을 스레드에서 못 찾았어요. 먼저 대본을 생성해 주세요.")
+        return
+    ph = _thinking(channel, thread_ts, "분량 체크 중이에요…")
+    try:
+        verdict = generator.complete(
+            "너는 숏폼 드라마 분량 체크 도우미다. 아래 대본을 배우가 연기하듯 소리 내어 읽으면 "
+            "대략 몇 초 걸릴지 추정하고, 목표(90초) 기준으로 많이 넘치는지/모자라는지 딱 한두 문장으로만 "
+            "판정하라. 초 단위 추정치 + 판정만, 다른 설명·인사말 금지.",
+            draft, timeout=60).strip()
+    except Exception:
+        log.exception("length check failed")
+        _post_chunks(channel, thread_ts, "분량 체크 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
+        return
+    _post_chunks(channel, thread_ts, verdict or "(빈 응답)", replace_ts=ph)
+
+
 def _do_progress_nl(channel: str, thread_ts: str, work: str, m: re.Match) -> None:
     """'지금 4화 작업 중이야' 류 — 진행상태(회차 생략 시 기준값)를 자연어로 즉시 갱신 (2026-07-13).
     짧은 상태 마커라 초안 검토 없이 바로 반영 — 잘못돼도 다시 말하면 그만이라 저위험."""
@@ -2176,6 +2203,11 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
     _fword, _ftriple = _find_field_edit(feedback)
     if _fword and _EDIT_INTENT_RE.search(feedback) and work:
         _do_field_edit_nl(channel, thread_ts, work, _fword, _ftriple, feedback, bible)
+        return
+    # '이거 90초 맞아?'/'분량 괜찮아?' 류 — 물었을 때만 체크(2026-07-15). _QUESTION_RE도
+    # "?"로 끝나서 걸리므로, 일반 질문 분기보다 먼저 검사해서 실제 대본을 보고 판정하게 한다.
+    if mode == "gen" and _LENGTH_CHECK_RE.search(feedback):
+        _do_length_check(channel, thread_ts)
         return
     # 순수 질문("민재 설정 뭐야?")은 'gen' 스레드 안에서도 대본/개요 재생성 초안으로 새지 않고
     # 바로 답만 하고 끝냄 (2026-07-14, E2 — 질문 vs 수정 지시 구분 없이 다 revise로 새서
