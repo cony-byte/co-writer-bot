@@ -164,7 +164,7 @@ _HELP = (
     "[생성] <날혐남> 개요 / 11화     ← 다음 줄에 넣고 싶은 포인트 적으면 반영\n"
     "서아가 처음으로 반격하는 장면 꼭 넣어줘\n"
     "\n"
-    "[생성] <날혐남> 대본 / 24화     ← 24화 개요+바이블(작품 설정 정보) 참고해 생성 (자동 검증관문 ON)\n"
+    "[생성] <날혐남> 대본 / 24화     ← 24화 개요+바이블(작품 설정 정보) 참고해 생성 (자동 검증관문(바이블 규칙 위반 자동 점검) ON)\n"
     "[생성] <날혐남> 대본 / 24화 검증생략   ← 빠르게: 바이블 준수 자동검증 끄기\n"
     "\n"
     "[입력] <날혐남> 로그라인\n"
@@ -1399,7 +1399,7 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "",
     # 바이블 없으면(패턴·사례 기반 생성) 기준이 없어 건너뜀. '검증생략'/COWRITER_VERIFY_GATE=0로 off.
     gate_note = ""
     if gate_on and bible:
-        _update_note(channel, ph, f"{what} 초안 검증 중이에요… (바이블 준수 점검)")
+        _update_note(channel, ph, f"{what} 초안 검증 중이에요… (바이블(작품 설정 정보) 준수 점검)")
         v = verify.verify_draft(answer, bible, target_episode=target, kind=top,
                                 llm=generator.complete)
         if v["checked"] and v["fails"]:
@@ -1418,7 +1418,7 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "",
             if flagged:     # 나머지는 고치지 않고 플래그만 — 작가가 보고 판단
                 lines = "\n".join(f"  • *{f.get('name', '?')}*: {(f.get('reason') or '').strip()}"
                                   for f in flagged)
-                parts.append(f"⚠️ 바이블 확인 필요 {len(flagged)}건 (자동 수정 안 함 — 직접 확인하세요)\n{lines}")
+                parts.append(f"⚠️ 바이블(작품 설정 정보) 확인 필요 {len(flagged)}건 (자동 수정 안 함 — 직접 확인하세요)\n{lines}")
             gate_note = "\n".join(parts)
         elif v["checked"]:
             gate_note = "✅ 자동검증: 바이블 준수 이상 없음"
