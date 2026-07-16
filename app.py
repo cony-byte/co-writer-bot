@@ -243,7 +243,7 @@ def _work_from_thread(joined: str) -> str | None:
     cands = []
     for w, v in (works.all_works() or {}).items():
         for nm in ({w} | set(v.get("aliases") or [])):
-            if nm and len(nm) >= 2 and nm in text:
+            if nm and len(nm) >= 2 and re.search(rf"(?<![\w가-힣]){re.escape(nm)}(?![\w가-힣])", text):
                 cands.append((len(nm), w))
     if cands:
         cands.sort(reverse=True)
