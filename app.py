@@ -493,7 +493,10 @@ def _parse_outline_records(content: str, seed: str | None = None) -> list[tuple[
 _DRAFT_FOOT_RE = re.compile(r"(확정하려면|초안입니다|수정하고 싶은 부분|저장하세요|📝 초안|_✅|_⚠️|다듬어서)")
 # 버튼 안내 전용 메시지(내용 없는 UI 프롬프트) — '초안'을 찾을 때 이걸 대본/개요 본문으로
 # 오인하면 안 됨(2026-07-15). _post_draft_actions()가 붙이는 텍스트와 일치.
-_BUTTON_PROMPT_RE = re.compile(r"통과\s*\(저장\)|✅.*재생성|🔄\s*재생성")
+# +2026-07-16: on_revise_specify가 붙이는 "✏️ 원하는 N화 개요 수정 방향을 이 스레드에 답글로
+# 적어주세요" 프롬프트도 같은 문제(내용 없는 안내문인데 "5화 개요"가 들어있어 top/mid 패턴에
+# 걸려 실제 초안으로 오인·저장·노션반영까지 된 실측 사고) — 같은 가드에 추가.
+_BUTTON_PROMPT_RE = re.compile(r"통과\s*\(저장\)|✅.*재생성|🔄\s*재생성|수정\s*방향을.{0,10}답글로\s*적어주세요")
 # 아이디어 '요청'만 (불평 "사건이 없어서~"는 제외 — 그건 수정 피드백)
 _IDEA_INTENT_RE = re.compile(
     r"아이디어|브레인스토|떠올려|뭐하지|뭐 하지|뭐가 좋을까|뭘 넣을까"
@@ -860,6 +863,10 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
     captured = False
     if not content.strip() and top in ("개요", "대본", "줄거리"):
         draft = _last_assistant_draft(channel, thread_ts, top, mid, level=save_level)   # 그 화/종류(+강도) 초안 우선
+        # 방어선: 만에 하나 UI 안내문이 초안으로 잘못 잡혀도 저장/노션반영까지 가지 않게
+        # 한 번 더 확인 (2026-07-16 실측 사고 — 안내문이 시트+노션에 그대로 저장된 적 있음).
+        if draft and _BUTTON_PROMPT_RE.search(draft):
+            draft = None
         if draft:
             content = _clean_for_save(draft, top, mid)   # 강도 뱃지·메모·요청확인·중복제목 제거
             captured = True
