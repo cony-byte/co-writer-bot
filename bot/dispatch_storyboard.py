@@ -3610,6 +3610,11 @@ def _maybe_generate_request(channel, thread_ts, query) -> bool:
     ★단, 화 번호("3화")를 명시했으면 새 스레드라도 통과시킨다(2026-07-14) — 이미 상세 콘티가
     로컬/노션에 저장된 화인데도 "이 스레드엔 콘티가 없다"고 오판해 1단계부터 새로 돌리던
     문제(실무자 지적) — _do_stills/_do_images가 이제 그 화의 저장된 콘티를 스스로 찾아 쓴다.
+    ★2026-07-16: 화 번호와 똑같은 이유로 씬 번호("씬3")도 통과시킨다(실사용자 사고 —
+    "씬3 스틸컷 컷5,13,14 만들어줘"가 화 번호가 없다는 이유만으로 이 게이트를 못 넘고, 훨씬
+    느슨한 catch-all(_do_storyboard_auto_chain, "씬 설계부터 새로 시작")로 새서 대본 씬설계를
+    처음부터 다시 돌려버림). 씬 번호를 콕 집어 말한 것 자체가 "이미 있는 콘티의 특정 씬을
+    가리키는 요청"이라는 강한 신호이므로 화 번호와 동일하게 취급한다.
     ★2026-07-15: 이 경로로 오는 자유 서술형 재생성 지시(각도/구도/자세 등)가 feedback 없이
     _do_stills로 넘어가 조용히 버려지던 실사용자 버그 — _split_regen_cut_override로
     컷 지정과 서술 지시를 분리해 feedback으로 넘긴다."""
@@ -3620,7 +3625,8 @@ def _maybe_generate_request(channel, thread_ts, query) -> bool:
         return False
     _tracked_ctx = conti_state.get_episode(thread_ts) or {}
     if (sb_stage(_thread_messages(channel, thread_ts), work=_tracked_ctx.get("work"), episode=_tracked_ctx.get("episode")) < 2
-            and not re.search(r"\d+\s*[화회]", q)):
+            and not re.search(r"\d+\s*[화회]", q)
+            and not re.search(r"씬\s*\d+", q)):
         return False
     if want_still:
         rest, feedback_text = _split_regen_cut_override(q, q)
@@ -3830,6 +3836,27 @@ def _maybe_video_from_last_still(channel, thread_ts, query) -> bool:
             # 기록해둔다 — 위 주석("실사용자 리포트") 참고.
             _RECENTLY_MISSING_CUTS[thread_ts] = {"work": work, "scene": scene_num, "cuts": set(missing)}
         _reply(channel, thread_ts, f"🎬 컷{lo}~{hi} ({len(picked)}개) 영상 순차 생성 시작… (컷마다 완료되는 대로 하나씩 올라와요)")
+        _generate_videos_for_cuts(channel, thread_ts, work, title, picked, None)
+        return True
+    # ★2026-07-16: "컷3,5,8,9,12,14 영상 만들어줘" — 콤마로 여러 컷을 지정했는데 여기 로직이
+    # 몰라서 아래 단일 컷 정규식(_VIDEO_CUT_NUM_CUT_FIRST_RE)이 맨 앞 숫자("3")만 집어먹고
+    # 나머지(5,8,9,12,14)를 조용히 버리던 실사용 버그 — _do_stills(스틸컷)가 이미 쓰는
+    # _parse_cut_filter("컷5,13,14"/"컷1,3-5" 형식, _do_compile의 씬 필터와 같은 유틸)를
+    # 여기서도 재사용해 콤마·하이픈 혼합 리스트를 전부 인식한다. 물결(~) 범위(_match_video_cut_range,
+    # "2~12")는 이미 위에서 따로 처리되므로 이 체크는 그 다음, 단일 컷 정규식보다 먼저 온다
+    # (콤마 리스트가 단일 숫자 패턴에 절대 먼저 안 먹히게).
+    cut_filter = _parse_cut_filter(q)
+    if cut_filter and len(cut_filter) > 1:
+        picked = [c for c in cuts if c["n"] in cut_filter]
+        missing = sorted(cut_filter - {c["n"] for c in picked})
+        if not picked:
+            avail = ", ".join(str(c["n"]) for c in cuts)
+            _reply(channel, thread_ts, f"컷{','.join(map(str, sorted(cut_filter)))} 중 이 씬에 있는 컷이 없어요. 있는 컷: {avail}")
+            return True
+        if missing:
+            _reply(channel, thread_ts, f"⚠️ 컷{','.join(map(str, missing))}은 이 씬에 없어서 건너뛰어요.")
+        label = ",".join(str(n) for n in sorted(c["n"] for c in picked))
+        _reply(channel, thread_ts, f"🎬 컷{label} ({len(picked)}개) 영상 순차 생성 시작… (컷마다 완료되는 대로 하나씩 올라와요)")
         _generate_videos_for_cuts(channel, thread_ts, work, title, picked, None)
         return True
     # 2026-07-16: "컷 3개 만들어줘"(개수 요청)의 "3"이 컷 번호로 오인돼 "컷3을 못
