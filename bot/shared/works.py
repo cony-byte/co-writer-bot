@@ -6,13 +6,23 @@
 
 저장 형식: { "<정식작품명>": {"page": "<32자리 page_id>", "aliases": ["별칭1", ...]} }
 env NOTION_PAGES({이름:page_id})도 기본값으로 병합(파일이 우선).
+
+(2026-07-16, 봇 합체 HANDOFF §3-2) co-writer-bot/storyboard-bot 두 버전을 병합.
+storyboard 버전에는 `COWRITER_WORKS_PATH` env로 co-writer repo의 notion_pages.json을 가리키고,
+`_cowriter_env_pages()`로 그 옆의 .env까지 따로 읽어 NOTION_PAGES를 병합하는 로직이 있었다 —
+두 봇이 서로 다른 repo/프로세스로 떨어져 있을 때 "저쪽 봇이 등록한 작품"을 이쪽에서도 알아보기
+위한 다리였음. 이제 두 봇이 이 repo 하나, `.env` 파일 하나를 공유하므로 그 다리 자체가
+필요 없어졌다: `COWRITER_WORKS_PATH`는 이미 삭제됐고(.env 참고), `_cowriter_env_pages()`가
+읽으려던 NOTION_PAGES는 `config.NOTION_PAGES`가 같은 .env에서 이미 읽어와 들고 있는 값과
+동일하다 — 그대로 남겨뒀다면 같은 값을 파일에서 다시 파싱하는 죽은 코드가 됐을 것이므로
+드롭했다. `_looks_like_bad_work()`/`_TRAILING_SUFFIXES` 가드는 두 버전 모두에 필요해 유지.
 """
 from __future__ import annotations
 
 import json
 import re
 
-from . import config
+from .. import config
 
 _PATH = config.BASE_DIR / "data" / "notion_pages.json"
 
@@ -36,6 +46,7 @@ def all_works() -> dict:
     for name, page in (config.NOTION_PAGES or {}).items():
         if name not in known:
             d[name] = {"page": page, "aliases": []}
+            known.add(name)
     return d
 
 
@@ -68,7 +79,6 @@ def sanitize(name: str) -> str:
     (2026-07-15) 노션 페이지 제목을 그대로 정식명으로 쓰다 보니 중복 공백이나
     '…기획안/기획서' 같은 꼬리표가 그대로 등록돼 부르기 지저분했던 문제 —
     공백을 하나로 줄이고, 끝단어가 그 꼬리표면 떼어낸다."""
-    import re
     s = re.sub(r"[\[\]:*?/\\]", " ", name or "").strip()
     s = re.sub(r"\s+", " ", s)
     for suf in _TRAILING_SUFFIXES:

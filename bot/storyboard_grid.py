@@ -80,9 +80,10 @@ def _wrap(draw, text: str, font, max_w: int, max_lines: int) -> list[str]:
 
 def build_grid(panels: list[tuple[bytes, int, str]], *, cols: int = 6, panel_w: int = 400,
                pad: int = 12, cap_lines: int = 3, bg=(18, 18, 20),
-               fg=(236, 236, 236)) -> bytes:
+               fg=(236, 236, 236), no_text: bool = False) -> bytes:
     """panels = [(png_bytes, 번호, 캡션)] → 그리드 PNG bytes.
-    각 셀 = 이미지(첫 이미지 비율로 통일) + 좌상단 번호칩 + 하단 캡션바."""
+    기본: 각 셀 = 이미지(첫 이미지 비율로 통일) + 좌상단 번호칩 + 하단 캡션바.
+    no_text=True: 번호칩·캡션바 없이 이미지만(스틸컷용 — 화면에 글자 없음)."""
     from PIL import Image, ImageDraw
 
     imgs = []
@@ -99,7 +100,7 @@ def build_grid(panels: list[tuple[bytes, int, str]], *, cols: int = 6, panel_w: 
     cap_font = _font(20)
     num_font = _font(22)
     line_h = cap_font.getbbox("가")[3] + 6
-    cap_h = cap_lines * line_h + 12          # 캡션바 높이
+    cap_h = 0 if no_text else (cap_lines * line_h + 12)   # 캡션바 높이(no_text면 0)
     cell_w = panel_w
     cell_h = panel_h + cap_h
 
@@ -115,6 +116,8 @@ def build_grid(panels: list[tuple[bytes, int, str]], *, cols: int = 6, panel_w: 
         x = pad + c * (cell_w + pad)
         y = pad + r * (cell_h + pad)
         canvas.paste(im.resize((panel_w, panel_h), Image.LANCZOS), (x, y))
+        if no_text:
+            continue
         # 하단 캡션바
         by = y + panel_h
         draw.rectangle([x, by, x + cell_w, by + cap_h], fill=(0, 0, 0))

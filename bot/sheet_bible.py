@@ -170,7 +170,7 @@ def _notion_scripts(work: str) -> dict:
     if not config.NOTION_TOKEN:
         return {}
     try:
-        from . import notion_sync, works
+        from .shared import notion_sync, works
         pid = works.page_of(work)
         if not pid:
             return {}

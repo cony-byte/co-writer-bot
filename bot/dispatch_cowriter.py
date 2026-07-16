@@ -1,22 +1,4 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""co-writer-bot — 숏폼 드라마 보조 작가 슬랙 에이전트.
-
-명령 = [명령] <작품> 경로 형식. 앞에 [명령]이 없으면 사용법 안내.
-
-  [입력] <날혐남> 로그라인            → 신규 저장 (이미 있으면 경고)
-  [수정] <날혐남> 로그라인            → 기존 값 고침 (없으면 경고)
-  [입력] <날혐남> 인물 / 강태혁 / 설정  → 등장인물 소분류 저장
-  [생성] <날혐남> 대본 / 24화         → 24화 개요+바이블 참고해 생성 + 시트 저장
-  [변환] 휴대폰 보는 연우…            → 줄글 상황을 드라마 대본식 지문으로 구체화
-  [트렌드] 엔딩                      → 트렌드 조회
-  [새로고침] / [리로드]              → 캐시 무효화
-
-바이블 = 구글 시트(탭=작품). 대분류/중분류/소분류 계층으로 저장하고, [생성] 시 봇이 그 작품 탭을
-통째로 읽어 PART D(시점·개요 준수)에 반영한다.
-
-실행: python3 app.py  (Socket Mode — 공개 URL 불필요)
-"""
+"""dispatch_cowriter.py -- co-writer-only command handlers, mechanically extracted verbatim from co-writer-bot/app.py via ast line-span slicing. See extraction report for the rename/collision map and gap report."""
 import difflib
 import hashlib
 import json
@@ -28,71 +10,94 @@ import time
 import unicodedata
 import urllib.request
 import uuid
-
-from slack_bolt import App
-from slack_bolt.adapter.socket_mode import SocketModeHandler
-
 from bot import config, generator, prefs, prompts, reference, verify
 from bot.shared import job_ledger, works
 
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("co-writer")
+from bot.shared.files import _files_text, _image_files, _decode_text, _hwpx_text, _parse_json_array
+from bot.shared.slack_io import (
+    app, log, _reply, _post_chunks, _thread_messages, _mrkdwn, _thinking, _update_note,
+    _clean, _looks_like_mention, _convo_text, _last_assistant_with, _md_table_to_csv,
+    _work_from_thread, BOT_USER_ID, _CANCEL,
+)
 
-app = App(token=config.SLACK_BOT_TOKEN)
-BOT_USER_ID = app.client.auth_test()["user_id"]
 
 MENTION_RE = re.compile(rf"<@{BOT_USER_ID}>\s*")
+
 CMD_RE = re.compile(r"^\s*\[\s*([^\]]+?)\s*\]\s*(.*)$", re.S)   # [명령] 나머지
+
 SUB_RE = re.compile(r"^\s*<\s*([^>]+?)\s*>\s*(.*)$", re.S)      # <작품> 나머지
 
-# 상위 명령 별칭
 CMD_INPUT = {"입력", "저장", "input"}
+
 CMD_EDIT = {"수정", "편집", "edit"}
+
 CMD_GEN = {"생성", "generate", "gen"}
+
 CMD_PLAN = {"기획", "기획안", "작품생성", "plan"}                          # 컨셉 → 기획안 초안(노션 구조)
+
 CMD_CONVERT = {"변환", "포맷", "대본변환"}
+
 CMD_STORYBOARD = {"스토리보드", "스토리보드1", "스보", "스보1", "씬설계", "storyboard", "storyboard1"}   # 1단계 씬 설계
+
 CMD_STORYBOARD2 = {"스토리보드2", "스보2", "콘티", "상세콘티", "storyboard2"}                             # 2단계 상세 콘티
+
 CMD_STORYBOARD_IMG = {"이미지", "스토리보드3", "스보3", "그리드", "image", "storyboard3"}                  # 3단계 이미지 그리드
-# 스토리보드 스레드에서 이 말이 오면 1단계(씬 설계) → 2단계(상세 콘티)로 넘어감
+
 SB_GEN_RE = re.compile(r"^\s*(생성|생성해|생성해줘|콘티|상세\s*콘티|만들어|만들어줘|ㄱㄱ|고고)\s*$")
-# 단계 배지 (출력 맨 위에 붙여 슬랙에서 어느 단계인지·다음에 뭘 칠지 보이게). 마커([1단계]/[2단계])는 _sb_stage가 씀.
+
 SB_BADGE_PLAN = "🎬 *[1단계] 씬 설계* — 씬 나누기·시간 고칠 것 있으면 말해주세요. 좋으면 「생성」\n\n"
+
 SB_BADGE_BOARD = "🎬 *[2단계] 상세 콘티* — 이 콘티를 GPT 이미지에 넣으면 그림 콘티가 나와요. 고칠 것 있으면 말해주세요.\n\n"
+
 CMD_TREND = {"트렌드", "trend"}
+
 CMD_IDEA = {"아이디어", "아이디어 제시", "아이디어제시", "제안", "idea"}
+
 CMD_SYNC = {"동기화", "노션동기화", "sync"}                              # 노션 붙여넣기 → 시트
+
 CMD_CHECK = {"확인", "조회", "check"}                                    # 바이블 한 줄 조회
+
 CMD_ALIAS = {"별칭", "별명", "약칭", "닉네임", "alias"}                   # 작품에 부를 이름 추가
+
 CMD_FEEDBACK = {"피드백", "feedback", "평가", "리뷰", "review"}          # 둘 다
+
 CMD_FB_FUN = {"재미", "피드백 재미", "피드백재미", "fun"}                 # 재미만
+
 CMD_FB_LOGIC = {"개연성", "피드백 개연성", "피드백개연성", "논리", "logic"}  # 개연성만
+
 CMD_STOP = {"멈춰", "멈춤", "중지", "정지", "스톱", "그만", "stop", "cancel"}
-# 스레드의 마지막 봇 답변(또는 명령 아래 줄 내용/첨부)을 md·txt·csv 파일로 내보내 슬랙에 업로드.
+
 CMD_FILE = {"파일", "내보내기", "다운로드", "export", "file", "md", "markdown", "txt", "csv"}
+
 _EXPORT_TYPES = {
     "md": ".md", "markdown": ".md", "마크다운": ".md",
     "txt": ".txt", "text": ".txt", "텍스트": ".txt",
     "csv": ".csv", "시트": ".csv",
 }
-# 첨부 이미지를 캐릭터 참조(얼굴 고정값)로 등록 → data/refs/<작품>/<인물>.png. [이미지] 생성이 자동으로 씀.
+
 CMD_REF = {"참조", "레퍼런스", "캐릭터", "얼굴", "인물참조", "ref", "reference"}
+
 _REF_SAVE_EXTS = (".png", ".jpg", ".jpeg", ".webp")     # openrouter_image._REF_EXTS와 동일해야 함
+
 _IMG_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".heic", ".tiff")
+
 CMD_LIKE = {"좋아", "좋아요", "굿", "like", "👍"}
+
 CMD_DISLIKE = {"별로", "별로야", "싫어", "노", "dislike", "👎"}
-_CANCEL: set[str] = set()   # 취소 요청된 thread_ts (생성 결과를 버림)
+
+# _CANCEL now imported from bot.shared.slack_io (2026-07-16, Phase 4 collision fix --
+# see that module's comment: was a separate, disconnected set here before, so the merged
+# router's STOP handler never actually reached co-writer's own cancel checks).
+
 _CHAR_EDIT_PENDING: dict[str, dict] = {}   # thread_ts → {work,name,feedback} ('✏️ 수정' 클릭 후 다음 답글 대기)
-# 캐릭터 카드 버튼용 서버측 캐시(id → {w,n,fb,d,ctx}) — 버튼 value에 통째로 넣으면 Slack의
-# 2000자 제한(invalid_blocks)에 걸려서(2026-07-13 실측), 짧은 id만 버튼에 넣고 내용은 여기 보관.
+
 _CHAR_DRAFT_CACHE: dict[str, dict] = {}
+
 _FIELD_EDIT_PENDING: dict[str, dict] = {}   # thread_ts → {work,field,triple,feedback} ('✏️ 수정' 대기
+
 _FIELD_DRAFT_CACHE: dict[str, dict] = {}    # 단일 필드(줄거리 등) 자연어 수정 초안 캐시(버튼 value용)
 
-# 위 4개 캐시는 원래 메모리 전용이라 봇 재시작(자동 push→재시작 훅) 때마다 눌러둔 버튼이 전부
-# "만료됐어요"로 죽었음(2026-07-14, C1) — 파일에도 같이 써서 재시작 후에도 복원.
 _DRAFT_CACHE_PATH = config.BASE_DIR / "data" / "draft_caches.json"
-
 
 def _save_draft_caches() -> None:
     try:
@@ -104,7 +109,6 @@ def _save_draft_caches() -> None:
     except Exception:
         log.exception("draft cache save failed")
 
-
 def _load_draft_caches() -> None:
     try:
         d = json.loads(_DRAFT_CACHE_PATH.read_text(encoding="utf-8"))
@@ -115,14 +119,12 @@ def _load_draft_caches() -> None:
     _CHAR_EDIT_PENDING.update(d.get("char_pending") or {})
     _FIELD_EDIT_PENDING.update(d.get("field_pending") or {})
 
-
-_load_draft_caches()
 CMD_REFRESH = {"새로고침", "refresh"}
+
 CMD_RELOAD = {"리로드", "reload"}
+
 CMD_HELP = {"도움말", "help", "명령어", "가이드", "?"}
 
-# 모르는 명령('[생상]' 등 오타)일 때 difflib로 가장 비슷한 걸 제안하기 위한 전체 명령명 모음
-# (2026-07-16, 온보딩 E).
 _ALL_CMD_NAMES = sorted(
     CMD_INPUT | CMD_EDIT | CMD_GEN | CMD_PLAN | CMD_CONVERT | CMD_STORYBOARD | CMD_STORYBOARD_IMG
     | CMD_TREND | CMD_IDEA | CMD_SYNC | CMD_CHECK | CMD_ALIAS | CMD_FEEDBACK | CMD_FB_FUN
@@ -130,7 +132,6 @@ _ALL_CMD_NAMES = sorted(
     | CMD_REFRESH | CMD_RELOAD | CMD_HELP
 )
 
-# 명령 없이 아무 말이나 왔을 때: 전체 목록 대신 '뭘 할지' 짧은 안내
 _GUIDE = (
     "안녕하세요! 무엇을 도와드릴까요? 이렇게 시작하면 돼요 👇\n"
     "0️⃣ *가장 먼저*: 노션 기획안 페이지 **링크만** 이 채널에 붙여넣으면 자동으로 작품이 등록돼요\n"
@@ -142,8 +143,6 @@ _GUIDE = (
     "_스레드 안에선 작품 이름 없이 자연어로 이어 말해도 돼요. 전체 명령은 `[도움말]`._"
 )
 
-# 첫 인사/모호한 첫 대화 감지 (2026-07-16, 온보딩 A) — '작품 등록'을 아직 모르는
-# 완전 초보 사용자가 가장 먼저 마주칠 문구들.
 _GREETING_RE = re.compile(
     r"안녕|^hi\b|^hello\b|반가워|처음|뭐\s*할\s*수\s*있|어떻게\s*써|어떻게\s*쓰|사용법|시작\s*(어떻게|할까|하려)",
     re.I,
@@ -196,21 +195,6 @@ _HELP = (
     "• 개요 / <N화> · 대본 / <N화>"
 )
 
-
-def _clean(text: str) -> str:
-    # 슬랙은 사용자가 친 < > & 를 HTML 엔티티로 보냄 → 되돌려야 <작품> 패턴이 잡힘
-    text = MENTION_RE.sub("", text or "")
-    text = text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
-    text = text.strip()
-    # 슬랙이 자동으로 붙인 목록 기호(1. / 1) / - / • 등)를 앞에서 제거 → 명령이 '['로 시작하게
-    text = re.sub(r"^\s*(?:\d+[.)]|[-*•·▪◦])\s+", "", text)
-    return text.strip()
-
-
-def _reply(channel: str, thread_ts: str, text: str) -> None:
-    app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
-
-
 def _is_dup_last(channel: str, thread_ts: str, text: str) -> bool:
     """스레드의 마지막 봇 메시지가 이 문구와 완전히 같은지(같은 오류/안내가 재시도 중
     연달아 두 번 나가는 것 방지, 2026-07-15)."""
@@ -219,96 +203,19 @@ def _is_dup_last(channel: str, thread_ts: str, text: str) -> bool:
         return False
     return msgs[-1]["content"].strip() == text.strip()
 
-
 def _reply_dedup(channel: str, thread_ts: str, text: str) -> None:
     """같은 안내/오류 문구가 스레드 마지막 봇 메시지와 완전히 같으면 다시 보내지 않는다."""
     if _is_dup_last(channel, thread_ts, text):
         return
     _reply(channel, thread_ts, text)
 
-
-def _thread_messages(channel: str, thread_ts: str) -> list[dict]:
-    """스레드 전체를 슬랙에서 다시 읽어 모델 메시지로 변환 (무상태 — 재시작에 안전)."""
-    resp = app.client.conversations_replies(
-        channel=channel, ts=thread_ts, limit=config.THREAD_HISTORY_LIMIT
-    )
-    messages: list[dict] = []
-    for m in resp.get("messages", []):
-        text = _clean(m.get("text", ""))
-        if not text:
-            continue
-        role = "assistant" if m.get("user") == BOT_USER_ID or m.get("bot_id") else "user"
-        messages.append({"role": role, "content": text})
-    while messages and messages[0]["role"] != "user":
-        messages.pop(0)
-    return messages
-
-
 _MENTION_TOKEN_RE = re.compile(r"^[@#!]|^[UBWC][A-Z0-9]{6,}(\||$)")   # <@U..>/<#C..|이름>/<!here> 등
 
-
-def _looks_like_mention(w: str) -> bool:
-    """슬랙 멘션/채널 토큰을 <작품> 태그로 오인하지 않게. 예: '@U0BGBH3DQKG'가 실제로
-    작품명으로 시트에 저장돼 가짜 탭이 생기던 버그(2026-07-13, storyboard-bot과 동일 문제)."""
-    w = (w or "").strip()
-    return bool(w) and bool(_MENTION_TOKEN_RE.match(w))
-
-
-def _work_from_thread(joined: str) -> str | None:
-    """스레드 텍스트에서 작품 회수: ①노션 링크 → 등록 작품 ②<작품> 토큰(URL·멘션·플레이스홀더 제외).
-    슬랙이 감싼 링크 `<https://…>`나 멘션 `<@U..>`, 봇 예시문의 리터럴 '<작품>'을 작품명으로
-    오인하지 않게 함(2026-07-13: 이 세 경우가 실제로 시트에 가짜 탭을 만든 적 있음)."""
-    lm = re.search(r"https?://\S*notion\.\S+", joined or "")
-    if lm:
-        from bot.shared import notion_sync
-        pid = notion_sync.extract_page_id(lm.group(0))
-        if pid:
-            w = works.work_by_page(pid)
-            if w:
-                return w
-    for w in re.findall(r"<\s*([^>]+?)\s*>", joined or ""):
-        w = w.strip()
-        if w.startswith("http") or "notion." in w or _looks_like_mention(w) or w == "작품":
-            continue
-        return w
-    # 꺾쇠 없이도 등록된 작품명/별칭이 문장에 그대로 있으면 인식 (2026-07-14, B1 —
-    # storyboard-bot엔 이미 있던 로직. 가장 긴 매칭 우선(짧은 이름이 다른 이름의 부분문자열일 때 오매칭 방지).
-    text = joined or ""
-    cands = []
-    for w, v in (works.all_works() or {}).items():
-        for nm in ({w} | set(v.get("aliases") or [])):
-            if nm and len(nm) >= 2 and re.search(rf"(?<![\w가-힣]){re.escape(nm)}(?![\w가-힣])", text):
-                cands.append((len(nm), w))
-    if cands:
-        cands.sort(reverse=True)
-        return cands[0][1]
-    return None
-
-
-def _thinking(channel: str, thread_ts: str, note: str = "생성 중이에요… (몇 초~1분)") -> str | None:
-    """진행 표시용 플레이스홀더 메시지. 완료되면 _post_chunks(replace_ts=...)로 교체됨."""
-    try:
-        r = app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"⏳ {note}")
-        return r.get("ts")
-    except Exception:
-        return None
-
-
-def _update_note(channel: str, ts: str | None, note: str) -> None:
-    """진행 플레이스홀더 문구만 갱신 (검증 등 중간 단계 표시용). 실패는 무시."""
-    if not ts:
-        return
-    try:
-        app.client.chat_update(channel=channel, ts=ts, text=f"⏳ {note}")
-    except Exception:
-        pass
-
-
-# 검증 관문 on/off 플래그 (요청문에서). '검증생략'/'빠르게'=off, '검증'=on, 없으면 기본값.
 _VERIFY_OFF_RE = re.compile(r"검증\s*(생략|끄기|스킵|off)|빠르게|noverify", re.I)
-_VERIFY_ON_RE = re.compile(r"검증", re.I)
-_VERIFY_TOKENS_RE = re.compile(r"\s*(검증\s*(생략|끄기|스킵|off)?|빠르게|noverify)", re.I)
 
+_VERIFY_ON_RE = re.compile(r"검증", re.I)
+
+_VERIFY_TOKENS_RE = re.compile(r"\s*(검증\s*(생략|끄기|스킵|off)?|빠르게|noverify)", re.I)
 
 def _verify_gate_on(text: str, default: bool) -> bool:
     if _VERIFY_OFF_RE.search(text or ""):
@@ -317,12 +224,10 @@ def _verify_gate_on(text: str, default: bool) -> bool:
         return True
     return default
 
-
 def _do_stop(channel: str, thread_ts: str) -> None:
     """[멈춰] — 이 스레드에서 진행 중인 생성 결과를 버리게 표시."""
     _CANCEL.add(thread_ts)
     _reply(channel, thread_ts, "🛑 멈출게요. 진행 중이던 초안은 결과를 버립니다.")
-
 
 def _cancelled(channel: str, thread_ts: str, ph: str | None) -> bool:
     """생성 완료 후 호출: 취소 요청이 있었으면 결과를 버리고 True."""
@@ -331,36 +236,6 @@ def _cancelled(channel: str, thread_ts: str, ph: str | None) -> bool:
         _post_chunks(channel, thread_ts, "🛑 멈췄어요. 초안은 버렸어요.", replace_ts=ph)
         return True
     return False
-
-
-def _mrkdwn(text: str) -> str:
-    """표준 마크다운 → 슬랙 mrkdwn. **볼드**→*볼드*, ## 헤더 → 굵은 줄."""
-    text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text or "")          # **x** → *x*
-    text = re.sub(r"(?m)^\s{0,3}#{1,6}\s*(.+?)\s*$", r"*\1*", text)  # # 헤더 → *굵은 줄*
-    return text
-
-
-def _post_chunks(channel: str, thread_ts: str, text: str, replace_ts: str | None = None) -> None:
-    """슬랙 메시지 길이 제한(4000자) 대응 — 문단 경계로 분할 전송.
-    replace_ts가 있으면 첫 청크로 그 플레이스홀더를 교체(update)한다."""
-    chunk, chunks = "", []
-    for para in _mrkdwn(text or "(빈 응답)").split("\n\n"):
-        if len(chunk) + len(para) + 2 > 3800:
-            chunks.append(chunk)
-            chunk = para
-        else:
-            chunk = f"{chunk}\n\n{para}" if chunk else para
-    if chunk:
-        chunks.append(chunk)
-    for i, c in enumerate(chunks):
-        if i == 0 and replace_ts:
-            try:
-                app.client.chat_update(channel=channel, ts=replace_ts, text=c)
-                continue
-            except Exception:
-                pass
-        _reply(channel, thread_ts, c)
-
 
 def _post_code(channel: str, thread_ts: str, text: str) -> None:
     """정렬 유지가 필요한 촬영대본은 코드블록(monospace)으로. 줄 경계로 분할."""
@@ -375,7 +250,6 @@ def _post_code(channel: str, thread_ts: str, text: str) -> None:
         chunks.append(buf)
     for c in chunks:
         _reply(channel, thread_ts, f"```\n{c}\n```")
-
 
 def _mark_stale_drafts(channel: str, thread_ts: str, work: str, top: str, mid: str) -> None:
     """같은 작품/종류/회차의 예전 [✅ 통과(저장)/🔄 재생성] 버튼 메시지가 남아있으면
@@ -402,7 +276,6 @@ def _mark_stale_drafts(channel: str, thread_ts: str, work: str, top: str, mid: s
                                        text="⚠️ 이 초안은 중단됨(아래가 최신)", blocks=[])
             except Exception:
                 pass
-
 
 def _post_draft_actions(channel: str, thread_ts: str, work: str, top: str, mid: str,
                         level: int | None = None, compare_mode: bool = False) -> None:
@@ -436,7 +309,6 @@ def _post_draft_actions(channel: str, thread_ts: str, work: str, top: str, mid: 
         if label:
             _reply(channel, thread_ts, f"_📝 초안입니다. 확정: `[입력] <{work}> {label}`_")
 
-
 def _post_level_picker(channel: str, thread_ts: str, work: str, top: str, mid: str) -> None:
     """강도 1~5 비교 흐름 끝에 붙이는 저장용 드롭다운 (2026-07-16, 온보딩 C).
     예전엔 5개 초안마다 각자 [✅ 강도 N 저장] 버튼이 따로 붙어서(총 5쌍) 첫 사용자에게
@@ -462,7 +334,6 @@ def _post_level_picker(channel: str, thread_ts: str, work: str, top: str, mid: s
     except Exception:
         log.exception("draft level picker post failed")
 
-
 def _post_revise_actions(channel: str, thread_ts: str, work: str,
                          kind: str, episode: int | None) -> None:
     """초안 수정 제안(revise gen 모드) 밑에 [🆕 <종류> 생성] / [✏️ 수정] 버튼.
@@ -484,9 +355,6 @@ def _post_revise_actions(channel: str, thread_ts: str, work: str,
     except Exception:
         log.exception("revise action buttons post failed")
         _reply(channel, thread_ts, "_📝 초안입니다. 확정은 `[입력]`/`[수정]` 으로._")
-
-
-# ---------------- 명령별 처리 ----------------
 
 def _parse_records(content: str, subs: list[str],
                    seed: str | None = None) -> tuple[list[tuple[str, list]], list[str]]:
@@ -520,15 +388,13 @@ def _parse_records(content: str, subs: list[str],
             records.append(cur)
     return records, unknown
 
-
 _BULLET_RE = re.compile(r"^([ \t]*)[•◦▪●‣·∙・]\s+", re.M)      # 슬랙 글머리 → 마크다운 '- '
-_HWA_HEAD_RE = re.compile(r"^\s*(\d+)\s*화(?:[\s:.\-–—·]+(.*))?$")  # 'N화' 또는 'N화 제목' 줄
 
+_HWA_HEAD_RE = re.compile(r"^\s*(\d+)\s*화(?:[\s:.\-–—·]+(.*))?$")  # 'N화' 또는 'N화 제목' 줄
 
 def _md_bullets(text: str) -> str:
     """슬랙 글머리 기호(●·•·▪…)를 마크다운 '- '로 치환. 번호목록·기존 '-'는 그대로."""
     return _BULLET_RE.sub(r"\1- ", text or "")
-
 
 def _parse_outline_records(content: str, seed: str | None = None) -> list[tuple[str, str]]:
     """개요/대본: 'N화'(뒤에 제목 붙어도 됨) 줄을 헤더로, 그 아래 줄글 전체를 그 화 내용으로.
@@ -556,41 +422,29 @@ def _parse_outline_records(content: str, seed: str | None = None) -> list[tuple[
         cur[1].append(raw)
     return [(hwa, "\n".join(lines).strip()) for hwa, lines in records if hwa]
 
-
 _DRAFT_FOOT_RE = re.compile(r"(확정하려면|초안입니다|수정하고 싶은 부분|저장하세요|📝 초안|_✅|_⚠️|다듬어서)")
-# 버튼 안내 전용 메시지(내용 없는 UI 프롬프트) — '초안'을 찾을 때 이걸 대본/개요 본문으로
-# 오인하면 안 됨(2026-07-15). _post_draft_actions()가 붙이는 텍스트와 일치.
-# +2026-07-16: on_revise_specify가 붙이는 "✏️ 원하는 N화 개요 수정 방향을 이 스레드에 답글로
-# 적어주세요" 프롬프트도 같은 문제(내용 없는 안내문인데 "5화 개요"가 들어있어 top/mid 패턴에
-# 걸려 실제 초안으로 오인·저장·노션반영까지 된 실측 사고) — 같은 가드에 추가.
+
 _BUTTON_PROMPT_RE = re.compile(
     r"통과\s*\(저장\)|✅.*재생성|🔄\s*재생성|수정\s*방향을.{0,10}답글로\s*적어주세요"
     # +2026-07-16(Bug5): "~답글로 알려주세요"/"~내용을 함께 적어주세요" 류도 이름/화차만
     # 들어간 UI 안내문일 뿐 실제 초안이 아닌데 top/mid 패턴에 걸리던 문제 — 일반화.
     r"|답글로\s*알려주세요|내용을\s*함께\s*적어주세요")
-# 아이디어 '요청'만 (불평 "사건이 없어서~"는 제외 — 그건 수정 피드백)
+
 _IDEA_INTENT_RE = re.compile(
     r"아이디어|브레인스토|떠올려|뭐하지|뭐 하지|뭐가 좋을까|뭘 넣을까"
     r"|무슨 사건|어떤 사건|뭔 사건|어떻게 할까|제안 좀|뭐 없을까|어떤 게 좋")
-# '인물/캐릭터 설정 추가해줘' 류 — 대본/개요 수정이 아니라 바이블에 새 인물 정보를 넣어달라는 요청.
-# 원래 '설정/정보' 단어를 필수로 뒀는데 '민재라는 캐릭터 추가해줘'처럼 그 단어가 빠지는
-# 경우를 놓쳤음(2026-07-13) — 다운스트림에서 "이미 있는 인물이냐" 재확인이 2차 필터라
-# 여기선 설정/정보 요구를 없애고 등장인물+추가류 동사만으로 완화.
+
 _CHAR_ADD_RE = re.compile(r"(등장인물|캐릭터|인물).{0,15}(없|추가|넣어|만들어)")
-# '~바꿔야겠어/고쳐줘' 류 — 기존 인물/필드 자연어 수정 (2026-07-13).
-# 원래는 '바꿔/고쳐' 계열 동사만 잡아서 "민재를 서브남주로 만들어줘"(만들어줘=바꿔줘 의미)나
-# "민재 좀 더 어리게 해줘"(~게 해줘=속성 변경) 같은 표현을 놓쳤음 — 캐릭터명+필드어와
-# 함께 걸리는 2차 조건이 있어 오탐 위험은 낮아서 이 두 패턴을 추가.
+
 _EDIT_INTENT_RE = re.compile(
     r"바꿔야|바꾸자|바꿀까|바꿔줘|바꿔주|바꾸는\s*게|수정해|수정할|고쳐야|고칠까|고쳐줘|고쳐주|손봐야|손볼까"
     r"|(?:으)?로\s*만들어[줘야줄]|게\s*해\s*줘|게\s*만들어"
     r"|반영해|다시\s*짜|재구성"
     r"|안\s*될까|안\s*되나|안\s*돼|가능할까|괜찮을까|어떨까요?\s*[?？]?\s*$")
-# '민재를 서브남주로 만들어줘'처럼 "포지션"이란 단어 없이 역할명만 오는 경우도 필드어로 인식
-# (2026-07-13) — 남주/여주/서브 계열 역할 토큰 추가.
+
 _CHAR_FIELD_WORDS = ("설정", "포지션", "외형", "핵심대사", "성별", "나이", "설명",
                      "남주", "여주", "서브남주", "서브여주", "조연", "주연", "빌런", "어리게", "늙게")
-# 자연어로 바꿀 수 있는 단일 바이블 필드 → (top, mid, sub, bible dict key)
+
 _FIELD_EDIT_MAP = {
     "줄거리": ("줄거리", "", "", "plot"),
     "로그라인": ("로그라인/키워드", "로그라인", "", "logline"),
@@ -602,13 +456,12 @@ _FIELD_EDIT_MAP = {
     # _do_field_edit_nl/on_field_save/on_field_regen에서 특별 처리 (2026-07-13, A1/A2).
     "회차분배": ("회차분배", "", "", "episode_plan"),
 }
-# 확정(저장) 인식: 문장이 확정/저장/입력(+해줘류)로 '끝나면' 확정으로 본다.
-# ('음 이걸로 2화 개요 확정'처럼 중간에 대상 말이 껴도 잡히게). 부정·질문은 제외.
+
 _CONFIRM_END_RE = re.compile(
     r"(?:확정|저장|입력)\s*(?:해\s*줘|해|하자|할게|해둬|요|좀|부탁해?)?\s*[.!~ ]*$"
     r"|(?:확정|저장|입력)\s*(?:하고|한\s*다음|한\s*후|해서|하자)\b")  # '확정하고 다음 진행하자' 류(2026-07-13)
-_CONFIRM_NEG_RE = re.compile(r"안\s*[돼되]|못\s|하지\s*마|왜|어떻게|뭐가|뭐야|취소|말고|\?\s*$")
 
+_CONFIRM_NEG_RE = re.compile(r"안\s*[돼되]|못\s|하지\s*마|왜|어떻게|뭐가|뭐야|취소|말고|\?\s*$")
 
 def _is_confirm(q: str) -> bool:
     """확정 의도 인식. 기존엔 30자 이하 + 문장이 확정/저장/입력으로 '끝나야'만 잡혔는데,
@@ -616,7 +469,6 @@ def _is_confirm(q: str) -> bool:
     (2026-07-13) — 길이 완화(80자) + '확정하고 ~' 중간 패턴 추가."""
     q = (q or "").strip()
     return len(q) <= 80 and bool(_CONFIRM_END_RE.search(q)) and not _CONFIRM_NEG_RE.search(q)
-
 
 def _strip_draft_footer(text: str) -> str:
     """봇 초안 메시지에서 안내 꼬리말(📝 초안입니다·확정하려면 [입력]…) 제거 → 본문만."""
@@ -628,7 +480,6 @@ def _strip_draft_footer(text: str) -> str:
     body = "\n".join(lines).strip()
     body = re.sub(r"^\*?🎚️[^\n]*\*?\s*\n+", "", body).strip()
     return body
-
 
 def _last_assistant_draft(channel: str, thread_ts: str, top: str | None = None, mid: str | None = None,
                           level: int | None = None) -> str:
@@ -677,7 +528,6 @@ def _last_assistant_draft(channel: str, thread_ts: str, top: str | None = None, 
             return t
     return ""
 
-
 def _draft_save_cmd(channel: str, thread_ts: str) -> str | None:
     """스레드 직전 초안 꼬리말에 박힌 `[입력] <작품> 경로` 에서 '<작품> 경로' 부분 회수.
     도움말/오류 메시지의 템플릿 예시('<작품>' 리터럴)는 무시."""
@@ -693,7 +543,6 @@ def _draft_save_cmd(channel: str, thread_ts: str) -> str | None:
             return result
     return None
 
-
 def _clean_draft(text: str) -> str:
     """초안 본문에서 강도 뱃지 줄(🎚️/:level_slider:/강도 N단계) 제거 — 시트·노션에 안 섞이게."""
     out = []
@@ -708,12 +557,9 @@ def _clean_draft(text: str) -> str:
         out.append(ln)
     return "\n".join(out).strip()
 
-
-# 저장(시트·노션) 시 빼야 할 메타 줄: 모델 메모/봇 진행안내/구분선
 _META_LINE_RE = re.compile(
     r"^\s*(?:📝|💡|ℹ️|🔧|:memo:|:bulb:|메모\s*[:：]|참고\s*[:：]|요청\s*확인\s*[:：]|바꾼\s*점\s*[:：])")
 
-# 본문 뒤에 모델이 붙이는 꼬리 메타(체크리스트·완성 멘트·(끝/약 N초) 등) — 이 줄부터 끝까지 잘라냄
 _SAVE_TAIL_RE = re.compile(
     r"(?m)^[ \t]*(?:"
     r"\**\s*\(?\s*끝\s*[/·)]"                     # (끝 / 약 90초 / 씬 4개)
@@ -726,7 +572,6 @@ _SAVE_TAIL_RE = re.compile(
     r"|\**\s*(?:수정할|고칠|바꿀)\s*부분.{0,10}(?:있으면|있으시)"      # 수정할 부분 있으면 말씀해주세요
     r")")
 
-# 본문 앞에 모델이 붙이는 대화체 인사/확인 멘트("알겠어요! … 다시 쓸게요." + ---) — 그 줄부터 제거
 _SAVE_HEAD_RE = re.compile(
     r"\A\s*(?:"
     r"(?:네|넵|예|알겠|알았|좋아|그래|오케이|오키|ok|물론|당연|확인)"
@@ -736,7 +581,6 @@ _SAVE_HEAD_RE = re.compile(
     r")\n+"
     r"(?:[ \t]*[-—]{2,}[ \t]*\n+)?",              # 뒤따르는 --- 구분선도 함께 제거
     re.I)
-
 
 def _clean_for_save(text: str, top: str | None = None, mid: str | None = None) -> str:
     """저장용 정리: 강도 뱃지 + 모델 메모(📝/:memo:)·'요청 확인:'·앞머리 인사멘트·꼬리 메타(체크리스트/완성멘트)·중복 제목 제거."""
@@ -761,11 +605,9 @@ def _clean_for_save(text: str, top: str | None = None, mid: str | None = None) -
         text = re.sub(rf"(?m)\A\**\s*{re.escape(top)}\s*/?\s*{re.escape(mid)}\**\s*\n+", "", text)
     return text.strip()
 
-
 def _slack_to_notion_md(text: str) -> str:
     """슬랙식 단일 *볼드* → 노션 **볼드**. (이미 **인 것은 안 건드림)"""
     return re.sub(r"(?<![\*\w])\*(?!\s)([^*\n]+?)(?<!\s)\*(?![\*\w])", r"**\1**", text or "")
-
 
 def _push_section_to_notion(work: str, top: str, mid: str, content: str) -> bool:
     """개요/대본/줄거리를 작품의 노션 페이지에 섹션 업서트(있으면 교체·없으면 추가). 반영되면 True."""
@@ -794,7 +636,6 @@ def _push_section_to_notion(work: str, top: str, mid: str, content: str) -> bool
         log.exception("notion 섹션 업서트 실패: %s / %s", work, heading)
         return False
 
-
 def _char_notion_card(name: str, data: dict) -> str:
     """캐릭터 카드 → 노션 '등장인물' 섹션의 기존 카드들과 같은 포맷(**이름 (성별, 나이) / 포지션**
     + 불릿)으로. (2026-07-13: 새 캐릭터가 시트에만 저장되고 노션엔 안 들어가던 문제 수정)"""
@@ -810,7 +651,6 @@ def _char_notion_card(name: str, data: dict) -> str:
     if data.get("설명"):
         lines.append(f"- 설명: {data['설명']}")
     return "\n".join(lines)
-
 
 def _push_character_to_notion(work: str, name: str, data: dict) -> bool:
     """새 등장인물을 노션 페이지의 '등장인물' 섹션에도 반영 — 기존 목록 뒤에 카드로 추가(자리 유지,
@@ -857,13 +697,11 @@ def _push_character_to_notion(work: str, name: str, data: dict) -> bool:
         log.exception("노션 등장인물 섹션 갱신 실패: %s / %s", work, name)
         return False
 
-
 def _load_script_summaries() -> dict:
     try:
         return json.loads(config.SCRIPT_SUMMARIES_PATH.read_text(encoding="utf-8"))
     except Exception:
         return {}
-
 
 def _save_script_summaries(st: dict) -> None:
     try:
@@ -871,7 +709,6 @@ def _save_script_summaries(st: dict) -> None:
         config.SCRIPT_SUMMARIES_PATH.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
     except Exception:
         log.warning("script_summaries 저장 실패")
-
 
 def _summarize_script(work: str, hwa: str, content: str) -> None:
     """대본 확정 저장 시 다음 화 연속성 참고용 흐름 요약을 생성해 캐시.
@@ -894,7 +731,6 @@ def _summarize_script(work: str, hwa: str, content: str) -> None:
         return
     st.setdefault(work, {})[hwa] = {"hash": h, "summary": summary}
     _save_script_summaries(st)
-
 
 def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
     """[입력](신규) / [수정](기존) / 'save'(확정 저장) — <작품> 경로 + 내용 → 시트 저장 + 노션 반영.
@@ -1051,7 +887,6 @@ def _do_input(channel: str, thread_ts: str, rest: str, mode: str) -> None:
         log.exception("input upsert failed")
         _reply(channel, thread_ts, "⚠️ 시트 저장에 실패했어요. 잠시 후 다시 시도해 주세요.")
 
-
 def _override_intensity(bible: dict | None, text: str) -> dict | None:
     """명령/피드백에 '강도 N'이 있으면 이번 호출만 그 레벨로 재보정 (캐시 원본은 안 건드림)."""
     if not bible:
@@ -1064,10 +899,9 @@ def _override_intensity(bible: dict | None, text: str) -> dict | None:
     b["intensity_map"] = {}       # 이번 지시가 타입별 설정보다 우선
     return b
 
-
 DEFAULT_INTENSITY = 4   # [생성]·[재미] 기본 강도 (명시·시트값 없을 때)
-IDEA_INTENSITY = 2      # [아이디어] 기본 강도 — 담백하게 (막장·과몰입 방지)
 
+IDEA_INTENSITY = 2      # [아이디어] 기본 강도 — 담백하게 (막장·과몰입 방지)
 
 def _ensure_default_intensity(bible: dict | None, kind: str,
                               default: int = DEFAULT_INTENSITY) -> dict | None:
@@ -1082,7 +916,6 @@ def _ensure_default_intensity(bible: dict | None, kind: str,
     b["intensity_map"] = {}
     return b
 
-
 def _idea_intensity(bible: dict | None, text: str) -> dict | None:
     """[아이디어]는 강도 IDEA_INTENSITY로 고정 — 작품 전체 강도(예: 4)에 끌려가지 않게.
     단, 질문에 '강도 N'이 있거나 시트에 '아이디어' 전용 강도가 있으면 그건 존중한다."""
@@ -1094,7 +927,6 @@ def _idea_intensity(bible: dict | None, text: str) -> dict | None:
         return bible
     return dict(bible, intensity_map={"아이디어": IDEA_INTENSITY}, intensity_level=None)
 
-
 def _progress_episode(bible: dict | None, prefer: list[str]) -> int | None:
     """회차 미지정 시 진행상태에서 기본 화를 고른다. prefer 타입(개요/대본/회차분배) 우선,
     없으면 아무 진행 화, 그것도 없으면 current_episode."""
@@ -1105,7 +937,6 @@ def _progress_episode(bible: dict | None, prefer: list[str]) -> int | None:
         if prog.get(t):
             return prog[t]
     return next(iter(prog.values()), None) or bible.get("current_episode")
-
 
 def _thread_gen_context(messages: list[dict]) -> tuple:
     """스레드에서 마지막 [생성] 맥락(작품·타입·회차)과 마지막 생성물 초안을 추출."""
@@ -1130,7 +961,6 @@ def _thread_gen_context(messages: list[dict]) -> tuple:
                     episode = int(em.group(1)) if em else episode
     return work, top, episode, draft
 
-
 def _with_prefs(req: str, work: str | None, top: str, level: int | None = None) -> str:
     """생성 요청에 관련 선호 피드백(좋아/별로, 강도 일치 우선)을 검색해 붙인다."""
     if not work:
@@ -1138,7 +968,6 @@ def _with_prefs(req: str, work: str | None, top: str, level: int | None = None) 
     pos, neg = prefs.retrieve(work, top, req, level=level)
     block = prefs.format_block(pos, neg)
     return (req + "\n\n" + block) if block else req
-
 
 def _do_pref(channel: str, thread_ts: str, rest: str, sign: str) -> None:
     """[좋아]/[별로] — 스레드의 생성물에 대한 반응 저장. 별로면 반영해 재생성."""
@@ -1164,7 +993,6 @@ def _do_pref(channel: str, thread_ts: str, rest: str, sign: str) -> None:
         lv_cmd = f" 강도 {level}" if level else ""
         _do_generate(channel, thread_ts, f"<{work}> {top}{ep}{lv_cmd}")
 
-
 def _notes_block(notes: str) -> str:
     """작가가 넣고 싶은 포인트를 '재료'로 주입. 그대로 반복하지 말고 살 붙여 전개 + 이후 사건까지."""
     notes = (notes or "").strip()
@@ -1179,9 +1007,7 @@ def _notes_block(notes: str) -> str:
         "  → 재료를 나열·재진술하는 게 아니라, 재료를 딛고 '그다음'을 쓰는 게 목적이다."
     )
 
-
 _GEN_INTPAT = r"강도\s*(?:전체|전부|모두|비교|1\s*[~\-]\s*5|1to5|[1-5])\S*"
-
 
 def _gen_episodes_in(s: str) -> list[int]:
     """구절에서 회차 뽑기. 'N~M' 범위 우선, 없으면 개별 숫자들. (강도 숫자는 미리 제거)"""
@@ -1192,7 +1018,6 @@ def _gen_episodes_in(s: str) -> list[int]:
         if a <= b and b - a <= 100:
             return list(range(a, b + 1))
     return [int(n) for n in re.findall(r"\d+", s)]
-
 
 def _parse_gen_jobs(text: str) -> list[tuple[str, int | None]]:
     """자연어 생성 요청 → [(종류, 회차|None)]. 예:
@@ -1225,7 +1050,6 @@ def _parse_gen_jobs(text: str) -> list[tuple[str, int | None]]:
             seen.add(j); out.append(j)
     return out
 
-
 def _typo_suspect(raw_work: str) -> str | None:
     """등록된 작품명/별칭과 비슷한데 정확히 일치하진 않는 이름이면 그 정식명을 반환 (2026-07-14, B3 —
     오타(예: '날협남'≠'날혐남')가 resolve 실패 후 그대로 새 시트 탭을 만들던 문제 방지).
@@ -1240,13 +1064,11 @@ def _typo_suspect(raw_work: str) -> str | None:
     hit = m[0]
     return hit if hit in reg else works.resolve(hit)
 
-
 def _single_registered_work() -> str | None:
     """등록된 작품이 정확히 1개면 그 이름을 반환 (2026-07-14, B2 —
     원래 [확인]에만 있던 폴백을 [생성]·[아이디어]·[피드백]에도 동일 적용해 기능 간 비일관 제거)."""
     reg = works.all_works()
     return next(iter(reg)) if len(reg) == 1 else None
-
 
 def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "",
                  force_generic: bool = False) -> None:
@@ -1467,7 +1289,6 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "",
     if saveable:
         _post_draft_actions(channel, thread_ts, work, top, mid)
 
-
 def _do_convert(channel: str, thread_ts: str, rest: str) -> None:
     """[변환]: 대충 쓴 줄글 상황 → 드라마 대본식 지문으로 구체화 (원문에 없는 내용 추가 금지)."""
     q = rest.strip()
@@ -1510,21 +1331,11 @@ def _do_convert(channel: str, thread_ts: str, rest: str) -> None:
         return
     _post_chunks(channel, thread_ts, answer or "(빈 응답)", replace_ts=ph)
 
-
 def _sb_script_from_bible(bible: dict | None, episode: int | None) -> str:
     """시트 바이블(노션 동기화분)에서 그 화의 '대본' 원문을 가져온다. 없으면 ''."""
     if not bible or not episode:
         return ""
     return ((bible.get("scripts") or {}).get(f"{episode}화") or "").strip()
-
-
-def _last_assistant_with(messages: list[dict], markers: list[str]) -> str:
-    """스레드에서 markers 중 하나를 포함하는 '가장 최근 봇 메시지' 본문. 없으면 ''."""
-    for m in reversed(messages):
-        if m["role"] == "assistant" and any(k in m["content"] for k in markers):
-            return m["content"]
-    return ""
-
 
 def _do_storyboard(channel: str, thread_ts: str, rest: str, stage: int = 1) -> None:
     """스토리보드 — 단계를 '명령'으로 지정하고, 스레드 내용을 직접 읽어 이어간다.
@@ -1624,15 +1435,6 @@ def _do_storyboard(channel: str, thread_ts: str, rest: str, stage: int = 1) -> N
     if _cancelled(channel, thread_ts, ph):
         return
     _post_chunks(channel, thread_ts, answer or "(빈 응답)", replace_ts=ph)
-
-
-def _parse_json_array(text: str) -> list:
-    t = str(text).strip()
-    s, e = t.find("["), t.rfind("]")
-    if s == -1 or e == -1 or e < s:
-        raise ValueError("응답에서 JSON 배열([...])을 찾지 못했습니다.")
-    return json.loads(t[s:e + 1])
-
 
 def _do_storyboard_images(channel: str, thread_ts: str, rest: str) -> None:
     """[이미지] 스레드의 상세 콘티 → 컷별 GPT 이미지(참조로 얼굴 유지) → 그리드 1장 슬랙 업로드."""
@@ -1748,7 +1550,6 @@ def _do_storyboard_images(channel: str, thread_ts: str, rest: str) -> None:
                      f"이미지는 만들었는데 슬랙 업로드에서 막혔어요: {e}\n(앱에 files:write 권한 필요)",
                      replace_ts=ph)
 
-
 def _thread_origin_mode(messages: list[dict]) -> str:
     """스레드에서 '가장 최근' 명령의 모드 → 후속 답글을 그 활동으로 이어감.
     (한 스레드에서 [기획]→[생성]처럼 활동을 바꿔도, 마지막으로 한 활동을 따라감)"""
@@ -1777,7 +1578,6 @@ def _thread_origin_mode(messages: list[dict]) -> str:
             return "gen"
     return "gen"
 
-
 def _sb_stage(messages: list[dict]) -> str:
     """스토리보드 스레드가 지금 '설계안(plan)' 단계인지 '작가 확인용 스토리보드(detail)' 단계인지.
     가장 최근 봇 결과물이 스토리보드면 'detail', 씬 설계안이면 'plan'."""
@@ -1791,11 +1591,9 @@ def _sb_stage(messages: list[dict]) -> str:
             return "plan"
     return "plan"
 
-
 def _plan_sections(md: str) -> list[str]:
     """기획안 마크다운을 '## 섹션' 단위로 분리 (헤딩 포함)."""
     return [p.strip() for p in re.split(r"(?m)(?=^##\s)", md or "") if p.strip()]
-
 
 def _is_valid_plan(md: str) -> bool:
     """진짜 기획안인지 판별 — 에러/타임아웃/빈 텍스트 배제.
@@ -1812,7 +1610,6 @@ def _is_valid_plan(md: str) -> bool:
     kws = ("로그라인", "키워드", "타겟", "정서", "등장인물", "인물", "줄거리", "회차분배", "회차 분배")
     return sum(1 for k in kws if k in md) >= 3            # ②마크다운 없어도 섹션 키워드 3개+
 
-
 def _first_changed_section(prev_md: str, new_md: str) -> int | None:
     """직전 기획안 대비 처음으로 바뀐 '## 섹션' 인덱스. 변화 없으면 None.
     노션에서 읽어온 텍스트는 볼드(**)·불릿(-) 마커가 없으므로, 마커 무시하고 내용만 비교."""
@@ -1822,7 +1619,6 @@ def _first_changed_section(prev_md: str, new_md: str) -> int | None:
         if norm(ns[i]) != norm(ps[i] if i < len(ps) else ""):
             return i
     return None
-
 
 def _plan_changed_view(prev_md: str, new_md: str) -> str | None:
     """직전 대비 실제로 바뀐 섹션들만 뽑아 슬랙용 뷰로. 변화 없으면 None.
@@ -1836,7 +1632,6 @@ def _plan_changed_view(prev_md: str, new_md: str) -> str | None:
     body = "\n\n".join(ns[i] for i in idxs)
     return f"🔧 *수정된 섹션 {labels}*\n\n{body}"
 
-
 def _trend_orient(text: str) -> str | None:
     """텍스트에서 트렌드 성향(BL/GL/로맨스) 감지 — 스레드 후속에 성향 이어붙이기용."""
     if re.search(r"(?<![a-z])bl(?![a-z])", text or "", re.I):
@@ -1846,12 +1641,6 @@ def _trend_orient(text: str) -> str | None:
     if "로맨스" in (text or "") or "남녀" in (text or ""):
         return "로맨스"
     return None
-
-
-def _convo_text(messages: list[dict]) -> str:
-    lines = [f"[{'작가' if m['role'] == 'user' else '봇'}] {m['content']}" for m in messages]
-    return "\n".join(lines) + "\n\n(위 대화 흐름을 그대로 이어서 답하라.)"
-
 
 def _find_name_context(name: str, bible: dict | None, thread_text: str = "", max_len: int = 2000) -> str:
     """이 이름이 이미 언급된 문단들(대본·개요·이 스레드 대화)을 모아준다 — 캐릭터를 맥락과
@@ -1873,12 +1662,9 @@ def _find_name_context(name: str, bible: dict | None, thread_text: str = "", max
                 hits.append(para.strip())
     return "\n---\n".join(hits)[:max_len]
 
-
-# 카드 생성·표시용 키 순서. 시트 저장 스키마(CHAR_SUBS)엔 '외형' 컬럼이 따로 없어서, 카드엔
-# 별도 필드로 상세히 보여주고 저장 시에만 '설정' 필드 안에 라벨 붙여 합친다 (2026-07-13).
 _CHAR_DISPLAY_KEYS = ["성별", "나이", "포지션", "외형", "설정", "핵심대사", "설명"]
-_APPEARANCE_PREFIX_RE = re.compile(r"^외형:\s*(.*?)\n\n(.*)$", re.S)
 
+_APPEARANCE_PREFIX_RE = re.compile(r"^외형:\s*(.*?)\n\n(.*)$", re.S)
 
 def _split_appearance(char: dict) -> dict:
     """저장 시 '설정' 안에 합쳐 넣은 '외형: ...' 을 다시 별도 키로 복원 (2026-07-14, C4 —
@@ -1888,7 +1674,6 @@ def _split_appearance(char: dict) -> dict:
     if m and not out.get("외형"):
         out["외형"], out["설정"] = m.group(1).strip(), m.group(2).strip()
     return out
-
 
 def _generate_char_card(work: str | None, name: str, feedback: str,
                         bible: dict | None, context: str = "") -> tuple[dict | None, str | None]:
@@ -1905,7 +1690,6 @@ def _generate_char_card(work: str | None, name: str, feedback: str,
         return None, "모델이 캐릭터 정보를 못 만들었어요. 잠시 후 다시 시도해 주세요."
     return data, None
 
-
 def _generate_char_edit(work: str | None, name: str, existing: dict, instruction: str,
                         bible: dict | None, context: str = "") -> tuple[dict | None, str | None]:
     """이미 있는 인물을 자연어 지시로 수정. 반환 (data, error_msg)."""
@@ -1921,14 +1705,12 @@ def _generate_char_edit(work: str | None, name: str, existing: dict, instruction
         return None, "모델이 수정안을 못 만들었어요. 잠시 후 다시 시도해 주세요."
     return data, None
 
-
 def _char_card_text(name: str, data: dict) -> str:
     lines = [f"👤 *새 등장인물 카드 — {name}* (아직 저장 전 — 검토해 주세요)"]
     for k in _CHAR_DISPLAY_KEYS:
         if data.get(k):
             lines.append(f"- *{k}*: {data[k]}")
     return "\n".join(lines)
-
 
 def _post_char_draft(channel: str, thread_ts: str, work: str, name: str, feedback: str,
                      data: dict, ph: str | None = None, context: str = "",
@@ -1953,7 +1735,6 @@ def _post_char_draft(channel: str, thread_ts: str, work: str, name: str, feedbac
                  "text": {"type": "plain_text", "text": "✏️ 수정"}, "value": val}]}])
     except Exception:
         log.exception("char draft buttons post failed")
-
 
 def _do_char_add(channel: str, thread_ts: str, work: str | None, feedback: str,
                  bible: dict | None) -> None:
@@ -1993,7 +1774,6 @@ def _do_char_add(channel: str, thread_ts: str, work: str | None, feedback: str,
         return
     _post_char_draft(channel, thread_ts, work, name, feedback, data, ph=ph, context=context)
 
-
 def _do_char_edit_nl(channel: str, thread_ts: str, work: str | None, name: str,
                      feedback: str, bible: dict | None) -> None:
     """'민재 설정은 서브남주로 바꿔야겠어' 류 — 이미 있는 인물을 자연어로 수정 (2026-07-13).
@@ -2014,13 +1794,11 @@ def _do_char_edit_nl(channel: str, thread_ts: str, work: str | None, name: str,
         return
     _post_char_draft(channel, thread_ts, work, name, feedback, data, ph=ph, context=context, existing=existing)
 
-
 def _find_field_edit(feedback: str) -> tuple[str | None, tuple | None]:
     for word, triple in _FIELD_EDIT_MAP.items():
         if word in feedback:
             return word, triple
     return None, None
-
 
 def _field_draft_text(field_name: str, new_val: str) -> str:
     if field_name == "회차분배":
@@ -2032,7 +1810,6 @@ def _field_draft_text(field_name: str, new_val: str) -> str:
         except Exception:
             pass
     return f"📝 *{field_name} 수정안* (아직 저장 전 — 검토해 주세요)\n\n{new_val}"
-
 
 def _post_field_draft(channel: str, thread_ts: str, work: str, field_name: str, triple: tuple,
                       feedback: str, new_val: str, ph: str | None = None) -> None:
@@ -2055,7 +1832,6 @@ def _post_field_draft(channel: str, thread_ts: str, work: str, field_name: str, 
                  "text": {"type": "plain_text", "text": "✏️ 수정"}, "value": val}]}])
     except Exception:
         log.exception("field draft buttons post failed")
-
 
 def _do_field_edit_nl(channel: str, thread_ts: str, work: str | None, field_name: str,
                       triple: tuple, feedback: str, bible: dict | None) -> None:
@@ -2087,8 +1863,6 @@ def _do_field_edit_nl(channel: str, thread_ts: str, work: str | None, field_name
         return
     _post_field_draft(channel, thread_ts, work, field_name, triple, feedback, new_val, ph=ph)
 
-
-# 순수 질문(수정 지시 아님) 감지 — E2. 물음표로 끝나거나 전형적 질문 어미.
 _QUESTION_RE = re.compile(
     r"[?？]|뭐야|뭐지|뭔가요|무엇인가요|누구야|누구지|누구인가요|뭐가\s*있을까|뭐\s*없을까"
     r"|몇\s*화(?:야|지|인가요)|언제야|언제지|어디야|어디지|어떻게\s*되|왜\s*(?:이런|그런|저런)")
@@ -2097,13 +1871,7 @@ _PROGRESS_NL_RE = re.compile(
     r"(?:지금|이제|현재)?\s*(\d+)\s*화\s*(개요|대본|회차분배)?\s*"
     r"(?:작업|하고\s*있|진행\s*중|쓰는|쓰고\s*있|만들고\s*있)")
 
-# 순수 '이대로 괜찮을까?' 류 검증/확인 질문 — 새 값을 안 대고 있는 그대로가 맞는지만 물을 때.
-# _EDIT_INTENT_RE에 있는 질문형 토큰(괜찮을까 등)이 매칭돼도 '지시'가 아니라 '질문'으로 봐야 함
-# (Bug1, 2026-07-16): "줄거리 이대로 괜찮을까?"가 field-edit/char-edit 분기에서 실제 수정으로
-# 오인·재생성되던 문제. "성별을 여자로 바꾸는거 괜찮을까?"처럼 새 값이 이미 적혀 있는 경우는
-# 이 패턴에 안 걸리므로(이대로/그대로/이거 같은 지시어가 없음) 여전히 수정 지시로 처리된다.
 _VALIDATION_PHRASE_RE = re.compile(r"이대로\s*(?:되|괜찮|맞)|그대로\s*(?:되|괜찮)|이거\s*(?:맞|괜찮)")
-
 
 def _is_pure_validation_q(feedback: str) -> bool:
     """검증질문 전용 판별. 문장이 검증 어구를 포함하고 '?'/'까요?' 등 질문으로 끝나야만 True —
@@ -2114,14 +1882,10 @@ def _is_pure_validation_q(feedback: str) -> bool:
         return False
     return bool(re.search(r"[?？]\s*$|까요?\s*[.]?\s*$", fb))
 
-# '노션 방금 고쳤어, 다시 읽어줘' 류 — 즉시 재동기화 요청 인식 (2026-07-13).
-# [새로고침]은 캐시만 지우고 노션은 안 읽어왔는데, 자연어로도 같은 오해가 있었던 지점이라
-# 여기선 아예 실제 재동기화(_do_sync)를 태운다.
 _RESYNC_NL_RE = re.compile(
     r"노션.{0,10}(?:고쳤|수정했|바꿨|업데이트).{0,10}(?:다시\s*읽|재\s*동기화|반영|새로고침)"
     r"|노션.{0,15}(?:다시\s*읽|재\s*동기화)"
     r"|(?:다시\s*읽|재\s*동기화)\S*.{0,10}노션")
-
 
 def _do_resync_nl(channel: str, thread_ts: str, work: str) -> None:
     """자연어로 '노션 다시 읽어줘' 요청 → 실제 노션 재조회 후 시트 반영 (2026-07-13)."""
@@ -2132,11 +1896,7 @@ def _do_resync_nl(channel: str, thread_ts: str, work: str) -> None:
         _reply(channel, thread_ts, f"*{work}* 은 등록된 노션 페이지가 없어서 다시 읽어올 게 없어요. "
                                     "`[동기화] <노션링크>` 로 먼저 등록해주세요.")
 
-
-# '이거 90초 맞아?'/'분량 괜찮아?' 류 — 물어봤을 때만 체크 (2026-07-15, on-demand 전용.
-# 자동으로 매번 붙는 방식은 원한 적 없음 — 명시적으로 물을 때만 반응한다).
 _LENGTH_CHECK_RE = re.compile(r"(?:분량|90\s*초|시간).{0,10}(?:맞|괜찮|넘|넘치|모자라|긴가|짧|충분)")
-
 
 def _do_length_check(channel: str, thread_ts: str, feedback: str = "",
                      work: str | None = None, bible: dict | None = None) -> None:
@@ -2178,7 +1938,6 @@ def _do_length_check(channel: str, thread_ts: str, feedback: str = "",
         return
     _post_chunks(channel, thread_ts, label + (verdict or "(빈 응답)"), replace_ts=ph)
 
-
 def _do_progress_nl(channel: str, thread_ts: str, work: str, m: re.Match) -> None:
     """'지금 4화 작업 중이야' 류 — 진행상태(회차 생략 시 기준값)를 자연어로 즉시 갱신 (2026-07-13).
     짧은 상태 마커라 초안 검토 없이 바로 반영 — 잘못돼도 다시 말하면 그만이라 저위험."""
@@ -2194,7 +1953,6 @@ def _do_progress_nl(channel: str, thread_ts: str, work: str, m: re.Match) -> Non
         return
     sheet.invalidate(work)
     _reply(channel, thread_ts, f"✅ 진행상태를 *{status}* 로 갱신했어요. (회차 생략 시 이 화 기준으로 생성돼요)")
-
 
 def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
     """스레드 후속 답글 → 스레드를 시작한 명령의 모드로 이어감 (아이디어는 아이디어, 생성은 수정 등)."""
@@ -2523,7 +2281,6 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
     if gen_buttons:
         _post_revise_actions(channel, thread_ts, *gen_buttons)
 
-
 def _do_plan(channel: str, thread_ts: str, rest: str, files_text: str = "", in_thread: bool = False) -> None:
     """[기획] 컨셉·로그라인 → 노션 기획안 구조 초안 (로그라인·타겟·인물·줄거리·회차분배). 초안만, 자동저장 X.
     링크 페이지에 기획안이 있으면 수정:
@@ -2702,7 +2459,6 @@ def _do_plan(channel: str, thread_ts: str, rest: str, files_text: str = "", in_t
                       "그 페이지가 통합에 연결됐는지 확인해 주세요. (초안은 위에 있어요)_")
     _post_chunks(channel, thread_ts, (answer or "(빈 응답)") + footer, replace_ts=ph)
 
-
 def _do_idea(channel: str, thread_ts: str, rest: str, force_generic: bool = False) -> None:
     """[아이디어 제시] — 추상적 고민을 구체적이고 간단한 상황 2~3개로. 작품 바이블+DB 근거.
     force_generic=True: 작품 없이 '일반 아이디어'로 바로 생성(사용자가 그렇게 골랐을 때)."""
@@ -2752,7 +2508,6 @@ def _do_idea(channel: str, thread_ts: str, rest: str, force_generic: bool = Fals
         return
     _post_chunks(channel, thread_ts, answer or "(빈 응답)", replace_ts=ph)
 
-
 def _json_loads(raw: str) -> dict:
     """LLM 응답에서 JSON 객체만 안전하게 추출."""
     s = re.sub(r"^```(json)?", "", raw.strip()).strip()
@@ -2761,7 +2516,6 @@ def _json_loads(raw: str) -> dict:
     if a >= 0 and b > a:
         s = s[a:b + 1]
     return json.loads(s)
-
 
 def _json_loads_array(raw: str) -> list:
     """회차분배 등 LLM 응답에서 JSON 배열만 안전하게 추출 (2026-07-13, A1/A2)."""
@@ -2772,8 +2526,6 @@ def _json_loads_array(raw: str) -> list:
         s = s[a:b + 1]
     return json.loads(s)
 
-
-# 동기화: 단일 필드 → (대분류, 중분류, 소분류)
 _SYNC_SINGLE = {
     "진행상태": ("진행상태", "", ""),
     "로그라인": ("로그라인/키워드", "로그라인", ""),
@@ -2785,7 +2537,6 @@ _SYNC_SINGLE = {
     "줄거리": ("줄거리", "", ""),
 }
 
-
 def _alias_clean(tok: str) -> str:
     """별칭 토큰에서 자연어 앞머리·꼬리·따옴표·괄호 제거.
     예: '이제부터 코니로 불러줘' → '코니', '코니테스트라고 불러줘' → '코니테스트'."""
@@ -2793,7 +2544,6 @@ def _alias_clean(tok: str) -> str:
     t = re.sub(r"^(?:이제부터|이제|앞으로|그냥|부터|우리|얘를?|이거를?|이걸|작품을?)\s*", "", t).strip()
     t = re.sub(r"\s*(?:이?라고|으?로)?\s*(?:불러줘|불러|부를게|불러라|해줘|해|하자|할게|등록해?줘?|등록)?$", "", t).strip()
     return t
-
 
 def _do_alias(channel: str, thread_ts: str, rest: str) -> None:
     """[별칭] — 작품에 부를 이름 추가. 자연스러운 형태 지원:
@@ -2860,7 +2610,6 @@ def _do_alias(channel: str, thread_ts: str, rest: str) -> None:
     note = f"\n_(너무 길어서 등록 안 함: `{rejected[0][:30]}…`)_" if rejected else ""
     _reply(channel, thread_ts,
            f"✅ *{canon}* 에 별칭 등록: {nice}{note}\n예: `[생성] <{aliases[0]}> 3화`")
-
 
 def _do_freeform(channel: str, thread_ts: str, query: str) -> None:
     """명령어 없이 던진 자유 질문 → 실제로 답변. 명확한 의도는 해당 기능으로 라우팅,
@@ -2959,7 +2708,6 @@ def _do_freeform(channel: str, thread_ts: str, query: str) -> None:
     else:
         _post_chunks(channel, thread_ts, ans, replace_ts=ph)
 
-
 def _do_check(channel: str, thread_ts: str, rest: str) -> None:
     """[확인] <작품> 질문 → 바이블 근거로 한 문장만 답. (작품명·캐릭터 등 빠른 조회)"""
     q = rest.strip()
@@ -3014,9 +2762,7 @@ def _do_check(channel: str, thread_ts: str, rest: str) -> None:
     ans = " ".join((ans or "(빈 응답)").split())    # 여러 줄이 와도 한 줄로 눌러줌
     _post_chunks(channel, thread_ts, ans, replace_ts=ph)
 
-
 _NOTION_LINK = re.compile(r"https?://\S*notion\.\S+")
-
 
 def _autosync_link(channel: str, thread_ts: str, url: str, explicit: str | None = None) -> str | None:
     """노션 링크 → (필요시) 새 작품 등록 + 시트 동기화. 반환: 정식 작품명(실패 시 None).
@@ -3056,7 +2802,6 @@ def _autosync_link(channel: str, thread_ts: str, url: str, explicit: str | None 
         _post_chunks(channel, thread_ts,
                      f"🔄 *{work}* 노션 동기화 완료 — {done}개 반영. 이어서 요청 처리할게요…", replace_ts=ph)
     return work
-
 
 def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
     """[동기화] — 노션 링크만 주면: ①MCP 연결 확인 ②처음 보는 페이지면 제목으로 새 작품(시트) 생성.
@@ -3179,7 +2924,6 @@ def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
         msg += f"\n⚠️ {failed}개는 네트워크 문제로 실패 — 다시 `[동기화]` 하면 그 부분만 채워집니다."
     _post_chunks(channel, thread_ts, msg, replace_ts=ph)
 
-
 def _normalize_gu(raw: str) -> str:
     """'1막. 지옥 같은 결혼생활' / '1막' 등 표기가 재동기화마다 달라져서 같은 막이 시트에
     중복 행으로 계속 쌓이던 문제 방지(2026-07-13, 실측: 날혐남 회차분배 6막이 12행으로 중복).
@@ -3191,7 +2935,6 @@ def _normalize_gu(raw: str) -> str:
     # 그대로 "1막"으로 정규화된다.
     m = re.match(r"\s*(\d+)\s*막(?=\s|[.,!?/·\-–—]|$)", raw or "")
     return f"{m.group(1)}막" if m else (raw or "").strip()
-
 
 def _sync_apply(sheet, work: str, content: str) -> tuple[int, int, list]:
     """동기화 소스 텍스트 → LLM 스키마 파싱 → 시트 upsert. 슬랙 무관(백그라운드 재사용).
@@ -3254,11 +2997,9 @@ def _sync_apply(sheet, work: str, content: str) -> tuple[int, int, list]:
     sheet.invalidate(work)
     return done, failed, summary
 
-
-# [재미] 6기준 (①몰입 ②명확 ③기대 ④속도 ⑤주체 ⑥강약) + 가중치(합 125 → 100 환산)
 _FUN_LABELS = ["몰입", "명확", "기대", "속도", "주체", "강약"]
-_FUN_WEIGHTS = [25, 20, 25, 20, 5, 25]
 
+_FUN_WEIGHTS = [25, 20, 25, 20, 5, 25]
 
 def _verify_fun_score(text: str) -> str:
     """LLM이 매긴 6개 항목 점수를 코드로 가중합·환산해 종합점수를 맨 위에 붙인다(산수 오류 방지)."""
@@ -3277,7 +3018,6 @@ def _verify_fun_score(text: str) -> str:
     detail = "·".join(f"{lbl}{v}" for lbl, v in zip(_FUN_LABELS, s))
     banner = f"*{fun}*  ·  종합 {total:.0f}/100 — {verdict}\n_({detail})_\n\n"
     return banner + text
-
 
 def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both",
                  force_generic: bool = False) -> None:
@@ -3400,12 +3140,10 @@ def _do_feedback(channel: str, thread_ts: str, rest: str, mode: str = "both",
         _run(sys_text, f"{okw}‼️ 아래 [{eval_kind}]에 실제로 적힌 것만 검토하라. [작품 바이블]은 대조용 배경일 뿐, "
                        f"그 배경을 {eval_kind}으로 착각하지 마라.\n\n[평가할 {eval_kind}]\n{draft}")
 
-
 def _trend_filter_llm(system: str, user: str) -> str:
     """트렌드 필터 분류용 단발 LLM 콜 (alias 미스 폴백). 짧은 타임아웃 — 분류가
     트렌드 응답 전체를 지연시키지 않게. 실패해도 answer()가 None 처리 → 전체 트렌드."""
     return generator.complete(system, user, timeout=30)
-
 
 def _do_trend(channel: str, thread_ts: str, rest: str) -> None:
     """[트렌드] — 측정 데이터를 근거로, 쉬운 말 요약 + (작품 지정 시) 맞춤 아이디어 제안."""
@@ -3446,53 +3184,9 @@ def _do_trend(channel: str, thread_ts: str, rest: str) -> None:
         return
     _post_chunks(channel, thread_ts, answer, replace_ts=ph)
 
-
-def _hwpx_text(raw: bytes) -> str:
-    """.hwpx(ZIP+XML, OWPML) → 본문 텍스트만. 표준 라이브러리만 사용(서식·표는 버림).
-    본문은 Contents/section*.xml 의 <hp:t> 런에 있고 문단은 <hp:p>. 실패 시 빈 문자열."""
-    import io
-    import zipfile
-    try:
-        zf = zipfile.ZipFile(io.BytesIO(raw))
-    except Exception:
-        return ""
-    names = sorted(n for n in zf.namelist()
-                   if re.match(r"Contents/section\d+\.xml$", n))
-    chunks = []
-    for n in names:
-        try:
-            xml = zf.read(n).decode("utf-8", "replace")
-        except Exception:
-            continue
-        xml = re.sub(r"</(?:\w+:)?p>", "\n", xml)                       # 문단 끝 → 줄바꿈
-        xml = re.sub(r"<(?:\w+:)?t>(.*?)</(?:\w+:)?t>", r"\1", xml, flags=re.S)  # 텍스트 런 언랩
-        xml = re.sub(r"<[^>]+>", "", xml)                               # 나머지 태그 제거(줄바꿈 유지)
-        for a, b in (("&lt;", "<"), ("&gt;", ">"), ("&amp;", "&"),
-                     ("&quot;", '"'), ("&apos;", "'")):
-            xml = xml.replace(a, b)
-        lines = [ln.strip() for ln in xml.split("\n")]
-        text = "\n".join(ln for ln in lines if ln)                      # 빈 줄 정리, 문단 유지
-        if text:
-            chunks.append(text)
-    return "\n".join(chunks).strip()
-
-
-def _decode_text(data: bytes) -> str:
-    """첨부 텍스트 디코딩. 한글 .txt는 윈도우 저장 시 CP949/EUC-KR가 흔해
-    UTF-8만 쓰면 다 깨진다 → BOM·UTF-8 → CP949 → UTF-16 순으로 시도."""
-    for enc in ("utf-8-sig", "utf-8", "cp949", "euc-kr", "utf-16"):
-        try:
-            return data.decode(enc)
-        except (UnicodeDecodeError, LookupError):
-            continue
-    return data.decode("utf-8", "replace")   # 최후: 깨져도 최대한
-
-
-# '기획안 만들어줘' 류 수락 (기획 제안에 대한 답)
 _PLAN_ACCEPT_RE = re.compile(r"기획|만들어\s*줘|만들자|생성해?\s*줘|해\s*줘|응|네|좋아|ㅇㅋ|ㅇㅇ|고고|가자")
-# '이걸로 작품/기획(안) 만들어줘' 류 (트렌드·아이디어 스레드에서 기획 착수 의도)
-_MAKE_WORK_RE = re.compile(r"(작품|기획안?)\s*(을|를|으로|로)?\s*(만들|짜|잡아|써|생성|시작)|이걸로\s*\S*\s*(작품|기획)")
 
+_MAKE_WORK_RE = re.compile(r"(작품|기획안?)\s*(을|를|으로|로)?\s*(만들|짜|잡아|써|생성|시작)|이걸로\s*\S*\s*(작품|기획)")
 
 def _thread_parent_files_text(channel: str, thread_ts: str) -> str:
     """스레드에서 첨부 파일이 있는 첫 메시지의 파일 텍스트를 회수 (후속 답글엔 파일이 안 실림)."""
@@ -3508,79 +3202,6 @@ def _thread_parent_files_text(channel: str, thread_ts: str) -> str:
             if ft.strip():
                 return ft
     return ""
-
-
-def _files_text(event: dict) -> tuple[str, int]:
-    """메시지에 붙은 스니펫/텍스트/.hwpx 파일 내용을 봇 토큰으로 내려받아 합친다.
-    반환: (내용, blocked) — blocked>0이면 권한 부족으로 로그인 HTML만 받은 것."""
-    out, blocked = [], 0
-    for f in event.get("files") or []:
-        url = f.get("url_private_download") or f.get("url_private")
-        if not url:
-            continue
-        name = (f.get("name") or "").lower()
-        ftype = (f.get("filetype") or "").lower()
-        mt = (f.get("mimetype") or "").lower()
-        # 이미지는 텍스트로 디코딩하면 깨진 글자만 나옴 → 여기선 건너뜀([참조]가 별도로 다룸)
-        if mt.startswith("image/") or ftype in {"png", "jpg", "jpeg", "webp", "gif", "bmp", "heic", "tiff"} \
-                or name.endswith(_IMG_EXTS):
-            continue
-        try:
-            req = urllib.request.Request(
-                url, headers={"Authorization": f"Bearer {config.SLACK_BOT_TOKEN}"})
-            with urllib.request.urlopen(req, timeout=20) as r:
-                data = r.read()
-        except Exception:
-            log.exception("첨부 파일 다운로드 실패")
-            blocked += 1
-            continue
-        if name.endswith(".hwpx") or ftype == "hwpx":          # 신형 한글 = ZIP+XML → 텍스트 추출
-            txt = _hwpx_text(data)
-            if txt:
-                out.append(txt)
-            else:
-                log.warning("hwpx 본문 추출 실패(빈 결과)")
-            continue
-        body = _decode_text(data)
-        if body.lstrip()[:200].lower().find("<!doctype html") >= 0 or body.lstrip().lower().startswith("<html"):
-            log.warning("첨부 다운로드가 로그인 HTML 반환 — files:read 권한 필요")
-            blocked += 1
-            continue
-        out.append(body)
-    return "\n".join(out).strip(), blocked
-
-
-def _image_files(event: dict) -> list[tuple[str, str, bytes]]:
-    """메시지에 붙은 이미지들을 봇 토큰으로 내려받아 [(원본파일명 stem, 확장자, bytes)] 반환.
-    참조 등록에 못 쓰는 형식(gif/heic 등)은 png/jpg/jpeg/webp가 아니라서 제외한다."""
-    out = []
-    for f in event.get("files") or []:
-        name = f.get("name") or ""
-        ftype = (f.get("filetype") or "").lower()
-        mt = (f.get("mimetype") or "").lower()
-        ext = os.path.splitext(name)[1].lower()
-        if not ext and ftype:
-            ext = "." + ftype
-        if ext == ".jpeg":
-            ext = ".jpg"
-        is_img = mt.startswith("image/") or ftype in {"png", "jpg", "jpeg", "webp"} or ext in _REF_SAVE_EXTS
-        if not is_img or ext not in _REF_SAVE_EXTS:
-            continue
-        url = f.get("url_private_download") or f.get("url_private")
-        if not url:
-            continue
-        try:
-            req = urllib.request.Request(
-                url, headers={"Authorization": f"Bearer {config.SLACK_BOT_TOKEN}"})
-            with urllib.request.urlopen(req, timeout=30) as r:
-                data = r.read()
-        except Exception:
-            log.exception("이미지 첨부 다운로드 실패")
-            continue
-        stem = os.path.splitext(os.path.basename(name))[0] or "ref"
-        out.append((stem, ext, data))
-    return out
-
 
 def _do_ref(channel: str, thread_ts: str, rest: str, event: dict) -> None:
     """[참조] <작품> 인물[, 인물2] + 이미지 첨부 → data/refs/<작품>/<인물>.<ext> 저장(얼굴 고정값).
@@ -3647,27 +3268,6 @@ def _do_ref(channel: str, thread_ts: str, rest: str, event: dict) -> None:
         msg += f"\n(이미지 {extra}장은 이름이 없어 건너뛰었어요 — 이름을 콤마로 나눠 다시 보내주세요.)"
     _reply(channel, thread_ts, msg)
 
-
-def _md_table_to_csv(text: str) -> str | None:
-    """마크다운 표(| a | b |) → CSV 문자열. 표 행이 2줄 미만이면 None(표 아님)."""
-    rows = []
-    for ln in text.splitlines():
-        s = ln.strip()
-        if not (s.startswith("|") and s.endswith("|") and len(s) > 1):
-            continue
-        cells = [c.strip() for c in s[1:-1].split("|")]
-        if cells and all(re.fullmatch(r":?-{2,}:?", c or "") for c in cells):
-            continue                                   # |---|:--| 구분선 행 스킵
-        rows.append(cells)
-    if len(rows) < 2:
-        return None
-    import csv
-    import io
-    buf = io.StringIO()
-    csv.writer(buf).writerows(rows)
-    return buf.getvalue()
-
-
 def _do_export(channel: str, thread_ts: str, rest: str, cmd: str = "파일") -> None:
     """[파일] <md|txt|csv> [파일명] — 내보낼 내용은 (1)명령 아래 줄/첨부, 없으면 (2)스레드의 마지막 봇 답변.
     `[md]`/`[txt]`/`[csv]`처럼 형식을 명령으로 바로 줄 수도 있음. CSV는 마크다운 표를 자동 변환."""
@@ -3727,353 +3327,17 @@ def _do_export(channel: str, thread_ts: str, rest: str, cmd: str = "파일") -> 
         _reply(channel, thread_ts,
                f"파일 업로드에서 막혔어요: {e}\n(앱에 *files:write* 권한이 필요해요)")
 
-
-# ── 처리 중 요청 추적: 재시작(kickstart) 등으로 처리 도중 죽으면 기동 시 자동 재실행 ──
-_INFLIGHT = config.BASE_DIR / "data" / "inflight.json"
-_INFLIGHT_LOCK = threading.Lock()
-_INFLIGHT_KEYS = ("channel", "ts", "thread_ts", "text", "user", "channel_type")
-
-
-def _inflight_load() -> dict:
-    try:
-        return json.loads(_INFLIGHT.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-
-
-def _inflight_save(d: dict) -> None:
-    try:
-        _INFLIGHT.parent.mkdir(parents=True, exist_ok=True)
-        _INFLIGHT.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        log.warning("inflight 저장 실패")
-
-
-def _inflight_add(event: dict) -> str | None:
-    key = event.get("ts") or event.get("event_ts")
-    if not key:
-        return None
-    with _INFLIGHT_LOCK:
-        d = _inflight_load()
-        prev = d.get(key) or {}
-        d[key] = {"event": {k: event.get(k) for k in _INFLIGHT_KEYS},
-                  "attempts": prev.get("attempts", 0),
-                  "created": prev.get("created", time.time())}
-        _inflight_save(d)
-    return key
-
-
-def _inflight_done(key: str | None) -> None:
-    if not key:
-        return
-    with _INFLIGHT_LOCK:
-        d = _inflight_load()
-        if d.pop(key, None) is not None:
-            _inflight_save(d)
-
-
-def _replay_inflight() -> None:
-    """기동 시: 이전 실행에서 완료 못 하고 남은(=처리 중 죽은) 요청을 다시 실행.
-    반복 크래시 방지 위해 재시도는 1회까지만."""
-    time.sleep(8)   # 소켓·시트 준비 대기
-    with _INFLIGHT_LOCK:
-        d = _inflight_load()
-    if not d:
-        return
-    _RESUME_MAX_AGE = 20 * 60   # 20분 지난 중단 기록은 되살리지 않음(2026-07-15, 10번 —
-                                 # 기존엔 만료 없이 무조건 1회 재시도해서, 한참 지나 이미
-                                 # 다른 얘기로 넘어간 스레드에 뜬금없이 옛 요청이 되살아났음)
-    replay, keep = [], {}
-    now = time.time()
-    for key, rec in d.items():
-        if rec.get("attempts", 0) >= 1:      # 이미 한 번 재시도 → 무한루프 방지 위해 포기
-            log.warning("중단 요청 재시도 포기(반복 실패 가능): %s", key)
-            continue
-        if now - rec.get("created", now) > _RESUME_MAX_AGE:
-            log.warning("중단 요청 재시도 포기(너무 오래됨): %s", key)
-            continue
-        replay.append((key, rec))
-        rec["attempts"] = rec.get("attempts", 0) + 1
-        keep[key] = rec
-    with _INFLIGHT_LOCK:
-        _inflight_save(keep)                 # attempts 반영·포기분 제거(성공 시 _handle이 지움)
-    for key, rec in replay:
-        ev = rec.get("event") or {}
-        ch = ev.get("channel")
-        th = ev.get("thread_ts") or ev.get("ts")
-        own_ts = ev.get("ts")
-        if not ch:
-            _inflight_done(key)
-            continue
-        # 중단된 요청 이후 그 스레드에 사용자가 이미 새 메시지를 보냈으면(=이미 다른 얘기로
-        # 넘어갔으면) 되살리지 않는다(2026-07-15, 10번 — 로그라인 피드백만 물었는데 지나간
-        # '개요 생성' 요청이 뒤늦게 부활해 헷갈리게 했던 문제).
-        try:
-            resp = app.client.conversations_replies(
-                channel=ch, ts=th, limit=config.THREAD_HISTORY_LIMIT)
-            newer_user = any(
-                m.get("user") and m.get("user") != BOT_USER_ID and not m.get("bot_id")
-                and float(m.get("ts", 0)) > float(own_ts or 0)
-                for m in resp.get("messages", []))
-        except Exception:
-            newer_user = False
-        if newer_user:
-            log.info("중단 요청 재개 건너뜀(이후 새 메시지 있음): %s", key)
-            _inflight_done(key)
-            continue
-        log.info("중단 요청 재실행: ch=%s text=%r", ch, (ev.get("text") or "")[:60])
-        try:
-            app.client.chat_postMessage(
-                channel=ch, thread_ts=th,
-                text="🔄 봇이 재시작되며 이전 요청이 중단됐어요. 다시 실행할게요…")
-        except Exception:
-            pass
-        try:
-            _handle_dispatch(ev)             # 재실행 (성공하면 finally에서 inflight 제거)
-            _inflight_done(key)
-        except Exception:
-            log.exception("중단 요청 재실행 실패: %s", key)
-
-
-def _handle(event: dict) -> None:
-    """디스패치 래퍼: 처리 시작을 파일에 기록, 완료(또는 예외)되면 제거.
-    처리 도중 프로세스가 죽으면 기록이 남아 기동 시 _replay_inflight가 재실행."""
-    key = _inflight_add(event)
-    try:
-        _handle_dispatch(event)
-    finally:
-        _inflight_done(key)
-
-
-def _handle_dispatch(event: dict) -> None:
-    channel = event["channel"]
-    thread_ts = event.get("thread_ts") or event["ts"]
-    query = _clean(event.get("text", ""))
-    in_thread = bool(event.get("thread_ts")) and event.get("thread_ts") != event.get("ts")
-
-    m = CMD_RE.match(query)
-    if not m:
-        # 명령어 없이 노션 링크만 붙여도 → 자동 등록/동기화 (신규 페이지면 새 작품 생성)
-        if config.NOTION_TOKEN and re.search(r"https?://\S*notion\.\S+", query):
-            _do_sync(channel, thread_ts, query)
-            if event.get("files"):                 # 링크 + 파일 → 파일로 기획안 만들지 제안
-                ftx, _ = _files_text(event)
-                if ftx.strip():
-                    _reply(channel, thread_ts,
-                           "📎 첨부 파일도 있네요. 방금 링크는 **동기화**했고, 이 파일들로 "
-                           "**새 작품 기획안**을 만들 수도 있어요.\n"
-                           "만들려면 이 스레드에 `기획안 만들어줘`(또는 `기획`) 라고 답글 주세요.")
-            return
-        # 등록된 작품이 하나도 없는 신규 팀 상태 → 뭘 치든 '가장 먼저 할 일'을 안내
-        # (2026-07-16, 온보딩 B3). 유효한 [명령]이나 노션 링크를 이미 쓴 경우는 위에서 먼저
-        # 처리/리턴되므로 여기까지 안 옴 — 진짜로 감 못 잡은 첫 시도만 걸림.
-        if not in_thread and not works.all_works():
-            _reply(channel, thread_ts, _ONBOARD_FIRST_CONTACT)
-            return
-        # 파일 기반 기획안 제안('새 작품 기획안')에 대한 수락 답글 → 부모 첨부로 [기획] 실행
-        if (in_thread and _PLAN_ACCEPT_RE.search(query)
-                and (len(query.strip()) <= 20 or re.search(r"기획|만들", query))):
-            offered = any(m["role"] == "assistant" and "새 작품 기획안" in m["content"]
-                          for m in _thread_messages(channel, thread_ts))
-            if offered:
-                ftx = _thread_parent_files_text(channel, thread_ts)
-                if ftx.strip():
-                    _do_plan(channel, thread_ts, "", files_text=ftx)
-                else:
-                    _reply(channel, thread_ts,
-                           "첨부 파일을 다시 못 읽었어요. 파일을 이 스레드에 다시 올리고 `[기획]` 해주세요.")
-                return
-        # '이걸로 확정/입력/저장' → 직전 초안을 그 꼬리말이 안내한 경로로 시트 저장
-        if in_thread and _is_confirm(query):
-            savecmd = _draft_save_cmd(channel, thread_ts)
-            if not savecmd:
-                # 버튼 방식 스레드([✅ 통과] 버튼)는 [입력] 꼬리말이 없음
-                # → 스레드 맥락(작품·종류·회차)에서 직접 save 경로 구성
-                _tmsgs = _thread_messages(channel, thread_ts)
-                _twk = _work_from_thread("\n".join(m["content"] for m in _tmsgs))
-                _twk = (works.resolve(_twk) or _twk) if _twk else None
-                if _twk:
-                    _ctx = _thread_gen_context(_tmsgs)
-                    _tkind = ("대본" if "대본" in query else ("개요" if "개요" in query else None)) or _ctx[1]
-                    _tem = re.search(r"(\d+)\s*화", query) or re.search(
-                        r"(\d+)\s*화", "\n".join(m["content"] for m in _tmsgs))
-                    _tep = _tem.group(1) if _tem else None
-                    if _tkind and _tep:
-                        savecmd = f"<{_twk}> {_tkind} / {_tep}화"
-            if savecmd:
-                # 확정 메시지가 특정 화/종류를 지정하면('2화 개요만 확정') 꼬리말 경로 대신 그걸 따름
-                _qep = re.search(r"(\d+)\s*화", query)
-                _qkind = "대본" if "대본" in query else ("개요" if "개요" in query else None)
-                if _qep or _qkind:
-                    _wtok = re.match(r"\s*(<[^>]+>)", savecmd)
-                    _wtok = _wtok.group(1) if _wtok else ""
-                    _kind = _qkind or ("대본" if "대본" in savecmd else "개요")
-                    _m2 = re.search(r"(\d+)\s*화", savecmd)
-                    _ep = _qep.group(1) if _qep else (_m2.group(1) if _m2 else None)
-                    if _wtok and _ep:
-                        savecmd = f"{_wtok} {_kind} / {_ep}화"
-                _do_input(channel, thread_ts, savecmd, mode="save")
-            else:
-                _reply(channel, thread_ts,
-                       "무엇을 확정할지 못 찾았어요. `[입력] <작품> 개요 / 1화` 처럼 경로를 알려주세요.")
-            return
-        # '작품명이 없어요 — 일반으로 드릴까요?' 제안(생성/피드백/아이디어)에 대한 수락 → 일반으로 진행
-        if in_thread and re.search(r"응|네|일반|그냥|좋아|해줘|ㅇㅋ|ㅇㅇ|ok", query, re.I) and len(query.strip()) <= 20:
-            _amsgs = _thread_messages(channel, thread_ts)
-            _asked_generic = any(m["role"] == "assistant" and "작품명이 없어요" in m["content"] for m in _amsgs)
-            if _asked_generic:
-                for mm0 in reversed(_amsgs):   # 마지막 관련 명령 회수 → 일반(force_generic)으로 재실행
-                    if mm0["role"] != "user":
-                        continue
-                    cm0 = CMD_RE.match(mm0["content"])
-                    if not cm0:
-                        continue
-                    c0, body0 = cm0.group(1).strip(), cm0.group(2).strip()
-                    if c0 in CMD_IDEA:
-                        _do_idea(channel, thread_ts, body0, force_generic=True); return
-                    if c0 in CMD_GEN:
-                        _do_generate(channel, thread_ts, body0, force_generic=True); return
-                    if c0 in CMD_FEEDBACK:
-                        _do_feedback(channel, thread_ts, body0, mode="both", force_generic=True); return
-                    if c0 in CMD_FB_FUN:
-                        _do_feedback(channel, thread_ts, body0, mode="fun", force_generic=True); return
-                    if c0 in CMD_FB_LOGIC:
-                        _do_feedback(channel, thread_ts, body0, mode="logic", force_generic=True); return
-        # '이걸로 작품/기획 만들어줘'(트렌드·아이디어 스레드) → 물어보고, 수락하면 그 대화로 [기획]
-        if in_thread:
-            _asked = any(m["role"] == "assistant" and "기획 초안을 생성할까요" in m["content"]
-                         for m in _thread_messages(channel, thread_ts))
-            _has_link = re.search(r"https?://\S*notion\.\S+", query)
-            if _asked and (_has_link or _PLAN_ACCEPT_RE.search(query)) and len(query.strip()) <= 60:
-                _do_plan(channel, thread_ts, query if _has_link else "")   # 링크 있으면 그 페이지에 기록
-                return
-            if _MAKE_WORK_RE.search(query):
-                _reply(channel, thread_ts,
-                       "이걸로 **기획 초안을 생성할까요**? 이 스레드에 `응`(또는 `만들어줘`)라고 답해주세요.\n"
-                       "📎 **노션 링크를 함께 주면** 그 페이지에 **새 작품으로 기록**해드려요 "
-                       "(예: `<노션링크> 만들어줘`).")
-                return
-        # 스레드 안의 후속 메시지(명령 없음) → 이전 초안 수정 지시로 처리
-        if in_thread and query.strip():
-            _do_revise(channel, thread_ts, query)
-        elif query.strip():
-            _do_freeform(channel, thread_ts, query)   # 첫 멘션 자유 질문 → 실제 답변(영 아니면 도움말)
-        else:
-            _reply(channel, thread_ts, _GUIDE)        # 그냥 멘션만 → 짧은 안내
-        return
-    cmd, rest = m.group(1).strip(), m.group(2)
-    # 스니펫/파일 첨부가 있으면 그 내용을 명령 뒤에 이어붙임 (긴 대본·노션 문서용)
-    ft, blocked = _files_text(event)
-    if blocked and not ft:   # 권한 부족으로 파일을 못 읽음
-        _reply(channel, thread_ts,
-               "⚠️ 첨부 파일을 못 읽었어요 — Slack 앱에 *files:read* 권한이 필요해요.\n"
-               "설정(OAuth & Permissions)에서 권한 추가 후 재설치하거나, 스니펫 대신 **채팅에 직접 붙여넣어** 주세요.")
-        return
-    rest_f = (rest + "\n" + ft) if ft else rest
-
-    # 바이블을 쓰는 명령에 노션 링크가 섞였으면 → 먼저 등록·동기화한 뒤 그 명령을 실행.
-    # (동기화·기획은 제외: 동기화는 자체 처리, 기획의 링크는 '쓸 대상'이라 읽어오면 안 됨)
-    _WORK_CMDS = (CMD_GEN | CMD_FEEDBACK | CMD_FB_FUN | CMD_FB_LOGIC
-                  | CMD_IDEA | CMD_CONVERT)
-    if cmd in _WORK_CMDS and config.NOTION_TOKEN:
-        rest = re.sub(r"<(https?://[^>|]+)(?:\|[^>]*)?>", r"\1", rest)   # 슬랙 <url|label> 언랩
-        lm = _NOTION_LINK.search(rest)
-        if lm:
-            no_link = _NOTION_LINK.sub("", rest).strip()
-            _sm = SUB_RE.match(no_link)
-            _exp = (works.resolve(_sm.group(1).strip()) or _sm.group(1).strip()) if _sm else None
-            w = _autosync_link(channel, thread_ts, lm.group(0), explicit=_exp)
-            rest = no_link
-            rest_f = _NOTION_LINK.sub("", rest_f).strip()
-            if w and not SUB_RE.match(rest):           # <작품> 없이 링크만 준 경우 → 동기화된 작품명 주입
-                rest = f"<{w}> {rest}".strip()
-                rest_f = f"<{w}> {rest_f}".strip()
-
-    if cmd in CMD_RELOAD:
-        pulled = _reference_pull()               # 형제 repo에서 최신 받아오기 (있으면)
-        reference.reload()
-        _reply(channel, thread_ts,
-               ("최신 레퍼런스를 받아 " if pulled else "") + "레퍼런스 DB·템플릿을 다시 불러왔어요.")
-    elif cmd in CMD_REFRESH:
-        # 이름과 달리 캐시만 지우고 노션은 안 읽어와서, 노션을 방금 고쳤어도 캐시 TTL 안엔
-        # 여전히 옛 내용이 나갔음(2026-07-13) — 등록된 노션 페이지가 있으면 실제로 다시 읽어온다.
-        from bot.shared import works
-        _sm = SUB_RE.match(rest_f.strip())
-        _rf_work = (works.resolve(_sm.group(1).strip()) or _sm.group(1).strip()) if _sm else None
-        _rf_work = _rf_work or _work_from_thread(
-            "\n".join(mm["content"] for mm in _thread_messages(channel, thread_ts)))
-        if _rf_work and works.page_of(_rf_work) and config.NOTION_TOKEN:
-            _do_sync(channel, thread_ts, f"<{_rf_work}>")
-        else:
-            sheet = reference.sheet()
-            if sheet:
-                sheet.invalidate()
-            _reply(channel, thread_ts, "시트 바이블 캐시를 비웠어요. 다음 요청부터 최신으로 읽어옵니다.")
-    elif cmd in CMD_CONVERT:
-        _do_convert(channel, thread_ts, rest_f)
-    elif cmd in (CMD_STORYBOARD | CMD_STORYBOARD2 | CMD_STORYBOARD_IMG | CMD_FILE | CMD_REF):
-        # 원래 "별도 봇으로 분리"라고만 답해서 어느 봇을 어떻게 부르는지 안내가 없었음(2026-07-14, C5).
-        _reply(channel, thread_ts,
-               "스토리보드·이미지 기능은 이 워크스페이스에 별도로 설치된 **스토리보드 봇**을 멘션해서 써주세요 "
-               "(슬랙 멤버 목록에서 '스토리보드'로 검색하면 찾을 수 있어요) — 명령은 여기와 똑같아요:\n"
-               "• `[스토리보드1] <작품> N화` — 씬 설계(분할·시간)\n"
-               "• `[스토리보드2] <작품>` — 상세 콘티\n"
-               "• `[이미지] <작품>` — 컷별 이미지 생성\n"
-               "• `[참조] <작품> <인물>` (+이미지 첨부) / `[파일]`(내보내기)")
-    elif cmd in CMD_TREND:
-        _do_trend(channel, thread_ts, rest)
-    elif cmd in CMD_SYNC:
-        _do_sync(channel, thread_ts, rest_f)
-    elif cmd in CMD_CHECK:
-        _do_check(channel, thread_ts, rest)
-    elif cmd in CMD_ALIAS:
-        _do_alias(channel, thread_ts, rest)
-    elif cmd in CMD_IDEA:
-        _do_idea(channel, thread_ts, rest)
-    elif cmd in CMD_PLAN:
-        _do_plan(channel, thread_ts, rest, files_text=ft, in_thread=in_thread)
-    elif cmd in CMD_FEEDBACK:
-        _do_feedback(channel, thread_ts, rest_f, mode="both")
-    elif cmd in CMD_FB_FUN:
-        _do_feedback(channel, thread_ts, rest_f, mode="fun")
-    elif cmd in CMD_FB_LOGIC:
-        _do_feedback(channel, thread_ts, rest_f, mode="logic")
-    elif cmd in CMD_STOP:
-        _do_stop(channel, thread_ts)
-    elif cmd in CMD_LIKE:
-        _do_pref(channel, thread_ts, rest, "+")
-    elif cmd in CMD_DISLIKE:
-        _do_pref(channel, thread_ts, rest, "-")
-    elif cmd in CMD_INPUT:
-        _do_input(channel, thread_ts, rest, mode="create")
-    elif cmd in CMD_EDIT:
-        _do_input(channel, thread_ts, rest, mode="update")
-    elif cmd in CMD_GEN:
-        _do_generate(channel, thread_ts, rest, files_text=ft)
-    elif cmd in CMD_HELP:
-        _reply(channel, thread_ts, _HELP)
-    else:
-        # 대괄호를 명령이 아니라 제목 강조·작품태그로 쓴 경우 대응(2026-07-15, 5·6번):
-        # · 노션 링크가 같이 왔으면 '모르는 명령' 대신 등록 흐름을 우선한다.
-        # · 링크는 없지만 생성 동사가 있으면 자연어 처리로 넘긴다.
-        # · 대괄호 안 텍스트가 이미 등록된 작품명/별칭이면 <작품> 태그로 봐서 그대로 재처리한다.
-        _has_link = bool(_NOTION_LINK.search(rest_f) or _NOTION_LINK.search(cmd))
-        _resolved_tag = works.resolve(cmd)
-        if _has_link:
-            _do_sync(channel, thread_ts, f"{cmd} {rest_f}".strip())
-        elif _resolved_tag:
-            _do_freeform(channel, thread_ts, f"<{_resolved_tag}> {rest_f}".strip())
-        elif re.search(r"(만들|작성|생성|뽑|그려|써|쓰|짜)(?:어|아)?\s*(?:봐|줘|줄래|주세요)?", rest_f):
-            _do_freeform(channel, thread_ts, f"{cmd} {rest_f}".strip())
-        else:
-            # 오타 추정: 아는 명령들과 가장 비슷한 걸 먼저 제안 (2026-07-16, 온보딩 E —
-            # 예전엔 그냥 전체 가이드만 던져서 뭘 잘못 쳤는지 스스로 찾아야 했음).
-            _suggestion = ""
-            _close = difflib.get_close_matches(cmd, _ALL_CMD_NAMES, n=1, cutoff=0.6)
-            if _close:
-                _suggestion = f"혹시 `[{_close[0]}]`를 말씀하신 거예요?\n\n"
-            _reply_dedup(channel, thread_ts, f"`[{cmd}]` 는 모르는 명령이에요.\n\n" + _suggestion + _GUIDE)
-
+# NOTE (merge-time, 2026-07-16): the inflight-tracking block that used to live here
+# (_INFLIGHT / _INFLIGHT_LOCK / _INFLIGHT_KEYS / _inflight_load / _inflight_save /
+# _inflight_add / _inflight_done / _replay_inflight, verbatim from co-writer-bot/app.py)
+# has been MOVED to bot/dispatch.py instead of staying here. Reason: _replay_inflight()'s
+# body calls `_handle_dispatch(ev)` -- in the single-bot original that was co-writer's own
+# 228-line elif-chain in the same file, but in the merged bot the equivalent function is the
+# real merged dispatch order (storyboard _maybe_* chain + co-writer narrow chain + brackets,
+# see dispatch.py), which only exists in dispatch.py. Leaving a second, dead copy here (whose
+# _replay_inflight would silently NameError on `_handle_dispatch` the first time the bot
+# actually needed to replay a crashed-mid-request event) was judged more dangerous than
+# moving it, since dispatch_cowriter.py is not otherwise supposed to own router-level state.
 
 def _draft_action_ctx(body: dict):
     """버튼 payload → (channel, thread_ts, message_ts, work, top, mid, level)."""
@@ -4082,7 +3346,6 @@ def _draft_action_ctx(body: dict):
     msg = body.get("message") or {}
     th = msg.get("thread_ts") or msg.get("ts")
     return ch, th, msg.get("ts"), v.get("w"), v.get("t"), v.get("m", ""), v.get("l") or None
-
 
 @app.action("draft_approve")
 def on_draft_approve(ack, body):
@@ -4099,7 +3362,6 @@ def on_draft_approve(ack, body):
         _do_input(ch, th, path, mode="save")   # 스레드 직전 초안 캡처 → 시트+노션 저장
     except Exception:
         log.exception("draft_approve 실패")
-
 
 @app.action("draft_level_select")
 def on_draft_level_select(ack, body):
@@ -4124,7 +3386,6 @@ def on_draft_level_select(ack, body):
     except Exception:
         log.exception("draft_level_select 실패")
 
-
 @app.action("draft_regen")
 def on_draft_regen(ack, body):
     ack()
@@ -4145,7 +3406,6 @@ def on_draft_regen(ack, body):
     finally:
         job_ledger.finish_job(job)
 
-
 def _revise_action_ctx(body: dict):
     """revise 버튼 payload → (channel, thread_ts, message_ts, work, kind, episode)."""
     v = json.loads(body["actions"][0]["value"])
@@ -4154,7 +3414,6 @@ def _revise_action_ctx(body: dict):
     th = msg.get("thread_ts") or msg.get("ts")
     ep = v.get("e")
     return ch, th, msg.get("ts"), v.get("w"), v.get("k") or "개요", (int(ep) if ep else None)
-
 
 @app.action("revise_generate")
 def on_revise_generate(ack, body):
@@ -4175,7 +3434,6 @@ def on_revise_generate(ack, body):
     finally:
         job_ledger.finish_job(job)
 
-
 @app.action("revise_specify")
 def on_revise_specify(ack, body):
     ack()
@@ -4192,7 +3450,6 @@ def on_revise_specify(ack, body):
     except Exception:
         log.exception("revise_specify 실패")
 
-
 def _char_action_ctx(body: dict):
     """캐릭터 카드 버튼 payload → (channel, thread_ts, message_ts, work, name, feedback, data, context,
     existing). existing이 있으면 '기존 인물 자연어 수정' 흐름(신규 추가가 아님).
@@ -4205,7 +3462,6 @@ def _char_action_ctx(body: dict):
     cached = _CHAR_DRAFT_CACHE.get(v.get("id"), {}) if "id" in v else v
     return (ch, th, msg.get("ts"), cached.get("w"), cached.get("n"), cached.get("fb", ""),
             cached.get("d") or {}, cached.get("ctx", ""), cached.get("ex"))
-
 
 @app.action("char_save")
 def on_char_save(ack, body):
@@ -4249,7 +3505,6 @@ def on_char_save(ack, body):
     except Exception:
         log.exception("char_save 실패")
 
-
 @app.action("char_regen")
 def on_char_regen(ack, body):
     ack()
@@ -4285,7 +3540,6 @@ def on_char_regen(ack, body):
     finally:
         job_ledger.finish_job(job)
 
-
 @app.action("char_edit")
 def on_char_edit(ack, body):
     ack()
@@ -4307,7 +3561,6 @@ def on_char_edit(ack, body):
     except Exception:
         log.exception("char_edit 실패")
 
-
 def _field_action_ctx(body: dict):
     """필드 수정안 버튼 payload → (channel, thread_ts, message_ts, work, field_name, triple, feedback, value)."""
     v = json.loads(body["actions"][0]["value"])
@@ -4318,7 +3571,6 @@ def _field_action_ctx(body: dict):
     t = cached.get("t")
     return (ch, th, msg.get("ts"), cached.get("w"), cached.get("f"),
             tuple(t) if t else None, cached.get("fb", ""), cached.get("v", ""))
-
 
 @app.action("field_save")
 def on_field_save(ack, body):
@@ -4386,7 +3638,6 @@ def on_field_save(ack, body):
     except Exception:
         log.exception("field_save 실패")
 
-
 @app.action("field_regen")
 def on_field_regen(ack, body):
     ack()
@@ -4432,7 +3683,6 @@ def on_field_regen(ack, body):
     finally:
         job_ledger.finish_job(job)
 
-
 @app.action("field_edit")
 def on_field_edit(ack, body):
     ack()
@@ -4452,33 +3702,9 @@ def on_field_edit(ack, body):
     except Exception:
         log.exception("field_edit 실패")
 
-
-@app.event("app_mention")
-def on_mention(event, ack):
-    ack()
-    log.info("app_mention 수신: ch=%s text=%r", event.get("channel"), (event.get("text") or "")[:60])
-    _handle(event)
-
-
-@app.event("message")
-def on_message(event, ack):
-    ack()
-    log.info("message 수신: type=%s ch=%s bot=%s sub=%s",
-             event.get("channel_type"), event.get("channel"),
-             event.get("bot_id"), event.get("subtype"))
-    # DM만 처리 (채널 일반 메시지는 멘션으로만 반응). 봇 자신·수정 이벤트 무시.
-    if event.get("channel_type") != "im":
-        return
-    if event.get("bot_id") or event.get("subtype"):
-        return
-    _handle(event)
-
-
 _NOTION_POLL_SEC = int(os.environ.get("COWRITER_NOTION_POLL_SEC", "60"))  # 노션 변경 확인 주기(초)
-# page_last_edited 단일 호출(가벼움, ~0.25초)이라 짧게 잡아도 부담 적음. 반영 자체(LLM 파싱)는
-# 감지와 별개로 여전히 시간이 걸림 — 이건 '알아채는' 속도만 앞당김(2026-07-13, 기존 600초).
-_NOTION_STATE = config.BASE_DIR / "data" / "notion_state.json"
 
+_NOTION_STATE = config.BASE_DIR / "data" / "notion_state.json"
 
 def _load_notion_state() -> dict:
     try:
@@ -4486,14 +3712,12 @@ def _load_notion_state() -> dict:
     except Exception:
         return {}
 
-
 def _save_notion_state(st: dict) -> None:
     try:
         _NOTION_STATE.parent.mkdir(parents=True, exist_ok=True)
         _NOTION_STATE.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
     except Exception:
         log.warning("notion_state 저장 실패")
-
 
 def _reference_pull() -> bool:
     """레퍼런스 소스 repo(story-v1-scripts)를 git pull. HEAD가 바뀌면 캐시 리로드 후 True.
@@ -4523,7 +3747,6 @@ def _reference_pull() -> bool:
         log.info("레퍼런스 갱신 → 리로드 (%s→%s)", before[:7], after[:7])
         return True
     return False
-
 
 def _notion_autosync_loop() -> None:
     """배경 루프: ①레퍼런스 repo pull(갱신 시 리로드) ②등록 작품 노션 변경 감지→동기화.
@@ -4571,18 +3794,3 @@ def _notion_autosync_loop() -> None:
             log.exception("autosync 루프 오류")
         time.sleep(_NOTION_POLL_SEC)
 
-
-if __name__ == "__main__":
-    generator.healthcheck()  # Anthropic 자격증명 확인 (내부 Claude Code 팀 로그인 or API 키)
-    log.info("co-writer-bot 시작 (backend=%s, reference=%s)", config.BACKEND, config.REFERENCE_DIR)
-    _ref_is_repo = (config.REFERENCE_DIR.parent / ".git").exists()
-    if _ref_is_repo:
-        _reference_pull()   # 기동 시 최신 레퍼런스 확보 (사본 없이 repo 직접 읽음)
-    from bot.shared import works
-    _n_works = len(works.all_works()) if config.NOTION_TOKEN else 0
-    if (config.NOTION_TOKEN and _n_works) or _ref_is_repo:
-        threading.Thread(target=_notion_autosync_loop, daemon=True).start()
-        log.info("배경 동기화 ON (레퍼런스 pull=%s · 노션 %d작품 · %d초 주기)",
-                 _ref_is_repo, _n_works, _NOTION_POLL_SEC)
-    threading.Thread(target=_replay_inflight, daemon=True).start()  # 재시작으로 중단된 요청 자동 재실행
-    SocketModeHandler(app, config.SLACK_APP_TOKEN).start()
