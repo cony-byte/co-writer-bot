@@ -4229,19 +4229,37 @@ def on_field_save(ack, body):
             except Exception:
                 _reply(ch, th, "⚠️ 회차분배 저장 실패: 모델 결과를 표로 못 읽었어요. 다시 시도해 주세요.")
                 return
+            # Bug9(2026-07-16): row가 "막" 없이 오면 여기서 그냥 continue돼서 조용히 드롭됐는데
+            # 전체가 다 그런 경우(rows==[] 포함) 아래 성공 메시지는 무조건 나가서 "0막 저장"
+            # 같은 가짜 성공이 뜬 적이 있었다 — 실제로 저장된 막 개수(saved)를 따로 세서 0이면
+            # 실패로 알린다.
             failed = 0
+            saved = 0
             for row in rows:
                 gu = _normalize_gu(row.get("막", ""))
                 if not gu:
                     continue
+                row_saved = False
                 for k in ("구간", "화수", "핵심사건"):
                     if row.get(k):
                         rr = sheet.upsert(work, "회차분배", gu, k, str(row[k]).strip())
                         if isinstance(rr, dict) and rr.get("error"):
                             failed += 1
+                        else:
+                            row_saved = True
+                if row_saved:
+                    saved += 1
             sheet.invalidate(work)
+            if saved == 0:
+                _reply(ch, th, "⚠️ 회차분배 초안에서 저장할 내용을 못 찾았어요 (막 정보가 비어있어요). "
+                               "다시 생성해 주세요.")
+                return
             note = f" (실패 {failed}건)" if failed else ""
-            _reply(ch, th, f"✅ *회차분배* {len(rows)}막 시트에 저장했어요.{note}")
+            # Bug8(2026-07-16): 이 저장은 새 배열에 있는 막만 upsert하는 방식이라(기존에 있던
+            # 다른 막은 그대로 남음) "저장했어요"라고만 하면 전체 교체로 오해할 수 있어 문구를
+            # 명확히 함. 시트 API에 안전한 삭제(全교체) primitive가 따로 없어서(sheet.upsert만
+            # 확인됨) 더 위험한 "지우고 다시 쓰기"보다 메시지를 정확히 하는 쪽을 선택.
+            _reply(ch, th, f"✅ *회차분배* {saved}막 갱신했어요 (기존에 없던 막은 그대로 유지돼요).{note}")
             return
         r = sheet.upsert(work, top, mid, sub, new_val)
         if isinstance(r, dict) and r.get("error"):
