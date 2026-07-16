@@ -9,6 +9,10 @@ data/inflight.json
 data/script_summaries.json
 data/notion_scripts_cache.json
 data/draft_caches.json
+data/jobs.json
+data/conti_state.json
+data/last_still.json
+data/interrupted_jobs.json
 
 # 캐릭터 참조 이미지 (개인 에셋, 용량)
 data/refs/
