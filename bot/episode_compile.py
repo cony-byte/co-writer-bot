@@ -224,7 +224,11 @@ def _combine_audio_tracks(tracks: list[Path | None], total_duration: float,
 
 
 def _render(work: str, plan: list[dict], out_path: Path, tmpdir: Path, *,
-           width: int, height: int, fps: int, mood_prompt: str | None = None) -> None:
+           width: int, height: int, fps: int, mood_prompt: str | None = None,
+           progress_cb=None) -> None:
+    """progress_cb(i, total): ★2026-07-16, 합본 생성 중 진행상황이 안 보인다는 지적 —
+    컷별 세그먼트 인코딩이 끝날 때마다(전체 중 몇 번째인지) 호출해 app.py가 슬랙 메시지를
+    갱신할 수 있게 한다. None이면 기존과 동일(콜백 없이 조용히 진행)."""
     seg_paths = []
     cut_audio_clips: list[tuple[float, Path]] = []  # [(timeline_start_sec, wav_path), ...]
     cursor = 0.0
@@ -273,6 +277,11 @@ def _render(work: str, plan: list[dict], out_path: Path, tmpdir: Path, *,
                 # 이 구간만 무음으로 두고(나레이션/배경음악은 정상 진행) 계속한다.
                 log.exception(f"컷 오디오 추출 실패, 이 구간은 무음 처리: seg {i}")
         cursor += dur
+        if progress_cb:
+            try:
+                progress_cb(i + 1, len(plan))
+            except Exception:
+                log.exception("합본 진행률 콜백 실패 — 렌더링은 계속 진행")
 
     filelist = tmpdir / "filelist.txt"
     filelist.write_text("\n".join(f"file '{p.name}'" for p in seg_paths), encoding="utf-8")
@@ -323,7 +332,7 @@ def discard_draft(draft_path: str) -> None:
 
 
 def compile_episode(work: str, episode_title: str, plan: list[dict],
-                    mood_prompt: str | None = None) -> str:
+                    mood_prompt: str | None = None, progress_cb=None) -> str:
     """이미 만들어진 edit_plan(list[dict])을 받아 실제로 렌더링. draft mp4 절대경로 반환 —
     사용자가 확인 버튼으로 confirm_final()을 불러야 최종본이 된다(2026-07-14).
     plan 설계(LLM 호출)는 bot.edit_plan.build_edit_plan에서 미리 하고 넘겨받는다 — 이 함수는
@@ -345,6 +354,6 @@ def compile_episode(work: str, episode_title: str, plan: list[dict],
 
     with tempfile.TemporaryDirectory(prefix="sb_compile_") as td:
         tmpdir = Path(td)
-        _render(work, plan, out_path, tmpdir, mood_prompt=mood_prompt,
+        _render(work, plan, out_path, tmpdir, mood_prompt=mood_prompt, progress_cb=progress_cb,
                width=config.COMPILE_WIDTH, height=config.COMPILE_HEIGHT, fps=config.COMPILE_FPS)
     return str(out_path)
