@@ -17,7 +17,7 @@ from bot.shared.files import _files_text, _image_files, _decode_text, _hwpx_text
 from bot.shared.slack_io import (
     app, log, _reply, _post_chunks, _thread_messages, _mrkdwn, _thinking, _update_note,
     _clean, _looks_like_mention, _convo_text, _last_assistant_with, _md_table_to_csv,
-    _work_from_thread, BOT_USER_ID,
+    _work_from_thread, BOT_USER_ID, _CANCEL,
 )
 
 
@@ -85,7 +85,9 @@ CMD_LIKE = {"좋아", "좋아요", "굿", "like", "👍"}
 
 CMD_DISLIKE = {"별로", "별로야", "싫어", "노", "dislike", "👎"}
 
-_CANCEL: set[str] = set()   # 취소 요청된 thread_ts (생성 결과를 버림)
+# _CANCEL now imported from bot.shared.slack_io (2026-07-16, Phase 4 collision fix --
+# see that module's comment: was a separate, disconnected set here before, so the merged
+# router's STOP handler never actually reached co-writer's own cancel checks).
 
 _CHAR_EDIT_PENDING: dict[str, dict] = {}   # thread_ts → {work,name,feedback} ('✏️ 수정' 클릭 후 다음 답글 대기)
 

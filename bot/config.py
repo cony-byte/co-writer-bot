@@ -83,15 +83,21 @@ OPENROUTER_REFS_DIR = Path(os.environ.get("OPENROUTER_REFS_DIR", BASE_DIR / "dat
 # openrouter_tts.py, storyboard_grid.py, episode_compile.py, sb_generator.py, etc.)
 # reference these names on `config.*` and raised AttributeError at import time without them.
 #
-# NOTE -- one already-existing name was found to collide with a DIFFERENT meaning between
-# the two bots' config.py and is intentionally NOT touched here (flagging per instructions
-# rather than guessing which should win): OPENROUTER_IMAGE_ASPECT defaults to "9:16" in
-# co-writer's config (this file, above) vs "16:9" in storyboard-bot's -- already flagged in
-# .env.example (both lines present but commented out) by an earlier phase. Whoever resolves
-# Phase 4's constant audit should decide whether this needs a per-domain split (e.g.
-# OPENROUTER_PANEL_ASPECT, which storyboard-bot itself already treats as the SEPARATE
-# "grid contact-sheet" aspect vs OPENROUTER_IMAGE_ASPECT for the individual stillcut image --
-# both those two ARE already present, non-colliding, in this file).
+# RESOLVED (2026-07-16, Phase 4 constant audit): OPENROUTER_IMAGE_ASPECT defaulted to "9:16"
+# in co-writer's config (this file, above) vs "16:9" in storyboard-bot's. Traced every real
+# call site of openrouter_image.generate() across both dispatch_cowriter.py and
+# dispatch_storyboard.py (incl. the grid/_do_images path, which explicitly passes
+# `aspect_ratio=config.OPENROUTER_PANEL_ASPECT`, and the stillcut path, which explicitly
+# passes `aspect_ratio=STILL_ASPECT` = "9:16") -- EVERY current call site passes an explicit
+# aspect_ratio, so config.OPENROUTER_IMAGE_ASPECT is only ever read as generate()'s internal
+# last-resort fallback (openrouter_image.py's `ar = aspect_ratio or config.OPENROUTER_IMAGE_ASPECT`)
+# when literally nothing else specifies one -- not currently reachable in practice, but should
+# still default sensibly for any future direct call. Kept co-writer's "9:16": this pipeline's
+# product is vertical short-form drama (mobile/세로 포맷, matches STILL_ASPECT and the final
+# compiled-video canvas 1080x1920) -- storyboard-bot's "16:9" default here was very likely a
+# leftover from before OPENROUTER_PANEL_ASPECT existed as its own dedicated grid-aspect
+# constant. No code change needed (this file's original co-writer default already had the
+# thing worth keeping) -- this comment replaces the earlier "flagged, unresolved" note.
 # ============================================================================
 
 # ★2026-07-15: 상세 콘티(2단계)를 화 전체 한 번의 호출로 뽑으면 컷 수가 많은 화·구도헤더 등

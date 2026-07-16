@@ -73,6 +73,47 @@ MENTION_RE = re.compile(rf"<@{BOT_USER_ID}>\s*")
 # as `cw._WORK_CMDS`. Recomputed here, verbatim same member sets.
 _WORK_CMDS = cw.CMD_GEN | cw.CMD_FEEDBACK | cw.CMD_FB_FUN | cw.CMD_FB_LOGIC | cw.CMD_IDEA | cw.CMD_CONVERT
 
+# (2026-07-16, Phase 4) combined typo-suggestion vocabulary -- cw._ALL_CMD_NAMES only ever
+# listed co-writer's own command names (a typo'd "[스토리보드]" would get no suggestion, or
+# worse, the single closest co-writer command regardless of relevance). Defined here rather
+# than folded into cw._ALL_CMD_NAMES itself, since dispatch_cowriter.py stays co-writer-only
+# and dispatch.py is where both bots' vocabularies are already in scope together.
+_ALL_CMD_NAMES = sorted(set(cw._ALL_CMD_NAMES) | sb.CMD_STORYBOARD_ALL | sb.CMD_IMG | sb.CMD_STILL
+                        | sb.CMD_FILE | sb.CMD_REF | sb.CMD_CONTI_FINAL | sb.CMD_COMPILE
+                        | sb.CMD_RESET_EPISODE | sb.CMD_AUTOPILOT)
+
+
+# ============================================================================
+# combined help text (2026-07-16, Phase 4) -- replaces the TODO(Phase 4) placeholders that
+# showed sb._HELP alone for both the `[도움말]` bracket and the new unconditional
+# _FULL_HELP_RE escape hatch. Each half is kept verbatim (both are already well-written,
+# action-oriented guides for their own domain) and joined under one identity, since post-
+# merge there is only one bot and a co-writer-only thread asking "도움말" should still learn
+# the storyboard pipeline exists (and vice versa) rather than seeing only half the picture.
+# ============================================================================
+_COMBINED_HELP = (
+    "🖋️🎬 *이 봇 하나로 대본 작업 + 스토리보드/영상 제작까지 다 돼요.*\n\n"
+    "━━━━━━━━━━━━━━━━━━━━\n"
+    "*🖋️ 대본/기획 (co-writer)*\n"
+    "━━━━━━━━━━━━━━━━━━━━\n"
+    + cw._HELP +
+    "\n\n"
+    "━━━━━━━━━━━━━━━━━━━━\n"
+    + sb._HELP +
+    "\n━━━━━━━━━━━━━━━━━━━━"
+)
+
+# combined short guide -- used for a bare mention with no text (dispatch.py step 7's true
+# last resort). cw._GUIDE alone would only ever mention writing/planning commands; a merged
+# bot's bare-mention greeting should surface both halves briefly, same principle as
+# _COMBINED_HELP above but condensed (full detail is one "도움말" away either way).
+_COMBINED_GUIDE = (
+    cw._GUIDE.rsplit("_스레드 안에선", 1)[0].rstrip() + "\n"
+    "• *스토리보드/영상*: \"<작품> 3화\"처럼 작품+화만 말해도 씬 설계부터 시작돼요 "
+    "(콘티→이미지→영상화→합본까지 자연어로 이어서)\n"
+    "_스레드 안에선 작품 이름 없이 자연어로 이어 말해도 돼요. 전체 명령은 `도움말`(또는 `[도움말]`)._"
+)
+
 
 # ============================================================================
 # FIX-1 / FIX-3 guard regexes -- these do NOT exist in either original bot's source.
@@ -199,11 +240,11 @@ def _handle_dispatch(event: dict) -> None:
 
     # step 1.5: explicit "도움말"/"help" escape hatch (unconditional, fires even in a
     # co-writer-flavored thread -- see HANDOFF's existing "_HELP must never be silently
-    # merged" note; this shows storyboard's guide today, which is a content ambiguity, not
-    # a routing bug. TODO(Phase 4): author a single combined co-writer+storyboard help text
-    # and show that here instead of sb._HELP alone.)
+    # merged" note. Shows the combined help text (see _COMBINED_HELP above) since post-merge
+    # there's only one bot identity and a co-writer-flavored thread should still learn the
+    # storyboard pipeline exists (and vice versa).
     if sb._FULL_HELP_RE.match(query):
-        _reply(channel, thread_ts, sb._HELP)
+        _reply(channel, thread_ts, _COMBINED_HELP)
         return
 
     # step 2: resume an interrupted storyboard job ("재생성"/"다시 해줘"/...) -- a no-op
@@ -245,7 +286,7 @@ def _handle_dispatch(event: dict) -> None:
     elif query.strip():
         cw._do_freeform(channel, thread_ts, query)
     else:
-        _reply(channel, thread_ts, cw._GUIDE)
+        _reply(channel, thread_ts, _COMBINED_GUIDE)
 
 
 def _dispatch_bracket_command(channel: str, thread_ts: str, query: str, event: dict,
@@ -342,8 +383,7 @@ def _dispatch_bracket_command(channel: str, thread_ts: str, query: str, event: d
     elif cmd in cw.CMD_GEN:
         cw._do_generate(channel, thread_ts, rest, files_text=ft)
     elif cmd in cw.CMD_HELP:
-        # TODO(Phase 4): combined co-writer+storyboard help, see step 1.5 note above.
-        _reply(channel, thread_ts, cw._HELP)
+        _reply(channel, thread_ts, _COMBINED_HELP)
 
     # 3b. storyboard bracket chain
     elif cmd in sb.CMD_STORYBOARD_ALL:
@@ -379,14 +419,10 @@ def _dispatch_bracket_command(channel: str, thread_ts: str, query: str, event: d
             cw._do_freeform(channel, thread_ts, f"{cmd} {rest_f}".strip())
         else:
             suggestion = ""
-            close = cw.difflib.get_close_matches(cmd, cw._ALL_CMD_NAMES, n=1, cutoff=0.6)
+            close = cw.difflib.get_close_matches(cmd, _ALL_CMD_NAMES, n=1, cutoff=0.6)
             if close:
                 suggestion = f"혹시 `[{close[0]}]`를 말씀하신 거예요?\n\n"
-            # TODO(Phase 4): cw._ALL_CMD_NAMES only lists co-writer's own command names --
-            # merging in storyboard's CMD_* names too would make the typo-suggestion cover
-            # storyboard commands as well (e.g. a typo'd "[스토리보드]"). Not done here --
-            # out of scope per this phase's brief (constant-audit work).
-            cw._reply_dedup(channel, thread_ts, f"`[{cmd}]` 는 모르는 명령이에요.\n\n" + suggestion + cw._GUIDE)
+            cw._reply_dedup(channel, thread_ts, f"`[{cmd}]` 는 모르는 명령이에요.\n\n" + suggestion + _COMBINED_GUIDE)
 
 
 def _dispatch_cowriter_narrow_chain(channel: str, thread_ts: str, query: str, event: dict,

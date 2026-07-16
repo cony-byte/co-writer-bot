@@ -34,6 +34,18 @@ BOT_BOT_ID = _AUTH.get("bot_id")   # distinguishes our own bot messages from any
 MENTION_RE = re.compile(rf"<@{BOT_USER_ID}>\s*")
 _PLACEHOLDER_TOKENS = {"작품", "이름", "인물", "element_id", "heading", "name", "꺾쇠"}
 
+# (2026-07-16, Phase 4 collision audit) _CANCEL -- co-writer-bot and storyboard-bot each
+# defined their OWN separate `_CANCEL: set[str] = set()` module-level set. After the Phase 3
+# merge these became TWO DIFFERENT set objects (dispatch_cowriter._CANCEL vs
+# dispatch_storyboard._CANCEL), even though dispatch.py's single merged STOP handler only
+# ever adds to `sb._CANCEL`. Result: saying "그만"/"중단" while a CO-WRITER generation was
+# running would never actually flag co-writer's own cancel checks (`if thread_ts in
+# _CANCEL` / `_CANCEL.discard(...)`, scattered across dispatch_cowriter.py's generation
+# functions) -- the stop reply would fire but the generation would silently keep running.
+# Single-sourced here so both dispatch_cowriter.py and dispatch_storyboard.py import the
+# SAME set object and a stop signal from either bracket/router path reaches both domains.
+_CANCEL: set[str] = set()   # 취소 요청된 thread_ts (생성 결과를 버림) -- 두 도메인 공유
+
 # --- _reply --- canonical: cowriter (cosmetic-only (type hints))
 def _reply(channel: str, thread_ts: str, text: str) -> None:
     app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
