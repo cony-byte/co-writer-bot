@@ -579,10 +579,15 @@ def _last_assistant_draft(channel: str, thread_ts: str, top: str | None = None, 
                 if len(t) >= 20:
                     return t
     # 0) 대상(개요/대본 + N화) 지정 시 그 초안 우선 ('개요 / 2화' 꼬리말 or '2화 개요' 본문)
+    # Bug4(2026-07-16): 이 패턴이 본문 어디든 매칭되면, "다음 5화 개요에서 이어집니다"처럼 다른
+    # 화(4화)의 초안 본문 뒤쪽에 있는 순전한 forward-reference에도 걸려 엉뚱한 화의 초안을 그
+    # 화의 것으로 오인·반환할 수 있었다. 봇이 매번 고정된 헤더를 붙이는 건 아니라 헤더 텍스트에
+    # 앵커링할 수는 없지만, 실제 헤더/제목은 항상 메시지 맨 앞쪽에 오고 본문 중간의 참조 문구는
+    # 뒤쪽에 오는 경향이 있어 — 매칭 범위를 메시지 앞 50자로 제한하는 보수적 휴리스틱을 적용.
     if top and mid:
         pat = re.compile(rf"{re.escape(top)}\s*/\s*{re.escape(mid)}|{re.escape(mid)}\s*{re.escape(top)}")
         for m in reversed(msgs):
-            if (m["role"] == "assistant" and pat.search(m["content"])
+            if (m["role"] == "assistant" and pat.search(m["content"][:50])
                     and not _BUTTON_PROMPT_RE.search(m["content"])):
                 t = _strip_draft_footer(m["content"])
                 if len(t) >= 20:
