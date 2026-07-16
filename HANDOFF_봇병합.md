@@ -356,7 +356,8 @@ co-writer 걸로 교체해서 합쳐야 함.
 8. **`_EXPORT_TYPES` 상수 본문 diff 미확인** — 정의 줄 위치만 확인했고 실제 dict 내용 비교는
    아직 안 함 — Phase 4에서 반드시 확인.
 
-## 4. 다음 세션이 할 일 (제안 순서)
+## 4. 다음 세션이 할 일 (제안 순서) — (2026-07-16 갱신: Phase 1~4 전부 완료, 아래는 원래
+순서 그대로 남겨두되 실제로는 §2/§5를 볼 것)
 
 1. 이 문서 읽고 Phase 0 결정 사항 확인(이미 다 정해짐, 재논의 불필요).
 2. Phase 1 마저 끝내기: `openrouter_image.py`/`storyboard_grid.py` 호출부 호환성 확인 후 교체,
@@ -367,3 +368,101 @@ co-writer 걸로 교체해서 합쳐야 함.
 5. 커밋은 이 worktree(`co-writer-bot-merge`, 브랜치 `merge-storyboard-bot`)에다가만, 매 phase
    끝날 때마다 사람이 diff 리뷰 후 커밋(이번 세션 내내 그렇게 했음 — 서브에이전트가 작업하면
    반드시 diff를 직접 읽고 검증한 뒤 커밋하는 패턴 유지).
+
+**(2026-07-16 갱신) 위 5단계 전부 완료됨 — 실제로 다음 세션이 할 일은:**
+1. Phase 5(테스트) — 아래 §5-0 참고, 별도 테스트 Slack 앱/토큰 준비가 먼저 필요(운영 중인
+   `@co-writer`/storyboard 프로세스에 아직 어떤 영향도 안 줌, 이 worktree는 계속 미배포 상태).
+2. Phase 6(컷오버) 실행 전 반드시 §5(롤백 계획) 먼저 읽고 사전 준비 체크리스트부터 이행할 것.
+
+## 5. Phase 6 배포/롤백 계획 (2026-07-16 작성 — 아직 실행 안 됨, 계획만)
+
+### 5-0. 실제 운영 구조 확인 (이 계획의 전제)
+
+이번 세션에서 직접 확인한 사실:
+- `co-writer-bot`(라이브)은 `/Users/cony/dev/my-bot/co-writer-bot`에서 `python3 app.py`를
+  launchd(`ai.tain.co-writer-bot`, `KeepAlive=true`)로 상시 구동. 별도 launchd job
+  (`ai.tain.co-writer-bot-autopull`, 300초=5분마다)이 `deploy/auto_pull.sh`를 돌려서
+  `origin master`를 `--ff-only`로 pull하고, 바뀌면 import 검증 후 `launchctl kickstart -k`로
+  재시작. `storyboard-bot`도 동일 구조(`ai.tain.storyboard-bot` + `-autopull`).
+- **이 merge worktree(`co-writer-bot-merge`, 브랜치 `merge-storyboard-bot`)는 위 라이브 경로와
+  완전히 별개의 디렉토리** — 지금까지 이 브랜치에 아무리 커밋해도 라이브 봇 동작에 전혀 영향
+  없음(실제로 `git ls-remote origin refs/heads/merge-storyboard-bot`가 계속 비어있음 = 원격에도
+  없음, `auto_pull.sh`는 `master`만 봄).
+- 이 세션이 실행되는 머신에서 `launchctl list`로는 두 launchd job이 안 보임 — 실제 운영은
+  다른 호스트(storyboard-bot의 `HANDOFF_맥미니이전.md` 언급으로 보아 별도 맥미니)에서 도는 걸로
+  추정. 즉 **컷오버·롤백 실행 자체는 그 호스트에 접근 가능한 사람/세션이 해야 함** — 이
+  문서는 "무엇을, 어떤 순서로" 하면 되는지의 절차서 역할.
+
+### 5-1. 컷오버 사전 준비 체크리스트 (실행 전에 반드시)
+
+1. **되돌아갈 지점 명확히 태깅**: 컷오버 직전 `co-writer-bot`(라이브 디렉토리)의 `master` HEAD에
+   `git tag pre-merge-cutover-YYYYMMDD` (실행일로 치환) — "master를 그냥 몇 커밋 전으로
+   되돌리면 되지 않나"에 의존하지 않고 정확한 지점을 이름으로 고정.
+2. **storyboard-bot 프로세스는 삭제하지 말고 멈추기만**: `launchctl unload`로 내려도 `.plist`
+   파일과 저장소 자체는 그대로 둔다 — 롤백 시 `launchctl load`만으로 바로 복구되게.
+3. **양쪽 `data/` 디렉토리 백업**: 컷오버 직전 `co-writer-bot/data/`와 `storyboard-bot/data/`
+   전체를 타임스탬프 붙여 별도 위치로 복사(`jobs.json`/`inflight.json`/`notion_pages.json`/
+   `conti_state` 등 — 병합 후엔 이 파일들이 한 디렉토리로 합쳐지므로, 합치기 직전 "분리돼
+   있던 마지막 상태" 스냅샷이 롤백 시 유일한 복구 지점이 됨).
+4. **Phase 5(테스트)를 별도 테스트 앱으로 먼저 마칠 것** — 지금 알려진 미해결 모호함
+  (`adv-a3`: "3화 콘티 피드백 줘"류 케이스, §3-5 리스크 전반)이 실사용에서 실제로 문제가
+  되는지 컷오버 전에 최대한 걸러낼 것.
+5. **새 진입점 스크립트 자체도 미리 작성·리뷰**(Phase 6 몫, 아직 없음 — `bot/dispatch.py`의
+  `start_background_jobs()`을 부르고 양쪽 백엔드 `healthcheck()` 확인 후 `SocketModeHandler`
+  시작하는 짧은 `app.py` 교체본. 이 merge worktree 안에서 먼저 만들고 로컬에서 import까지
+  검증한 뒤에 라이브 경로로 가져갈 것).
+
+### 5-2. 롤백 트리거 기준 (아래 중 하나라도 관찰되면 즉시 롤백 절차 진행)
+
+- 새 프로세스가 부팅 자체를 못 함(import 에러 등) — 사실 `auto_pull.sh`의 기존 안전장치(30초
+  타임아웃 import 검증, 실패 시 재시작 자체를 취소)가 이미 이 경우는 막아줘서 옛 프로세스가
+  계속 서비스 중일 것 — 그래도 로그(`logs/autopull.log`) 확인 필요.
+- 부팅은 됐는데 기본 명령(`[생성]`/`[스토리보드]` 등)이 무응답이거나 에러.
+- **조용한 오라우팅** 관찰 — 사용자가 co-writer 요청했는데 storyboard 파이프라인(비용 큰
+  생성)이 도는 경우, 또는 반대. 이게 가장 늦게 발견될 수 있는 유형이니 컷오버 직후 최소
+  30분~1시간은 로그/실사용 응답을 집중 관찰.
+- Slack API 인증 에러(두 앱이 겹쳐 붙거나 토큰 문제).
+- `data/jobs.json`/`data/notion_pages.json` 등 공유 데이터 파일 파싱 에러(JSON 깨짐)나
+  내용이 명백히 이상함(예: 등록된 작품이 갑자기 없어 보임).
+
+### 5-3. 롤백 절차
+
+**A. 긴급(빠른 경로)** — 실사용자가 지금 영향받고 있을 때:
+1. 운영 호스트에 직접 접속해 `co-writer-bot` 디렉토리를 `git checkout pre-merge-cutover-YYYYMMDD`.
+2. `launchctl kickstart -k gui/<uid>/ai.tain.co-writer-bot`으로 즉시 재시작.
+3. storyboard-bot을 unload했었다면 `launchctl load`로 복구.
+4. `origin master`도 같은 커밋으로 강제 정렬해둬야 다음 `auto_pull.sh` 주기가 다시 새 코드로
+   덮어쓰지 않음(`git push --force-with-lease` 또는 `git revert`로 새 커밋을 얹어 push — 후자가
+   기록이 남아 더 안전).
+
+**B. 표준(급하지 않을 때)**:
+1. `master`에 컷오버 커밋을 되돌리는 `git revert` 커밋 생성 후 `origin master`에 push.
+2. 다음 `auto_pull.sh` 주기(최대 5분) 안에 자동으로 pull·재시작됨 — `logs/autopull.log`로
+   확인.
+3. storyboard-bot 프로세스 복구는 A-3과 동일.
+
+### 5-4. 데이터 처리(롤백 시 가장 까다로운 부분)
+
+컷오버~롤백 사이에 병합 봇이 만든 새 기록(신규 작품 등록, 진행 중이던 job_ledger 항목,
+새로 등록된 인물/장소 엘리먼트 등)은 **병합된 단일 `data/` 구조 기준**이라, 롤백해서 분리된
+옛 구조로 돌아가면 그 사이 데이터는 수동으로 옮기거나(작은 diff면 가능) 유실을 감수해야 함.
+이 리스크를 줄이려면:
+- 컷오버는 트래픽이 적은 시간대에.
+- 컷오버 직후 관찰 윈도우(30분~1시간)를 짧게 잡고, 그 안에 문제 있으면 바로 롤백 —
+  "며칠 지나서 문제 발견" 시나리오면 데이터 되돌리기가 훨씬 어려워짐.
+- 롤백이 필요해지면, 컷오버 이후 실제로 들어온 새 작품 등록/생성 요청이 있었는지
+  `data/jobs.json`/`data/notion_pages.json`의 mtime으로 먼저 확인하고, 있으면 그 내용을
+  롤백 후의 옛 분리 구조 쪽 해당 파일에 수동으로 반영할지 이 시점에 사람이 판단.
+
+### 5-5. storyboard 앱 "합쳐졌어요" 안내 복구
+
+컷오버 때 storyboard 앱을 실제 기능 대신 "합쳐졌어요, `@co-writer`를 쓰세요" 안내만 하도록
+바꿔놨다면(§1 결정사항 참고, 전환기간 2-4주), 롤백 시엔 그 안내 커밋 자체도 되돌리고
+원래 storyboard 프로세스를 완전히 복구해야 실제 파이프라인 기능이 돌아옴 — 단순히 프로세스만
+`launchctl load`하는 것과 별개로, 안내-전용 커밋이 반영된 상태면 코드 자체도 되돌려야 함.
+
+### 5-6. 롤백 후 확인
+
+- 옛 `co-writer-bot`/`storyboard-bot` 두 프로세스가 각각 정상 응답하는지 별도 확인.
+- 무엇이 잘못됐는지 원인 조사 후, 이 문서(§3-5 리스크 또는 새 섹션)에 실패 사례로 기록 —
+  다음 컷오버 시도 때 같은 문제가 재발하지 않게.
