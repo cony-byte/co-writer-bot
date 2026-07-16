@@ -2322,7 +2322,7 @@ def _maybe_generate_video_for_cut(channel, thread_ts, work, title, cut, num, sce
     없이 크레딧부터 쓰는 걸 막기 위함)."""
     missing = _unregistered_mentions(work, cut)
     if not missing:
-        _generate_video_for_cut(channel, thread_ts, work, title, cut, num, scene_seconds)
+        _generate_video_for_cut_with_safety_retry(channel, thread_ts, work, title, cut, num, scene_seconds)
         return
     lines = "\n".join(f"· {m}" for m in missing)
     text = (f"⚠️ 이 컷에 아직 등록 안 된 인물/장소가 있어요 — 등록 안 하면 영상화에서 그 "
@@ -2346,7 +2346,35 @@ def _act_video_confirm_unregistered(ack, body):
         _disable_buttons(body, "⚠️ 만료된 요청이에요 (봇이 재시작되면 대기 중인 요청은 사라져요)."); return
     _disable_buttons(body, f"🎬 컷 {p['num']} 영상 생성 중… (수 분 소요될 수 있어요)")
     ch, tts = _action_ctx(body)
-    _generate_video_for_cut(ch, tts, p["work"], p["title"], p["cut"], p["num"], p["scene_seconds"])
+    _generate_video_for_cut_with_safety_retry(ch, tts, p["work"], p["title"], p["cut"], p["num"], p["scene_seconds"])
+
+
+def _generate_video_for_cut_with_safety_retry(channel, thread_ts, work, title, cut, num, scene_seconds):
+    """★2026-07-16: 사용자 리포트 — "안전 필터 걸려서 안됨" 반복. 이 필터
+    (InputImageSensitiveContentDetected.PrivacyInformation)는 모션 프롬프트 텍스트가 아니라
+    입력 이미지(그 컷의 확정 스틸컷)가 실사 인물처럼 보인다고 판단해서 걸리므로, 텍스트만
+    고쳐서는 그냥 똑같이 걸린다 — 스틸컷 그림체를 더 뚜렷한 일러스트/페인터리로 재생성해
+    참조 이미지 자체를 바꿔야 한다. 자동주행 경로(_autopilot_videos_for_scene)에는 이미
+    있던 이 재시도 로직을 수동 "영상 만들어줘" 경로에도 동일하게 적용 — 수동 경로만 안 붙어
+    있어서 사용자가 계속 필터에 걸린 채 남아있었다."""
+    cost_out: dict = {}
+    fail_out: dict = {}
+    local_path = _generate_video_for_cut(channel, thread_ts, work, title, cut, num, scene_seconds,
+                                         post_result=False, cost_out=cost_out, fail_reason_out=fail_out)
+    if not local_path and fail_out.get("reason") == "입력 이미지가 실존 인물처럼 보인다는 안전필터에 걸림":
+        _reply(channel, thread_ts, f"⚠️ 컷 {num}: 실존 인물 안전필터에 걸렸어요 — 스틸컷을 더 "
+                                   "일러스트풍으로 다시 만들어서 재시도할게요…")
+        new_png = _autopilot_regen_shot_png(
+            work, cut, "실제 인물 사진처럼 보이지 않게, 명확한 일러스트/페인터리 그림체로 "
+                       "(사실적 피부 질감·실사 조명 최소화)")
+        if new_png:
+            cut["png"] = new_png
+            retry_cost_out: dict = {}
+            local_path = _generate_video_for_cut(channel, thread_ts, work, title, cut, num, scene_seconds,
+                                                 post_result=False, cost_out=retry_cost_out)
+            if local_path:
+                cost_out = retry_cost_out
+    _post_generated_video(channel, thread_ts, work, title, num, local_path, cost_out.get("cost"))
 
 def _post_generated_video(channel, thread_ts, work, title, num, local_path, cost):
     """영상 생성 결과 1건을 슬랙에 게시(파일 업로드 또는 실패 안내) — ★2026-07-15
