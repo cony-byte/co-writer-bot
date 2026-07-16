@@ -2186,8 +2186,15 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
     # 질문형("2화 대본 다시 봐줄래? 나레이션 줄일 데 있을까?")은 제외 — 원래 여기 가드가 없어서
     # 조언을 구하는 질문이 "대본 만들게요"로 오인돼 원치 않는 생성이 시작되던 문제(2026-07-14, F3②).
     _jobs = _parse_gen_jobs(feedback)
-    if (_jobs and work and re.search(r"(만들|작성|생성|뽑|그려|써|쓰|짜|추가|다시)", feedback)
-            and not _QUESTION_RE.search(feedback)):
+    # Bug2(2026-07-16): '다시'는 원래 생성 동사로 쳤는데, "3화 대본 다시 확인해줘"처럼 다시가
+    # 확인/검토류 동사를 데리고 오면 "재확인"이지 "재생성"이 아니다. 그 조합만 동사 판정에서
+    # 빼서(다른 데 '써/쓰/짜' 등 진짜 생성 동사가 따로 있으면 그건 그대로 유효) 오발화 방지.
+    _gen_verb_src = re.sub(r"다시\s*(?:확인|봐|보여|읽어|검토)", "", feedback)
+    if (_jobs and work and re.search(r"(만들|작성|생성|뽑|그려|써|쓰|짜|추가|다시)", _gen_verb_src)
+            and not _QUESTION_RE.search(feedback)
+            # Bug3(2026-07-16): "지금 4화 대본 쓰고 있어"류 진행상태 보고는 gen-jobs보다 더
+            # 구체적인 신호(_PROGRESS_NL_RE)이므로, 겹치면 진행상태 분기(아래)에 양보한다.
+            and not _PROGRESS_NL_RE.search(feedback)):
         _CANCEL.discard(thread_ts)
         _reply(channel, thread_ts, "요청 확인: " + ", ".join(
             (t if e is None else f"{e}화 {t}") for t, e in _jobs) + " 만들게요.")
