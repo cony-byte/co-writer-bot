@@ -117,6 +117,10 @@ def save_video(work: str, *, scene_num: int | None, cut_num: int | None, url: st
     나눠 저장, episode를 모르면 "미분류" 폴더로 폴백."""
     proj = oi.vp_project_dir(work)
     if not proj:
+        # ★2026-07-16: 이 경로가 로그 없이 조용히 None을 반환해서, "다운로드 실패"로만
+        # 사용자에게 보이는 실패의 실제 원인(프로젝트 폴더를 못 찾음 — FIXED_IMAGES_ROOT
+        # 미설정 등)을 로그에서 전혀 추적할 수 없었다(실측: 원인 규명에 시간 소요).
+        log.error(f"영상 저장 실패 — vp_project_dir('{work}')가 None(프로젝트 폴더를 못 찾음)")
         return None
     out_dir = proj / "outputs" / "videos" / _episode_dir_name(episode)
     out_dir.mkdir(parents=True, exist_ok=True)
