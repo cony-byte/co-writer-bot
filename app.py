@@ -2021,6 +2021,23 @@ _PROGRESS_NL_RE = re.compile(
     r"(?:지금|이제|현재)?\s*(\d+)\s*화\s*(개요|대본|회차분배)?\s*"
     r"(?:작업|하고\s*있|진행\s*중|쓰는|쓰고\s*있|만들고\s*있)")
 
+# 순수 '이대로 괜찮을까?' 류 검증/확인 질문 — 새 값을 안 대고 있는 그대로가 맞는지만 물을 때.
+# _EDIT_INTENT_RE에 있는 질문형 토큰(괜찮을까 등)이 매칭돼도 '지시'가 아니라 '질문'으로 봐야 함
+# (Bug1, 2026-07-16): "줄거리 이대로 괜찮을까?"가 field-edit/char-edit 분기에서 실제 수정으로
+# 오인·재생성되던 문제. "성별을 여자로 바꾸는거 괜찮을까?"처럼 새 값이 이미 적혀 있는 경우는
+# 이 패턴에 안 걸리므로(이대로/그대로/이거 같은 지시어가 없음) 여전히 수정 지시로 처리된다.
+_VALIDATION_PHRASE_RE = re.compile(r"이대로\s*(?:되|괜찮|맞)|그대로\s*(?:되|괜찮)|이거\s*(?:맞|괜찮)")
+
+
+def _is_pure_validation_q(feedback: str) -> bool:
+    """검증질문 전용 판별. 문장이 검증 어구를 포함하고 '?'/'까요?' 등 질문으로 끝나야만 True —
+    "이대로 괜찮을까, 근데 이것도 바꿔줘"처럼 뒤에 별도 지시가 붙으면(질문으로 안 끝남) False가
+    돼서 기존 수정-분기 동작을 그대로 유지한다(보수적 접근)."""
+    fb = (feedback or "").strip()
+    if not fb or not _VALIDATION_PHRASE_RE.search(fb):
+        return False
+    return bool(re.search(r"[?？]\s*$|까요?\s*[.]?\s*$", fb))
+
 # '노션 방금 고쳤어, 다시 읽어줘' 류 — 즉시 재동기화 요청 인식 (2026-07-13).
 # [새로고침]은 캐시만 지우고 노션은 안 읽어왔는데, 자연어로도 같은 오해가 있었던 지점이라
 # 여기선 아예 실제 재동기화(_do_sync)를 태운다.
@@ -2211,7 +2228,8 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
     existing_chars = (bible or {}).get("characters") or {}
     _mentioned = next((nm for nm in existing_chars if nm in feedback), None)
     if (_mentioned and _EDIT_INTENT_RE.search(feedback)
-            and any(w in feedback for w in _CHAR_FIELD_WORDS)):
+            and any(w in feedback for w in _CHAR_FIELD_WORDS)
+            and not _is_pure_validation_q(feedback)):
         _do_char_edit_nl(channel, thread_ts, work, _mentioned, feedback, bible)
         return
     # 스레드 모드(예: [생성]에서 이어진 'gen')와 무관하게 '인물/캐릭터 설정 추가' 요청이면
@@ -2232,7 +2250,8 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
     # 단일 바이블 필드(줄거리 등)를 자연어로 바꿔달라는 요청 (2026-07-13,
     # ex: "줄거리를 좀 더 재미있게 바꿔야겠어")
     _fword, _ftriple = _find_field_edit(feedback)
-    if _fword and _EDIT_INTENT_RE.search(feedback) and work:
+    if (_fword and _EDIT_INTENT_RE.search(feedback) and work
+            and not _is_pure_validation_q(feedback)):
         _do_field_edit_nl(channel, thread_ts, work, _fword, _ftriple, feedback, bible)
         return
     # '이거 90초 맞아?'/'분량 괜찮아?' 류 — 물었을 때만 체크(2026-07-15). _QUESTION_RE도
@@ -2244,7 +2263,8 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
     # 바로 답만 하고 끝냄 (2026-07-14, E2 — 질문 vs 수정 지시 구분 없이 다 revise로 새서
     # 질문했는데 수정 초안이 나오던 문제). 수정 의도 신호(_EDIT_INTENT_RE)가 같이 있으면
     # 지시로 보고 이 분기를 건너뛴다.
-    if mode == "gen" and _QUESTION_RE.search(feedback) and not _EDIT_INTENT_RE.search(feedback):
+    if (mode == "gen" and _QUESTION_RE.search(feedback)
+            and (not _EDIT_INTENT_RE.search(feedback) or _is_pure_validation_q(feedback))):
         qph = _thinking(channel, thread_ts, "확인 중이에요…")
         qsys = prompts.freeform_system(bible)
         qem = re.search(r"(\d+)\s*화", feedback)
