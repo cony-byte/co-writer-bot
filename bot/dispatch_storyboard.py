@@ -90,6 +90,11 @@ CMD_RESET_EPISODE = {"화초기화", "출력초기화", "아웃풋초기화", "o
 
 CMD_AUTOPILOT = {"자동주행", "자율주행", "autopilot"}
 
+# (2026-07-16) 진행 상황 리포트 — 그 화에서 스틸컷/영상 중 뭐가 아직 안 만들어졌는지 씬별로
+# 알려준다. 읽기 전용(생성/삭제/job_ledger 아무것도 건드리지 않음) — CMD_RESET_EPISODE와
+# 이름 결이 비슷하지만 파괴적 동작이 없어 danger 버튼 확인 절차가 필요 없다.
+CMD_EPISODE_STATUS = {"진행상황", "미완성확인", "남은작업", "status"}
+
 _REF_SAVE_EXTS = (".png", ".jpg", ".jpeg", ".webp")     # openrouter_image._REF_EXTS와 동일해야 함
 
 _IMG_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".heic", ".tiff")
@@ -120,6 +125,7 @@ _HELP = (
     "\n"
     "콘티가 있으면 → 이미지로 만들기: [이미지] <작품> 또는 그냥 \"이미지 만들어줘\" — 컷별 이미지+그리드 1장\n"
     "한 씬만 스틸컷으로: [스틸컷] <작품> 씬2 또는 \"씬2 스틸컷\" — 그 씬만 인물 고정이미지로 컷 생성. "
+    "`씬2,3,4`/`씬2-4`처럼 여러 씬을 한 번에 지정하면 씬마다 순서대로 만들어줌. "
     "[✅확정저장]→visual-pipeline에 저장 / [🔄재생성]\n"
     "스틸컷/이미지가 있으면 → 영상으로 만들기: \"영상으로 만들어줘\"라고 그 씬에서 말하면 됨\n"
     "화 전체를 합본으로: [합본] <작품> 또는 \"합본해줘\" — 콘티+생성된 컷 영상을 LLM이 편집 전략 짜서 "
@@ -132,6 +138,8 @@ _HELP = (
     "결과를 파일로 받기: [파일] csv 회차분배 — 스레드 마지막 답변을 md·txt·csv로 내보내기 ([md]/[txt]/[csv]도 가능)\n"
     "그 화 아웃풋을 통째로 지우기: [화초기화] <작품> 3화 — ⚠️ 영상화/합본 아웃풋 삭제(재확인 버튼 뜸, "
     "확정본 포함). 되돌릴 수 없음. *화 번호 필수* — 없으면 실행 안 함\n"
+    "그 화 진행 상황(뭐가 안 만들어졌는지): [진행상황] <작품> 3화 또는 \"3화 뭐 안 만들어졌어?\" — "
+    "씬별 스틸컷/영상 완성 컷수·빠진 컷 번호, 합본 여부까지 리포트(읽기 전용, 아무것도 안 만들거나 지우지 않음)\n"
     "```\n"
     "• 대본은 md·txt·csv·hwpx 파일로 첨부해도 읽어요 (또는 명령 뒤에 붙여넣기).\n"
     "• 수정: 같은 명령 뒤에 지시 (예 `[스토리보드1] <작품> 씬3 8초로`) 또는 스레드에서 그냥 자연어로 고쳐달라고 해도 돼요.\n"
@@ -2808,7 +2816,11 @@ def _cut_has_dialogue(cut: dict) -> bool:
     return bool(_DIALOGUE_HAS_QUOTE_RE.search(cut.get("caption") or ""))
 
 def _do_stills(channel, thread_ts, rest, feedback=None):
-    """feedback: [🔄 재생성] 후 "어떻게 다시 만들까요?"에 대한 자유 답변(2026-07-15). 주어지면
+    """[스틸컷] <작품> 씬N — 한 씬만 스틸컷 생성. ★2026-07-16: "씬2,3,4"/"씬2-4"처럼
+    콤마·하이픈으로 여러 씬을 지정하면(_parse_scene_filter로 감지, [합본]과 동일 문법) 씬마다
+    순서대로(레이트리밋/비용 때문에 씬 단위 병렬화는 하지 않음) _do_stills_render_one을 반복
+    호출해 배치로 만들어준다 — 씬이 정확히 1개면 기존 단일 씬 흐름 그대로.
+    feedback: [🔄 재생성] 후 "어떻게 다시 만들까요?"에 대한 자유 답변(2026-07-15). 주어지면
     그 씬(또는 콘티 전체) source_text 끝에 명시적 수정 지시로 덧붙여 3단계 샷분해 LLM이
     반영하게 한다 — rest/tail 파싱(씬 번호·컷수 등)에는 관여하지 않고 프롬프트 내용에만 영향."""
     work, bible, tail, msgs = _resolve_work_bible(channel, thread_ts, rest)
@@ -2872,6 +2884,54 @@ def _do_stills(channel, thread_ts, rest, feedback=None):
         if grid_png:
             _post_still_buttons(channel, thread_ts, work, None, auto_title, rest, grid_png, cuts=cuts)
         return
+    # ★2026-07-16: 다중 씬 스틸컷 배치 — "씬2,3,4 스틸컷"/"씬2-4 스틸컷"처럼 콤마·하이픈으로
+    # 여러 씬을 한 번에 지정하면(_parse_scene_filter — [합본]의 _do_compile이 이미 쓰는 것과
+    # 동일 유틸을 재사용, 새 파싱 로직을 따로 안 만든다) 씬마다 순서대로 아래 단일 씬 로직
+    # (_do_stills_render_one, 원래 이 함수 하단에 있던 로직을 그대로 떼어낸 것)을 반복
+    # 호출한다. 씬을 병렬로 겹치지 않고 순차로 도는 이유: 이미지 생성 자체가 씬 하나 안에서도
+    # config.OPENROUTER_IMG_WORKERS로 이미 병렬화돼 있어, 씬 단위까지 동시에 겹치면 레이트리밋·
+    # 비용이 스레드풀 크기만큼 배로 뛴다 — 기존에 이 정도 규모로 이미지 API를 동시에 두들기는
+    # 정책이 없어(CONTI_SCENE_WORKERS는 텍스트 LLM 호출용) 안전한 쪽인 순차 처리를 기본으로 한다.
+    # scene_filter가 씬 1개짜리("씬2")면 여기서 개입하지 않고 아래 기존 단일 씬 흐름을 그대로
+    # 태워 동작을 바이트 단위로 그대로 유지한다(요구사항: 단일 씬 동작 불변).
+    scene_filter = _parse_scene_filter(tail)
+    if scene_filter and len(scene_filter) > 1:
+        _PENDING_SCENE_PICK.pop(thread_ts, None)
+        requested = sorted(scene_filter)
+        avail_nums = {s[0] for s in scenes}
+        do_nums = [n for n in requested if n in avail_nums]
+        skip_nums = [n for n in requested if n not in avail_nums]
+        if not do_nums:
+            avail = ", ".join(f"씬{s[0]}" for s in scenes)
+            _reply(channel, thread_ts,
+                   f"콘티에 그 씬 번호들이 없어요 — {', '.join(f'씬{n}' for n in requested)}. 있는 씬: {avail}")
+            return
+        label = ",".join(str(n) for n in requested)
+        skip_txt = f" (씬{', '.join(str(n) for n in skip_nums)}은 콘티에 없어 건너뜀)" if skip_nums else ""
+        ph = _thinking(channel, thread_ts,
+                       f"씬{label} 스틸컷을 순서대로 만드는 중이에요…{skip_txt} (0/{len(do_nums)})", stop_button=True)
+        results = []
+        for i, num in enumerate(do_nums, 1):
+            _update_note(channel, ph, f"씬{label} 스틸컷 생성 중… ({i}/{len(do_nums)} · 씬{num})")
+            try:
+                ok, detail = _do_stills_render_one(channel, thread_ts, rest, work, bible, scenes, num,
+                                                   cut_filter, target, auto_cut, ctm, fb_note, episode)
+            except Exception:
+                log.exception(f"씬{num} 스틸컷 생성 실패(다중 씬 배치)")
+                _reply(channel, thread_ts, f"⚠️ 씬{num} 스틸컷 생성 중 오류가 났어요 — 다음 씬은 계속 진행할게요.")
+                ok, detail = False, "오류"
+            results.append((num, ok, detail))
+        ok_parts = [f"씬{n}: {d}" for n, ok, d in results if ok]
+        fail_parts = [f"씬{n}({d})" for n, ok, d in results if not ok]
+        summary = f"✅ 씬{label} 스틸컷 생성 완료"
+        if ok_parts:
+            summary += " — " + ", ".join(ok_parts)
+        if fail_parts:
+            summary += f" / 실패: {', '.join(fail_parts)}"
+        if skip_nums:
+            summary += f" / 콘티에 없어 건너뜀: {', '.join(f'씬{n}' for n in skip_nums)}"
+        _update_note(channel, ph, summary, clear=True)
+        return
     # ★2026-07-16 "5화 2씬 스틸컷 만들어줘"를 못 읽고 "어느 씬을 만들까요?"로 되물은 버그 —
     # "N씬"(번호가 먼저, "번" 없이) 표기가 아래 대안 어디에도 안 걸렸다("씬\s*(\d+)"는 순서가
     # 반대, "(\d+)\s*번째?\s*씬"은 "번"이 필수, 마지막 순수숫자 폴백은 한글 뒤에 오는 숫자에
@@ -2898,11 +2958,22 @@ def _do_stills(channel, thread_ts, rest, feedback=None):
             cut_filter = {target}
             target = None
             del _RECENTLY_MISSING_CUTS[thread_ts]
+    _do_stills_render_one(channel, thread_ts, rest, work, bible, scenes, num,
+                          cut_filter, target, auto_cut, ctm, fb_note, episode)
+
+def _do_stills_render_one(channel, thread_ts, rest, work, bible, scenes, num,
+                          cut_filter, target, auto_cut, ctm, fb_note, episode):
+    """단일 씬 스틸컷 생성 — 2026-07-16 다중 씬 배치("씬2,3,4 스틸컷") 지원을 위해 _do_stills
+    본문 하단에 있던 단일 씬 처리 로직을 그대로 떼어낸 것(동작 변경 없음). _do_stills가 씬
+    1개일 때 직접 호출하고, 다중 씬 배치일 때는 씬마다 이 함수를 순서대로 반복 호출한다.
+    cut_filter/target은 씬마다 아래에서 재해석될 수 있어 인자로 받은 뒤 로컬에서만 바뀐다
+    (호출부 값에 영향 없음 — 씬마다 독립적으로 판단해야 하므로).
+    반환값: (성공 여부, 요약용 라벨 문자열 — 다중 씬 배치의 완료 요약에 쓰인다)."""
     match = next((s for s in scenes if s[0] == num), None)
     if not match:
         avail = ", ".join(f"씬{s[0]}" for s in scenes)
         _reply(channel, thread_ts, f"씬{num}을 콘티에서 못 찾았어요. 있는 씬: {avail}")
-        return
+        return False, "콘티에 없음"
     _, hdr, body = match
     dm = re.search(r"(\d+)\s*초", hdr)     # 콘티 헤더 "■ 씬N · 10초 · 제목"에 이미 씬 길이가 있음
     scene_seconds = int(dm.group(1)) if dm else None
@@ -2939,7 +3010,7 @@ def _do_stills(channel, thread_ts, rest, feedback=None):
         # (콘티에 [N초] 표기가 없어 n_beats=0인 옛 콘티는 여기서 못 걸러 그쪽에서 걸러진다).
         _reply(channel, thread_ts, f"씬{num}은 컷이 {n_beats}개뿐이에요 — 요청하신 컷{sorted(cut_filter)} 중 "
                                     f"{sorted(c for c in cut_filter if c > n_beats)}은 없어요.")
-        return
+        return False, "요청 컷 범위 초과"
     # ★2026-07-15: 오버라이드("N컷") 없이 비트가 4개 초과면, 예전처럼 4개로 잘라 버리지
     # 않고 전체를 4컷씩 순차 배치로 나눠 배치마다 별도 메시지(카드)로 올린다("13컷이면 4컷씩
     # 끊어서 여러 메시지로 다 만들어달라" 실사용자 요청). 기존 cut_filter 메커니즘을 그대로
@@ -2979,9 +3050,10 @@ def _do_stills(channel, thread_ts, rest, feedback=None):
                 failed_ranges.append(f"{b_start}-{b_end}")
         if failed_ranges:
             _reply(channel, thread_ts, f"씬{num} 배치 생성 완료 — 실패한 구간: {', '.join(failed_ranges)}")
+            return False, f"{len(all_cuts)}컷 중 실패 구간 {', '.join(failed_ranges)}"
         else:
             _reply(channel, thread_ts, f"✅ 씬{num} 전체 {len(all_cuts)}컷 생성 완료 (배치 {len(batches)}개 모두 성공)")
-        return
+            return True, f"{len(all_cuts)}컷"
     # 3단계 샷분해는 필터 여부와 무관하게 "씬 전체" 기준 target(=원래 n_beats)으로 그대로 돌려야
     # 컷 번호 1..N이 전체 씬 기준으로 매겨진다(그래야 사용자가 말한 "컷1,3"이 실제 그 컷과 맞음).
     # 그리드 열수/표시 제목만 필터된(=실제 생성될) 개수 기준으로 바꾼다.
@@ -3002,6 +3074,8 @@ def _do_stills(channel, thread_ts, rest, feedback=None):
     if grid_png:
         _post_still_buttons(channel, thread_ts, work, num, f"스틸컷 씬{num}{cut_label} · {hdr}", rest, grid_png,
                             cuts=cuts, scene_seconds=scene_seconds)
+        return True, f"{len(cuts) if cuts else t}컷"
+    return False, "생성 실패"
 
 # renamed from _do_export (name collision with the other bot's function of the same name, different behavior)
 def sb_do_export(channel, thread_ts, rest, cmd="파일"):
@@ -3600,6 +3674,23 @@ def _maybe_thread_status(channel, thread_ts, query) -> bool:
     if rec.get("human_final"):
         parts.append("콘티 확정됨")
     _reply(channel, thread_ts, " · ".join(parts))
+    return True
+
+# (2026-07-16) "3화 뭐 안 만들어졌어?"/"3화 스틸컷 뭐 남았어?" — 자연어 진행 상황 질의.
+# 화 번호(구조적 신호)가 없으면 이 정규식은 아예 안 걸리게 해서(예: 그냥 "뭐 남았어?") 다른
+# 자연어 흐름과 오충돌하지 않게 한다 — episode 없이는 _do_episode_status도 어차피 되물으므로,
+# 아예 "N화 ... 남았/안 만들/진행상황/뭐 없" 패턴으로 좁혀 구조적으로 명확한 질의만 받는다.
+_EPISODE_STATUS_RE = re.compile(
+    r"\d{1,3}\s*[화회].{0,20}(안\s*(만들|됐|끝났)|남았|뭐\s*없|진행\s*상황|미완성)"
+)
+
+def _maybe_episode_status(channel, thread_ts, query) -> bool:
+    """(2026-07-16) `[진행상황]` 없이도 "3화 뭐 안 만들어졌어?"/"3화 스틸컷 뭐 남았어?"처럼
+    자연어로 물으면 동일한 리포트를 보여준다. 읽기 전용(생성/삭제 없음)."""
+    q = (query or "").strip()
+    if not q or not _EPISODE_STATUS_RE.search(q):
+        return False
+    _do_episode_status(channel, thread_ts, q)
     return True
 
 def _maybe_stillcut_regen_feedback(channel, thread_ts, query) -> bool:
@@ -4834,6 +4925,83 @@ def _act_reset_episode_confirm(ack, body):
 def _act_reset_episode_cancel(ack, body):
     ack()
     _disable_buttons(body, "취소했어요 — 아무것도 안 지웠어요.")
+
+def _fmt_missing_cuts(missing: set[int]) -> str:
+    """{2,4,3} -> "컷2,3,4" (오름차순, 사람이 읽기 좋게)."""
+    return "컷" + ",".join(str(n) for n in sorted(missing))
+
+def _do_episode_status(channel, thread_ts, rest):
+    """`[진행상황]`/`[미완성확인]` + 자연어("3화 뭐 안 만들어졌어?") 공통 — 그 작품·화의
+    씬별 스틸컷/영상 완성도와 합본 여부를 읽기 전용으로 보고한다(2026-07-16).
+    기대 컷 수는 _do_stills와 동일하게 그 씬 본문의 [N초] 비트 태그 개수(_BEAT_TAG_RE)로
+    판단 — "실제로 몇 컷을 만들어야 하는지"를 이 명령 자체가 새로 정의하지 않고 스틸컷
+    생성 로직과 동일한 기준을 그대로 재사용한다(비트 표기 없는 옛 콘티는 판단 기준이 없어
+    실제 저장된 스틸컷 수를 잠정 기대치로 대신 쓰고, 그마저 없으면 "컷 수 불명"으로 표시).
+    생성/삭제/job_ledger 등 상태 변경은 전혀 하지 않는다 — 순수 리포트."""
+    work, bible, tail, msgs = _resolve_work_bible(channel, thread_ts, rest)
+    if not work:
+        _reply(channel, thread_ts, _WORK_NOT_FOUND_MSG)
+        return
+    epm = re.search(r"(\d{1,3})\s*[화회]", tail)
+    episode = int(epm.group(1)) if epm else (conti_state.get_episode(thread_ts) or {}).get("episode")
+    if not episode:
+        _reply(channel, thread_ts,
+               "몇 화의 진행 상황을 볼지 명시해주세요 — 예: `[진행상황] <작품> 3화`")
+        return
+    conti = _thread_or_saved_conti(channel, thread_ts, msgs, work, episode, announce=False)
+    if not conti:
+        _reply(channel, thread_ts,
+               f"<{work}> {episode}화의 상세 콘티를 못 찾았어요 — 먼저 `[스토리보드] <작품> {episode}화`로 "
+               f"씬 설계·상세 콘티부터 만들어주세요.")
+        return
+    scenes = _split_scenes(conti)
+    if not scenes:
+        _reply(channel, thread_ts,
+               f"<{work}> {episode}화 콘티에 씬 헤더(■ 씬N)가 없어서 씬별 진행 상황을 못 나눠요 "
+               f"— 옛 형식 콘티일 수 있어요.")
+        return
+    videos_by_scene = video_index.list_episode_videos(
+        work, scene_nums=[n for n, _, _ in scenes], episode=episode)
+    lines = []
+    for num, hdr, body in scenes:
+        n_beats = len(_BEAT_TAG_RE.findall(body))
+        saved_cuts = vp_store.load_latest_cuts(work, num, episode=episode)
+        still_nums = {c["n"] for c in saved_cuts} if saved_cuts else set()
+        # 비트 표기 없는 옛 콘티(n_beats==0)는 기대 컷 수를 알 방법이 없어, 실제로 저장된
+        # 스틸컷 수를 잠정 기대치로 대신 쓴다(그 이상 만들 계획인지는 이 리포트가 알 수 없음).
+        expected = n_beats or len(still_nums)
+        video_cuts = videos_by_scene.get(num, [])
+        video_nums = {v["cut_num"] for v in video_cuts}
+
+        if not expected:
+            lines.append(f"씬{num} — {hdr} · 컷 수 불명(비트 표기 없는 옛 콘티, 스틸컷도 아직 없음)")
+            continue
+
+        if not still_nums:
+            still_part = f"스틸컷 0/{expected} (전체 없음)"
+        elif len(still_nums) >= expected:
+            still_part = f"스틸컷 {len(still_nums)}/{expected} ✅"
+        else:
+            missing = set(range(1, expected + 1)) - still_nums
+            still_part = f"스틸컷 {len(still_nums)}/{expected} ({_fmt_missing_cuts(missing)} 없음)"
+
+        if not video_nums:
+            video_part = f"영상 0/{expected}" + (" (전체 없음)" if still_nums else "")
+        elif len(video_nums) >= expected:
+            video_part = f"영상 {len(video_nums)}/{expected} ✅"
+        else:
+            missing_v = set(range(1, expected + 1)) - video_nums
+            video_part = f"영상 {len(video_nums)}/{expected} ({_fmt_missing_cuts(missing_v)} 없음)"
+
+        lines.append(f"씬{num} — {still_part} · {video_part}")
+
+    preview = vp_store.preview_episode_outputs(work, episode)
+    compiled = bool(preview and preview.get("compiled_files"))
+    compile_part = f"있음 ({len(preview['compiled_files'])}개)" if compiled else "없음"
+
+    text = (f"📋 *<{work}> {episode}화 진행 상황:*\n" + "\n".join(lines) +
+           f"\n합본: {compile_part}")
+    _reply(channel, thread_ts, text)
 
 def _auto_register_element(work: str, name: str, etype: str, png: bytes) -> None:
     """AI로 만든 엘리먼트 후보를 확인 버튼 없이 바로 등록 — _act_element_gen_confirm과 동일한
