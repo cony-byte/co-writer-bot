@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""생성 작업 원장 — 재시작(auto-pull kickstart) 도중 끊기면 안 되는 장시간 생성 작업 기록.
+"""생성 작업 원장 — 재시작(auto-pull kickstart · 크래시) 도중 끊기면 안 되는 장시간 생성
+작업 기록.
 
 deploy/auto_pull.sh는 이미 data/jobs.json이 비어있지 않고 최근(<=900s) 갱신됐으면
 '생성 중'으로 보고 pull·재시작을 미루도록 짜여 있었지만(2026-07-14), 정작 이 파일에
@@ -10,7 +11,8 @@ deploy/auto_pull.sh는 이미 data/jobs.json이 비어있지 않고 최근(<=900
 
 storyboard-bot/bot/job_ledger.py와 동일한 구조로 이식 — start_job()으로 시작 기록,
 finish_job()으로 완료 시 제거. 프로세스가 죽으면 finish_job이 못 불려서 파일에 남고,
-auto_pull.sh의 busy-gate가 그걸 보고 재시작을 미룬다.
+auto_pull.sh의 busy-gate가 그걸 보고 재시작을 미룬다. 또한 storyboard 쪽에서는 다음
+기동 때 pending_jobs()로 못 끝낸 기록을 찾아 자동 재실행한다(app.py __main__에서 1회).
 """
 from __future__ import annotations
 
@@ -19,7 +21,7 @@ import threading
 import time
 import uuid
 
-from . import config
+from .. import config
 
 _PATH = config.BASE_DIR / "data" / "jobs.json"
 _LOCK = threading.Lock()
@@ -60,9 +62,24 @@ def finish_job(job_id: str | None) -> None:
 
 
 def pending_jobs() -> list[dict]:
-    """원장에 남아있는(=지난 실행이 못 끝낸) 작업들."""
+    """원장에 남아있는(=지난 실행이 못 끝낸) 작업들. [{id,kind,channel,thread_ts,rest,started}, ...]"""
     d = _load()
     return [{"id": jid, **v} for jid, v in d.items()]
+
+
+def finish_by_thread(thread_ts: str) -> None:
+    """(F6) 사용자가 "멈춰"로 명시적으로 취소한 스레드의 남은 기록을 지운다 — 취소 직후
+    프로세스가 재시작되면 pending_jobs()가 이 기록을 보고 되살릴 수 있어서(취소한 작업이
+    재시작 후 자동으로 다시 돌거나 "재생성해줘" 대상이 되는 문제), 취소 시점에 바로 정리."""
+    with _LOCK:
+        d = _load()
+        changed = False
+        for jid, v in list(d.items()):
+            if v.get("thread_ts") == thread_ts:
+                del d[jid]
+                changed = True
+        if changed:
+            _save(d)
 
 
 def clear_all() -> None:
