@@ -73,6 +73,14 @@ OPENROUTER_LLM_MODEL = os.environ.get("OPENROUTER_LLM_MODEL", "anthropic/claude-
 # 캐릭터 일관성용 참조 이미지 폴더: <refs>/<작품>/<인물>.(png|jpg|jpeg|webp)
 # 여기 넣어두면 그 인물이 나오는 컷 생성 시 input_references(data URL)로 자동 첨부됨.
 OPENROUTER_REFS_DIR = Path(os.environ.get("OPENROUTER_REFS_DIR", BASE_DIR / "data" / "refs"))
+# visual-pipeline 프로젝트 루트(인물/장소/의상 fixed-images + outputs/stills·videos 공유) —
+# ★2026-07-16(Phase 6 컷오버 후 실측 버그): storyboard-bot/bot/config.py에는 있었는데 Phase 3
+# 병합 때 이 파일에서 누락돼, config.FIXED_IMAGES_ROOT를 읽는 openrouter_image._vp_project_dir가
+# 항상 AttributeError 없이 그냥 None을 반환(getattr(config, "FIXED_IMAGES_ROOT", None) 폴백)해서
+# 얼굴/의상 참조 이미지가 하나도 안 붙은 채 스틸컷이 생성되고 있었다(사용자 실측: "인물 참조
+# 이미지 붙고 있어?" → 확인해보니 전혀 안 붙음). storyboard-bot과 동일하게 추가.
+FIXED_IMAGES_ROOT = Path(os.environ.get(
+    "FIXED_IMAGES_ROOT", str(BASE_DIR / "data" / "projects")))
 
 # ============================================================================
 # (Phase 3 merge-time addition, 2026-07-16) storyboard-bot-only config constants.
