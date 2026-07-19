@@ -2759,14 +2759,28 @@ def _split_regen_cut_override(q: str, rest: str) -> tuple[str, str]:
         rest = re.sub(r"\s+", " ", rest).strip()
         rest = f"{rest} {cfm.group(0)}".strip()
         feedback_text = (q[:cfm.start()] + q[cfm.end():]).strip()
-    sm = _SCENE_NUM_RE.search(q)
-    if sm:
-        scene_num = next(g for g in sm.groups() if g)
-        rest = _SCENE_NUM_RE.sub("", rest)
+    # ★2026-07-20: 여기서 _SCENE_NUM_RE(단일 숫자 캡처)만 쓰면 "씬2,3,4"처럼 콤마로 여러 씬을
+    # 지정해도 첫 번째 숫자만 살아남고 ",3,4"는 rest에서 "씬"과 분리된 채 버려져 _parse_scene_filter가
+    # 다시 못 붙인다 — 다중 씬 배치 요청이 이 경로(_maybe_generate_request 등)를 거치면 씬2로만
+    # 좁혀지던 실사용자 버그. _SCENE_FILTER_RE(콤마·하이픈 리스트 전체 캡처, [합본]과 동일 문법)를
+    # 먼저 시도해 리스트 전체를 보존하고, 안 걸리면("2번째 씬" 등 단일 표기) 기존 _SCENE_NUM_RE로 폴백한다.
+    fm = _SCENE_FILTER_RE.search(q)
+    if fm:
+        scene_spec = fm.group(1)
+        rest = _SCENE_FILTER_RE.sub("", rest)
         rest = re.sub(r"\s+", " ", rest).strip()
-        rest = f"{rest} 씬{scene_num}".strip()
-        feedback_text = _SCENE_NUM_RE.sub("", feedback_text)
+        rest = f"{rest} 씬{scene_spec}".strip()
+        feedback_text = _SCENE_FILTER_RE.sub("", feedback_text)
         feedback_text = re.sub(r"\s+", " ", feedback_text).strip()
+    else:
+        sm = _SCENE_NUM_RE.search(q)
+        if sm:
+            scene_num = next(g for g in sm.groups() if g)
+            rest = _SCENE_NUM_RE.sub("", rest)
+            rest = re.sub(r"\s+", " ", rest).strip()
+            rest = f"{rest} 씬{scene_num}".strip()
+            feedback_text = _SCENE_NUM_RE.sub("", feedback_text)
+            feedback_text = re.sub(r"\s+", " ", feedback_text).strip()
     return rest, feedback_text
 
 def _maybe_stillcut_regen_ask_reply(channel, thread_ts, query) -> bool:
