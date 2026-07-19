@@ -5208,6 +5208,7 @@ def _autopilot_vision_budget_left(deadline: float | None) -> bool:
     return deadline is None or time.monotonic() < deadline
 
 _AUTOPILOT_CONSISTENCY_MAX_RETRIES = 2   # ★2026-07-16 "일단 2번 재시도까지로 올려" — 기존 1회에서 상향
+_AUTOPILOT_SAFETY_FILTER_MAX_RETRIES = 3   # ★2026-07-20 "안전필터 걸리면 그 구간 스틸컷만 다시 생성하는 루프 3회로" — 기존 1회에서 상향
 
 def _autopilot_check_stills(work, cuts: list[dict], deadline: float | None = None) -> list[tuple[int, str]]:
     """스틸컷 후검사 — 컷마다 실제 shot_refs() 참조와 비교해 'no'면 focus_char 격리로 최대
@@ -5491,25 +5492,32 @@ def _autopilot_videos_for_scene(channel, thread_ts, work, title, cuts, scene_sec
             # 모션 프롬프트 텍스트가 아니라 입력 이미지(=그 컷의 확정 스틸컷) 자체가 "실사 인물
             # 사진처럼 보인다"고 판단해서 걸린다. 그래서 스틸컷 그림체를 더 뚜렷하게 일러스트/
             # 페인터리 쪽으로 밀어 재생성한 뒤(_autopilot_regen_shot_png — 일관성 재검사 실패
-            # 때와 같은 함수, reason 문구만 이 상황에 맞게) 영상화를 1회만 재시도한다. 프롬프트
+            # 때와 같은 함수, reason 문구만 이 상황에 맞게) 영상화를 재시도한다. 프롬프트
             # 텍스트 문제(세이프티 필터 거부 등)와 원인이 달라서 그냥 재시도해도 똑같이 걸릴 뿐 —
             # 반드시 참조 이미지 자체를 바꿔야 의미가 있다.
-            if fail_out.get("reason") == "입력 이미지가 실존 인물처럼 보인다는 안전필터에 걸림":
+            # ★2026-07-20 "안전필터 걸리면 그 구간 스틸컷만 다시 생성하는 루프 3회로" — 기존엔
+            # 스틸컷 재생성→영상화 재시도가 딱 1회뿐이라, 그 1번의 재생성으로도 여전히 실사
+            # 인물처럼 보이면 그대로 포기했다. 일관성 재검사 재시도(위 _AUTOPILOT_CONSISTENCY_
+            # MAX_RETRIES)와 동일한 방식으로 _AUTOPILOT_SAFETY_FILTER_MAX_RETRIES(3)회까지 반복한다.
+            for _ in range(_AUTOPILOT_SAFETY_FILTER_MAX_RETRIES):
+                if fail_out.get("reason") != "입력 이미지가 실존 인물처럼 보인다는 안전필터에 걸림":
+                    break
                 new_png = _autopilot_regen_shot_png(
                     work, c, "실제 인물 사진처럼 보이지 않게, 명확한 일러스트/페인터리 그림체로 "
                              "(사실적 피부 질감·실사 조명 최소화)")
-                if new_png:
-                    c["png"] = new_png
-                    retry_cost_out, retry_fail_out = {}, {}
-                    retry_path = _generate_video_for_cut(
-                        channel, thread_ts, work, title, c, c["n"], cut_seconds,
-                        post_confirm_buttons=False, post_result=False,
-                        cost_out=retry_cost_out, fail_reason_out=retry_fail_out)
-                    if retry_path:
-                        local_path = retry_path
-                        cost_out = retry_cost_out
-                    else:
-                        fail_out = retry_fail_out or fail_out
+                if not new_png:
+                    break
+                c["png"] = new_png
+                retry_cost_out, retry_fail_out = {}, {}
+                retry_path = _generate_video_for_cut(
+                    channel, thread_ts, work, title, c, c["n"], cut_seconds,
+                    post_confirm_buttons=False, post_result=False,
+                    cost_out=retry_cost_out, fail_reason_out=retry_fail_out)
+                if retry_path:
+                    local_path = retry_path
+                    cost_out = retry_cost_out
+                    break
+                fail_out = retry_fail_out or fail_out
             if not local_path:
                 flagged.append((c["n"], fail_out.get("reason") or "영상 생성 실패"))
                 continue
@@ -5547,14 +5555,65 @@ def _autopilot_cancelled(channel, thread_ts, where: str) -> bool:
     _reply(channel, thread_ts, f"🛑 자동주행을 취소했어요 — {where}까지 진행된 상태에서 멈췄어요.")
     return True
 
-def _do_autopilot(channel, thread_ts, rest):
+_PENDING_AUTOPILOT_STAGE: dict[str, dict] = {}   # thread_ts -> {"rest": rest} — ★2026-07-20 단계 선택 드롭다운 대기
+
+_AUTOPILOT_STAGE_LABELS = {
+    1: "1단계 · 씬 설계", 2: "2단계 · 상세 콘티", 3: "3단계 · 등록 확인",
+    4: "4단계 · 샷분해·스틸컷", 5: "5단계 · 영상화", 6: "6단계 · 합본",
+}
+
+def _autopilot_stage_picker_blocks():
+    """★2026-07-20 "4단계부터/5단계부터 텍스트 입력은 사용성이 떨어지니 드롭다운으로" —
+    기존엔 `[자동주행] <작품> <화> 4단계부터`처럼 정확한 문구를 외워 쳐야 특정 단계부터
+    시작할 수 있었다. 전체 실행(기존 기본 동작)은 버튼 한 번으로, 특정 단계부터 시작은
+    드롭다운 선택으로 바꿔 문구를 몰라도 되게 한다."""
+    options = [{"text": {"type": "plain_text", "text": label}, "value": str(n)}
+              for n, label in _AUTOPILOT_STAGE_LABELS.items()]
+    return [{
+        "type": "actions",
+        "elements": [
+            {"type": "button", "text": {"type": "plain_text", "text": "🚀 처음부터(전체 1~6단계)"},
+             "style": "primary", "action_id": "autopilot_full_run"},
+            {"type": "static_select",
+             "placeholder": {"type": "plain_text", "text": "특정 단계부터 시작"},
+             "options": options, "action_id": "autopilot_stage_pick"},
+        ],
+    }]
+
+@app.action("autopilot_full_run")
+def _act_autopilot_full_run(ack, body):
+    ack()
+    ch, tts = _action_ctx(body)
+    pending = _PENDING_AUTOPILOT_STAGE.pop(tts, None)
+    if not pending:
+        _reply(ch, tts, "이 선택은 만료됐어요 — `[자동주행] <작품> <화번호>`를 다시 입력해주세요.")
+        return
+    _disable_buttons(body, "✅ 처음부터(1~6단계) 전체 실행할게요…")
+    _do_autopilot(ch, tts, pending["rest"], skip_stage_picker=True)
+
+@app.action("autopilot_stage_pick")
+def _act_autopilot_stage_pick(ack, body):
+    ack()
+    ch, tts = _action_ctx(body)
+    stage = body["actions"][0]["selected_option"]["value"]
+    pending = _PENDING_AUTOPILOT_STAGE.pop(tts, None)
+    if not pending:
+        _reply(ch, tts, "이 선택은 만료됐어요 — `[자동주행] <작품> <화번호>`를 다시 입력해주세요.")
+        return
+    label = _AUTOPILOT_STAGE_LABELS.get(int(stage), f"{stage}단계")
+    _disable_buttons(body, f"✅ {label}부터 시작할게요…")
+    _do_autopilot(ch, tts, f"{pending['rest']} {stage}단계부터", skip_stage_picker=True)
+
+def _do_autopilot(channel, thread_ts, rest, skip_stage_picker: bool = False):
     """[자동주행] <작품> <화번호> — 등록확인→씬설계→상세콘티→샷분해/스틸컷→영상화→합본을
     한 번에 이어서 돌린다. 사람 확인은 마지막 합본(_do_compile, draft+확정 버튼) 단계에서만 받는다.
     ★2026-07-15 "실패하면 왠만해서는 중단하지 말고 실패 이유를 찾고 쭉 진행하게 해야한다" —
     씬 설계/상세 콘티는 없으면 이후 아무것도 진행할 수 없어(진짜 복구불가) 1회 자동 재시도 후에도
     실패하면 그때만 멈추고, 등록확인 gap·씬 단위 스틸컷 전멸·컷 단위 일관성 검사 실패는 전부
     "기록하고 계속 진행"으로 처리해 다른 씬/컷까지 덩달아 막히지 않게 한다. 최종 요약에서 재시도
-    복구/gap/건너뛴 씬/확인 필요 컷을 모두 구분해서 보고한다."""
+    복구/gap/건너뛴 씬/확인 필요 컷을 모두 구분해서 보고한다.
+    skip_stage_picker: ★2026-07-20 위 두 액션 핸들러가 드롭다운/버튼 선택 후 재호출할 때만
+    True — 이번 호출은 이미 사용자가 범위를 골랐으니 아래 드롭다운 게이트를 다시 태우지 않는다."""
     if not config.AUTOPILOT_ENABLED:
         _reply(channel, thread_ts,
               "자동주행 기능은 아직 꺼져있어요(`SB_AUTOPILOT_ENABLED=true`로 켜야 동작해요).")
@@ -5614,6 +5673,18 @@ def _do_autopilot(channel, thread_ts, rest):
         r"|(\d)\s*단계\s*부터"                            # "2단계부터" (끝=6)
         r"|(\d)\s*단계\s*까지",                           # "4단계까지" (시작=1)
         tail)
+    # ★2026-07-20: 단계 지정도 없고(=텍스트로 "N단계부터"를 안 씀) 이전 진행 이어받기도 아니면
+    # (=완전히 새로운 실행) 어디부터 시작할지 드롭다운으로 물어보고 여기서 멈춘다 — 위 두 액션
+    # 핸들러가 사용자가 고른 선택을 반영해 skip_stage_picker=True로 이 함수를 다시 부른다.
+    # resumed_progress가 있으면(맨몸 "[자동주행]" 재개) 사람이 매번 고를 필요 없이 자동으로
+    # 이어가는 기존 동작을 그대로 유지한다.
+    if not stage_range_m and not resumed_progress and not skip_stage_picker:
+        _PENDING_AUTOPILOT_STAGE[thread_ts] = {"rest": rest}
+        app.client.chat_postMessage(
+            channel=channel, thread_ts=thread_ts,
+            text=f"<{work}> {episode}화 자동주행 — 어느 단계부터 시작할까요?",
+            blocks=_autopilot_stage_picker_blocks())
+        return
     start_stage, end_stage = 1, 6
     if stage_range_m:
         g = stage_range_m.groups()
