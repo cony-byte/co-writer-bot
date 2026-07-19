@@ -4376,12 +4376,22 @@ def _run_compile(channel, thread_ts, work, episode_title, scenes, videos_by_scen
         # 세그먼트를 하나씩 이어붙일 때마다 부르는 progress_cb로 같은 ph 메시지를 갱신한다.
         def _compile_progress(done, total):
             _update_note(channel, ph, f"{note} ({done}/{total} 컷 처리)")
-        path = episode_compile.compile_episode(work, episode_title, plan, mood_prompt=mood_prompt,
-                                               progress_cb=_compile_progress)
+        path, bgm_path = episode_compile.compile_episode(work, episode_title, plan, mood_prompt=mood_prompt,
+                                                         progress_cb=_compile_progress)
         _update_note(channel, ph, "✅ 합본 완성 (아래 파일 — 확정해야 최종본으로 남아요)", clear=True)
         app.client.files_upload_v2(channel=channel, thread_ts=thread_ts, file=path,
                                    filename=f"{episode_title}_합본.mp4",
                                    initial_comment=f"✅ 합본 완성 — {len(plan)}컷, 음성 없음(나레이션 타이밍 수정 중)\n`{path}`")
+        # ★2026-07-20 "합본이 아직 안정되지 않았으니 배경음악을 합본에 바로 넣지 말고 따로
+        # 다운 링크만" — episode_compile이 이제 배경음악을 합본 mp4에 섞지 않고 완전히 별도
+        # mp3로 만들어 반환한다. 합본과 분리된 파일로만 올려서, 나레이션/편집 수정이 끝난
+        # 뒤에 사용자가 직접 입힐지 말지 정하게 한다.
+        if bgm_path:
+            app.client.files_upload_v2(
+                channel=channel, thread_ts=thread_ts, file=bgm_path,
+                filename=f"{episode_title}_배경음악.mp3",
+                initial_comment="🎵 배경음악(별도 파일 — 합본 영상에는 안 섞었어요). 나레이션/편집이 "
+                                "안정되면 확인 후 직접 입혀주세요.")
         _post_compile_confirm_buttons(channel, thread_ts, work, episode_title, path, scenes, videos_by_scene)
     except Exception as e:
         log.exception("합본 생성 실패")

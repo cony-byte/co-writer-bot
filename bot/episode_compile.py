@@ -135,25 +135,30 @@ def _build_narration_track(work: str, plan: list[dict], total_duration: float,
 _FADE_SEC = 0.5   # 페이드투블랙 길이(초) — 필요할 때만(transition_in="fade") 적용
 
 
-def _build_music_track(mood_prompt: str | None, total_duration: float,
-                       tmpdir: Path) -> Path | None:
-    """config.OPENROUTER_MUSIC_ENABLED가 켜져 있을 때만 호출됨(호출자 쪽 게이트).
-    mood_prompt(app.py._work_mood_hint() 기반으로 미리 만들어진 영어 곡 설명 프롬프트)로
-    Lyria 3 배경음악을 생성, 영상 전체 길이에 맞춰 반복(loop)+트림하고 볼륨을 낮춘
-    (config.OPENROUTER_MUSIC_VOLUME_DB) wav로 반환. 실패해도 None만 반환하고 예외를 밖으로
-    던지지 않는다 — 배경음악은 비필수 기능이라 실패해도 합본 자체는 계속 진행돼야 한다."""
+def build_bgm_track(mood_prompt: str | None, total_duration: float,
+                    out_path: Path) -> Path | None:
+    """★2026-07-20 "합본이 아직 안정되지 않았으니 배경음악을 합본에 바로 섞지 말고 따로
+    다운 링크만" — 예전엔 이 함수가 합본 오디오 믹스에 바로 태울 wav를 tmpdir(임시 폴더,
+    합본 끝나면 사라짐)에 만들었는데, 이제 합본 mp4와는 완전히 분리된 독립 mp3 파일로
+    out_path(영구 경로, compile_episode가 outputs/compiled/ 아래로 지정)에 만든다 — 합본
+    영상엔 이 트랙이 전혀 섞이지 않고, 호출자가 이 mp3를 Slack에 별도 파일로 올려 사용자가
+    직접 확인·편입 여부를 나중에 결정하게 한다. config.OPENROUTER_MUSIC_ENABLED가 켜져
+    있을 때만 호출됨(호출자 쪽 게이트). mood_prompt(app.py._work_mood_hint() 기반으로 미리
+    만들어진 영어 곡 설명 프롬프트)로 Lyria 3 배경음악을 생성, 영상 전체 길이에 맞춰
+    반복(loop)+트림한 mp3로 반환. 실패해도 None만 반환하고 예외를 밖으로 던지지 않는다 —
+    배경음악은 비필수 기능이라 실패해도 합본 자체는 계속 진행돼야 한다."""
     if not mood_prompt or not music.available():
         return None
     try:
         mp3 = music.generate(mood_prompt, timeout=config.OPENROUTER_MUSIC_TIMEOUT)
-        mp3_path = tmpdir / "music_raw.mp3"
-        mp3_path.write_bytes(mp3)
-        out_path = tmpdir / "music.wav"
+        raw_path = out_path.with_name(out_path.stem + "_raw.mp3")
+        raw_path.write_bytes(mp3)
         # Lyria 클립이 영상보다 짧을 수 있어 -stream_loop -1로 반복시킨 뒤 total_duration으로
-        # 잘라내고, 대사보다 한참 낮은 볼륨으로 깐다.
-        _run([config.FFMPEG_BIN, "-y", "-stream_loop", "-1", "-i", str(mp3_path),
-             "-af", f"volume={config.OPENROUTER_MUSIC_VOLUME_DB}dB",
+        # 잘라낸다. 독립 트랙이라 대사 위에 깔릴 때 쓰던 감쇠 볼륨(OPENROUTER_MUSIC_VOLUME_DB)은
+        # 적용하지 않는다 — 사용자가 직접 들어보고 편입할 원본이므로 원래 음량 그대로 준다.
+        _run([config.FFMPEG_BIN, "-y", "-stream_loop", "-1", "-i", str(raw_path),
              "-t", f"{total_duration:.3f}", str(out_path)], timeout=config.COMPILE_TIMEOUT)
+        raw_path.unlink(missing_ok=True)
         return out_path
     except Exception:
         log.exception(f"배경음악 생성/처리 실패, 배경음악 없이 진행: {mood_prompt[:80]!r}")
@@ -224,7 +229,7 @@ def _combine_audio_tracks(tracks: list[Path | None], total_duration: float,
 
 
 def _render(work: str, plan: list[dict], out_path: Path, tmpdir: Path, *,
-           width: int, height: int, fps: int, mood_prompt: str | None = None) -> None:
+           width: int, height: int, fps: int, progress_cb=None) -> None:
     seg_paths = []
     cut_audio_clips: list[tuple[float, Path]] = []  # [(timeline_start_sec, wav_path), ...]
     cursor = 0.0
@@ -273,6 +278,8 @@ def _render(work: str, plan: list[dict], out_path: Path, tmpdir: Path, *,
                 # 이 구간만 무음으로 두고(나레이션/배경음악은 정상 진행) 계속한다.
                 log.exception(f"컷 오디오 추출 실패, 이 구간은 무음 처리: seg {i}")
         cursor += dur
+        if progress_cb:
+            progress_cb(i + 1, len(plan))
 
     filelist = tmpdir / "filelist.txt"
     filelist.write_text("\n".join(f"file '{p.name}'" for p in seg_paths), encoding="utf-8")
@@ -284,16 +291,16 @@ def _render(work: str, plan: list[dict], out_path: Path, tmpdir: Path, *,
     # _build_narration_track 함수 자체는 남겨뒀으니, 타이밍 어긋나는 원인을 찾아 고친 뒤
     # 이 rename 대신 다시 그 함수를 불러 믹싱하게 되돌리면 된다. 지금은 나레이션 없이 진행.
     #
-    # 배경음악(2026-07-15 재작업)은 config.OPENROUTER_MUSIC_ENABLED가 켜져 있을 때만 시도한다
-    # — 기본 OFF라 이 토글을 켜지 않는 한 아래는 항상 no-op이고 결과는 오늘과 동일하다.
+    # ★2026-07-20: 배경음악은 더 이상 여기서 합본 오디오에 섞지 않는다 — 합본이 아직
+    # 안정되지 않아 사용자가 마지막으로 직접 편집·확인할 여지를 남기려는 것(사용자 요청).
+    # 배경음악은 compile_episode가 build_bgm_track으로 완전히 별도 mp3 파일을 만들고,
+    # 호출자(dispatch_storyboard._run_compile)가 그 파일을 합본 영상과 별개로 올린다.
     total_duration = sum(seg["duration"] for seg in plan)
-    music_path = (_build_music_track(mood_prompt, total_duration, tmpdir)
-                 if config.OPENROUTER_MUSIC_ENABLED else None)
     # ★2026-07-15: 컷 자체 오디오(cut_audio_path)가 하나도 없으면(과거 무음 컷들만 있는 경우)
     # _build_cut_audio_track가 None을 반환하므로, 오디오가 진짜 하나도 없을 때(나레이션도
-    # 꺼져있고 배경음악도 꺼져있을 때)는 기존과 완전히 동일하게 무음 mp4로 진행된다.
+    # 꺼져있고 배경음악도 이제 안 섞을 때)는 기존과 완전히 동일하게 무음 mp4로 진행된다.
     cut_audio_path = _build_cut_audio_track(cut_audio_clips, total_duration, tmpdir)
-    audio_path = _combine_audio_tracks([cut_audio_path, music_path], total_duration, tmpdir)
+    audio_path = _combine_audio_tracks([cut_audio_path], total_duration, tmpdir)
     if audio_path is None:
         concat_path.rename(out_path)
         return
@@ -323,14 +330,19 @@ def discard_draft(draft_path: str) -> None:
 
 
 def compile_episode(work: str, episode_title: str, plan: list[dict],
-                    mood_prompt: str | None = None) -> str:
-    """이미 만들어진 edit_plan(list[dict])을 받아 실제로 렌더링. draft mp4 절대경로 반환 —
-    사용자가 확인 버튼으로 confirm_final()을 불러야 최종본이 된다(2026-07-14).
+                    mood_prompt: str | None = None, progress_cb=None) -> tuple[str, str | None]:
+    """이미 만들어진 edit_plan(list[dict])을 받아 실제로 렌더링. (draft mp4 절대경로,
+    배경음악 mp3 절대경로 또는 None) 튜플 반환 — 사용자가 확인 버튼으로 confirm_final()을
+    불러야 최종본이 된다(2026-07-14).
     plan 설계(LLM 호출)는 bot.edit_plan.build_edit_plan에서 미리 하고 넘겨받는다 — 이 함수는
-    순수 렌더링(+ 나레이션·배경음악 믹싱)만 담당.
+    순수 렌더링(+ 컷 자체 오디오 믹싱)만 담당.
     mood_prompt: 배경음악용 영어 곡 설명(app.py가 _work_mood_hint()로 미리 만들어 넘김) —
     이 모듈은 app.py를 import하지 않으므로(기존 import 방향 유지) 호출자가 문자열로 전달한다.
-    config.OPENROUTER_MUSIC_ENABLED가 꺼져 있으면(기본값) 이 값은 아예 쓰이지 않는다."""
+    config.OPENROUTER_MUSIC_ENABLED가 꺼져 있으면 이 값은 아예 쓰이지 않는다.
+    ★2026-07-20: 배경음악은 더 이상 합본 mp4에 섞이지 않는다(사용자 요청 — "합본이 아직
+    안정되지 않았으니 내가 마지막으로 수정할 수 있게 배경음악을 합본에 바로 넣지 말고 따로
+    다운 링크만") — build_bgm_track으로 합본과 완전히 분리된 mp3를 만들어 두 번째 값으로
+    반환하고, 호출자가 그걸 별도 파일로 올려 사용자가 직접 나중에 입힐지 정하게 한다."""
     if not plan:
         raise CompileError("편집 계획이 비어 있어요 — 영상화된 컷이 하나도 없나 봐요.")
     proj = oi.vp_project_dir(work)
@@ -338,13 +350,23 @@ def compile_episode(work: str, episode_title: str, plan: list[dict],
         raise CompileError(f"'{work}' 프로젝트 폴더를 못 찾았어요.")
     out_dir = proj / "outputs" / "compiled"
     out_dir.mkdir(parents=True, exist_ok=True)
-    # 이전에 확정 안 하고 남겨둔 draft가 있으면 새로 만들기 전에 정리(최종본은 안 건드림).
+    # 이전에 확정 안 하고 남겨둔 draft/배경음악이 있으면 새로 만들기 전에 정리(최종본은 안 건드림).
     for old in out_dir.glob(f"{episode_title}_draft_*.mp4"):
         old.unlink(missing_ok=True)
-    out_path = out_dir / f"{episode_title}_draft_{uuid.uuid4().hex[:8]}.mp4"
+    for old in out_dir.glob(f"{episode_title}_bgm_*.mp3"):
+        old.unlink(missing_ok=True)
+    uid = uuid.uuid4().hex[:8]
+    out_path = out_dir / f"{episode_title}_draft_{uid}.mp4"
 
     with tempfile.TemporaryDirectory(prefix="sb_compile_") as td:
         tmpdir = Path(td)
-        _render(work, plan, out_path, tmpdir, mood_prompt=mood_prompt,
+        _render(work, plan, out_path, tmpdir, progress_cb=progress_cb,
                width=config.COMPILE_WIDTH, height=config.COMPILE_HEIGHT, fps=config.COMPILE_FPS)
-    return str(out_path)
+
+    bgm_path = None
+    if mood_prompt and config.OPENROUTER_MUSIC_ENABLED:
+        total_duration = sum(seg["duration"] for seg in plan)
+        bgm_out = out_dir / f"{episode_title}_bgm_{uid}.mp3"
+        result = build_bgm_track(mood_prompt, total_duration, bgm_out)
+        bgm_path = str(result) if result else None
+    return str(out_path), bgm_path
