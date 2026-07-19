@@ -111,7 +111,13 @@ def _cut_intended_durations(body: str, vids: list[dict]) -> dict[int, float]:
     return {c["cut_num"]: b for c, b in zip(cuts, beats)}
 
 
-_BEAT_QUOTE_RE = re.compile(r"'[^']{2,}'")
+# ★2026-07-20: sb_prompts.py의 "대사·나레이션 표기(★고정 형식)" 규칙(콘티변환규칙)은 대사/
+# 나레이션 원문을 항상 큰따옴표(")로 감싸도록 지시하는데, 이 정규식은 작은따옴표(')만 찾고
+# 있어서 실제 콘티 대사가 단 하나도 매치되지 않았다 — has_dialogue가 항상 False로 나와
+# _build_rough_plan이 대사 있는 컷도 "대사 없음"으로 오판, 영상화 4초 최소 길이 여분을
+# 자를 때 대사·행동이 통째로 중간에 잘리는 실사용자 버그("합본이 대사/행동을 중간에 자름").
+# 큰따옴표를 기본으로 찾되, 옛 콘티 호환을 위해 작은따옴표도 함께 인식한다.
+_BEAT_QUOTE_RE = re.compile(r'"[^"]{2,}"|\'[^\']{2,}\'')
 
 
 def _cut_beat_texts(body: str) -> list[str]:
