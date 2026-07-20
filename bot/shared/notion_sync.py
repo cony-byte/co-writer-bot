@@ -565,32 +565,6 @@ def _conti_toggle_children(text: str) -> list:
             for line in (text or "").split("\n")]
 
 
-_CONTI_TOGGLE_HEAD = re.compile(r"^상세\s*콘티\s*\((\d+)\s*화\)$")
-
-
-def count_conti_episodes(page_id: str, token: str | None = None) -> int:
-    """이 페이지에 봇 형식('상세 콘티 (N화)' 토글)으로 저장된 상세 콘티가 몇 화 분량
-    있는지 센다 — [동기화] 완료 요약에 대본과 나란히 보여주기 위함(2026-07-20).
-    실무자가 직접 쓴 자유 형식 콘티(find_authored_conti_for_episode)는 화 번호를
-    안정적으로 뽑을 표준 형태가 없어 여기 집계에는 포함하지 않는다."""
-    token = token or config.NOTION_TOKEN
-    if not token:
-        return 0
-
-    def _block_text(b: dict) -> str:
-        t = b.get("type", "")
-        return _rt((b.get(t) or {}).get("rich_text")) if t else ""
-
-    eps = set()
-    for b in _flatten(page_id, token):
-        if b.get("type") != "toggle":
-            continue
-        m = _CONTI_TOGGLE_HEAD.match(_block_text(b).strip())
-        if m:
-            eps.add(int(m.group(1)))
-    return len(eps)
-
-
 def upsert_conti_toggle_for_episode(page_id: str, episode: int, text: str, token: str | None = None) -> None:
     """상세 콘티를 그 '{episode}화' 섹션 바로 아래에 '상세 콘티 (N화)' 토글로 upsert — 토글
     안에 줄 단위 문단으로 들어가 접었다 펼 수 있고, 펼치면 클릭 없이 화면 너비로 줄바꿈되며

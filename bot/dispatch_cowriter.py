@@ -2708,6 +2708,13 @@ def _do_alias(channel: str, thread_ts: str, rest: str) -> None:
     _reply(channel, thread_ts,
            f"✅ *{canon}* 에 별칭 등록: {nice}{note}\n예: `[생성] <{aliases[0]}> 3화`")
 
+# ★2026-07-20 이미지·영상 "생성 능력이 있냐"고 묻는 질문 감지(요청이 아니라 질문) — 이미지
+# 단어 + 능력/가능/기능 신호가 같이 와야 잡는다("이미지 만들어줘" 같은 실제 요청은 안 걸리게).
+_IMG_CAP_Q_RE = re.compile(
+    r"(이미지|사진|인물\s*이미지|스틸\s*컷|스틸컷|영상|그림|비주얼)[^\n]{0,25}"
+    r"(기능|지원|가능|장착|되나요|돼요|되어\s*있|있나요|있어요|있는지|"
+    r"만들\s*수\s*있|생성\s*(할\s*수|돼|되나|되어|하나요|가능|지원))")
+
 def _do_freeform(channel: str, thread_ts: str, query: str) -> None:
     """명령어 없이 던진 자유 질문 → 실제로 답변. 명확한 의도는 해당 기능으로 라우팅,
     아니면 (작품 맥락 있으면 바이블 근거로) 일반 답변, 영 아니면 도움말 안내."""
@@ -2720,6 +2727,19 @@ def _do_freeform(channel: str, thread_ts: str, query: str) -> None:
     # 말이 의도 캐스케이드를 타면서 LLM 자유응답이 나오거나 _GUIDE가 나오는 게 뒤죽박죽이었음.
     if _GREETING_RE.search(q) and not SUB_RE.match(q):
         _reply(channel, thread_ts, _ONBOARD_FIRST_CONTACT)
+        return
+    # ★2026-07-20 "인물 이미지 만드는 기능 있나요?" 같은 능력 질문이 자유대화 LLM으로 새서
+    # "텍스트 기반이라 이미지 생성 안 함"으로 잘못 답하던 문제 — 이 봇은 대본 + 스토리보드
+    # (참조 이미지/스틸컷/영상) 기능이 합쳐져 있으므로, 능력 질문은 정확한 안내로 가로챈다.
+    if _IMG_CAP_Q_RE.search(q):
+        _reply(channel, thread_ts,
+               "네, 이미지·영상 생성 기능 있어요 🎨 (이 봇은 대본 작업 + 스토리보드/이미지·영상 생성이 합쳐져 있어요)\n"
+               "• *인물·장소·의상·소품 참조 이미지*: `[인물] <작품> 김신우 이미지 만들어줘` "
+               "(또는 사진을 첨부하고 `김신우 이 사진으로`)\n"
+               "• *씬 스틸컷*: 콘티가 있는 스레드에서 `[스틸컷] <작품> 씬2` / `[이미지] <작품>`\n"
+               "• *영상화*: 스틸컷을 만든 뒤 그 컷으로 영상 생성\n"
+               "• *한 번에*: `[자동주행] <작품> 3화` (개요·대본→콘티→스틸컷→영상까지 자동)\n"
+               "먼저 `[동기화] <노션링크>`로 작품을 등록해두면 이 기능들을 바로 쓸 수 있어요.")
         return
     # 1) 명확한 의도 → 해당 기능
     # 생성 의도('<작품> 2화 대본 만들어줘', '개요 써줘') → 실제 생성으로 라우팅.
@@ -2897,7 +2917,7 @@ def _autosync_link(channel: str, thread_ts: str, url: str, explicit: str | None 
     works.register(work, pid)
     ph = _thinking(channel, thread_ts, f"노션 '{work}' 동기화하는 중이에요…")
     try:
-        done, failed, summary = _sync_apply(sheet, work, content, page_id=pid)
+        done, failed, summary = _sync_apply(sheet, work, content)
     except Exception:
         log.exception("autosync link apply failed")
         _post_chunks(channel, thread_ts,
@@ -2912,6 +2932,8 @@ def _autosync_link(channel: str, thread_ts: str, url: str, explicit: str | None 
         _post_chunks(channel, thread_ts,
                      f"🔄 *{work}* 노션 동기화 완료 — {done}개 반영. 이어서 요청 처리할게요…", replace_ts=ph)
     return work
+
+_SYNC_INFLIGHT: set = set()   # ★2026-07-20 동기화 진행 중인 작품(중복 [동기화] 방지)
 
 def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
     """[동기화] — 노션 링크만 주면: ①MCP 연결 확인 ②처음 보는 페이지면 제목으로 새 작품(시트) 생성.
@@ -2943,7 +2965,6 @@ def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
         if not pid:
             _reply(channel, thread_ts, "노션 링크에서 페이지 ID를 못 찾았어요. 링크를 다시 확인해 주세요.")
             return
-        page_id = pid   # ★2026-07-20: 아래 else 분기의 page_id와 이름을 맞춰 _sync_apply 호출부를 공유
         if not config.NOTION_TOKEN:
             _reply(channel, thread_ts, "노션 토큰이 설정 안 돼서 링크를 못 읽어요. `<작품>` + 내용 붙여넣기로 해주세요.")
             return
@@ -3004,13 +3025,30 @@ def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
             return
         ph = None
     _CANCEL.discard(thread_ts)
-    note = f"{src} 정리해서 시트에 반영하는 중이에요…"
+    note = f"{src} 읽어서 작품 설정에 반영하는 중이에요…"   # ★2026-07-20 사용자 요청: "시트" 문구 제거(내부 저장소일 뿐)
     if ph:
         _update_note(channel, ph, note)            # 읽는 중 플레이스홀더 재사용
     else:
         ph = _thinking(channel, thread_ts, note)
+    # ★2026-07-20 "동기화가 계속 '…중'에서 멈춘 것 같다" — 실제로는 페이지 전체를 LLM으로
+    # 파싱하는 단일 호출(최대 10분)이라 느릴 뿐인데, 진행 표시가 없어 죽은 것처럼 보였고
+    # 사용자가 [동기화]를 여러 번 눌러 같은 작업이 중복 실행됐다. (1) 같은 작품이 이미
+    # 동기화 중이면 중복 실행을 막고, (2) 20초마다 경과 시간을 갱신해 살아있음을 보여준다.
+    if work in _SYNC_INFLIGHT:
+        _post_chunks(channel, thread_ts,
+                     f"⏳ <{work}> 동기화가 이미 진행 중이에요 — 끝나면 결과가 올라와요. "
+                     "노션 페이지가 크면 1~2분 걸릴 수 있어요(같은 링크를 여러 번 안 눌러도 돼요).",
+                     replace_ts=ph)
+        return
+    _SYNC_INFLIGHT.add(work)
+    _hb_stop = threading.Event()
+    _hb_start = time.monotonic()
+    def _hb():
+        while not _hb_stop.wait(20):
+            _update_note(channel, ph, f"{note} (경과 {int(time.monotonic() - _hb_start)}초)")
+    _hb_t = threading.Thread(target=_hb, daemon=True); _hb_t.start()
     try:
-        done, failed, summary = _sync_apply(sheet, work, content, page_id=page_id)
+        done, failed, summary = _sync_apply(sheet, work, content)
     except ValueError:   # JSON 파싱 실패
         # 인식된 섹션이 0개일 때 뭘 찾았는지(헤딩/블록)까지 보여줘야 사용자가 뭘 고쳐야
         # 할지 알 수 있음(2026-07-15) — 소제목 후보로 보이는 줄만 추려 함께 안내.
@@ -3032,6 +3070,10 @@ def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
         log.exception("sync failed")
         _post_chunks(channel, thread_ts, "동기화 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
         return
+    finally:
+        _hb_stop.set()
+        _hb_t.join(timeout=1)
+        _SYNC_INFLIGHT.discard(work)
     if _cancelled(channel, thread_ts, ph):
         return
     if not done:
@@ -3040,6 +3082,19 @@ def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
         return
     head = f"🆕 새 작품 *{work}* 등록 + " if new_work else f"✅ *{work}* "
     msg = f"{head}{src} 동기화 — {done}개 반영.\n· " + "\n· ".join(summary)
+    # ★2026-07-20 대본·상세콘티는 시트에 저장하지 않고(원문 보존) 노션에서 그때그때 직접
+    # 읽지만, 페이지에서 감지된 건 요약에 알려준다(사용자 요청 — "안 불러오는 것 같다"는 오해 방지).
+    try:
+        _sc = notion_sync.parse_episode_scripts(content or "")
+        if _sc:
+            _eps = ", ".join(sorted(_sc.keys(), key=lambda s: int(re.sub(r"\D", "", s) or 0)))
+            msg += f"\n· 대본 {_eps} 감지됨 (노션에서 직접 사용 — 저장 안 함)"
+    except Exception:
+        pass
+    _conti_eps = sorted({int(a or b or 0) for a, b in
+                         re.findall(r"(\d+)\s*화[^\n]{0,8}콘티|콘티[^\n]{0,8}(\d+)\s*화", content or "")} - {0})
+    if _conti_eps:
+        msg += "\n· 상세콘티 " + ", ".join(f"{e}화" for e in _conti_eps) + " 감지됨 (노션에서 직접 사용)"
     if new_work:
         msg += (f"\n\n📌 작품명은 *<{work}>* 이에요! 이렇게 부르면 돼요 → `[생성] <{work}> 3화`\n"
                 f"이름이 길면 답글로 `[별칭] 짧은이름` 만 치면 짧게도 부를 수 있어요. 노션 수정하면 자동 반영돼요.")
@@ -3066,16 +3121,10 @@ def _normalize_gu(raw: str) -> str:
     m = re.match(r"\s*(\d+)\s*막(?=\s|[.,!?/·\-–—]|$)", raw or "")
     return f"{m.group(1)}막" if m else (raw or "").strip()
 
-def _sync_apply(sheet, work: str, content: str, page_id: str | None = None) -> tuple[int, int, list]:
+def _sync_apply(sheet, work: str, content: str) -> tuple[int, int, list]:
     """동기화 소스 텍스트 → LLM 스키마 파싱 → 시트 upsert. 슬랙 무관(백그라운드 재사용).
-    반환 (done, failed, summary). JSON 파싱 실패 시 ValueError.
-
-    page_id: 노션 페이지 ID가 있으면(=content가 그 페이지 텍스트) 대본/상세콘티가 몇 화
-    분량 있는지도 요약에 같이 보여준다(2026-07-20, 사용자 요청 — "요약에 대본/상세콘티
-    반영 개수도 추가"). 대본/상세콘티 자체는 시트로 옮기지 않고 매번 노션에서 직접 읽으므로
-    (위 주석 참고) 이건 순수 안내용 카운트일 뿐, sheet.upsert 대상이 아니다."""
+    반환 (done, failed, summary). JSON 파싱 실패 시 ValueError."""
     from bot.sheet_bible import CHAR_SUBS
-    from bot.shared import notion_sync
     raw = generator.complete(prompts.SYNC_SYSTEM + content,
                              "위 문서를 스키마 JSON으로 변환하라.", timeout=600)
     data = _json_loads(raw)   # 실패 시 예외 → 호출부가 ValueError로 처리
@@ -3129,19 +3178,7 @@ def _sync_apply(sheet, work: str, content: str, page_id: str | None = None) -> t
         summary.append(f"개요 {len(outs)}화")
     # 대본은 시트로 안 옮긴다 — SYNC_SYSTEM이 애초에 안 뽑지만, 혹시 모델이 넣어도 방어적으로 무시.
     # 대본은 노션에서 매번 직접 읽는다(bot/sheet_bible.py의 _notion_scripts) — 2026-07-13 결정.
-    if page_id:
-        try:
-            n_scripts = len(notion_sync.parse_episode_scripts(content))
-            if n_scripts:
-                summary.append(f"대본 {n_scripts}화")
-        except Exception:
-            log.exception("동기화 요약: 대본 화수 집계 실패")
-        try:
-            n_contis = notion_sync.count_conti_episodes(page_id, token=config.NOTION_TOKEN)
-            if n_contis:
-                summary.append(f"상세콘티 {n_contis}화")
-        except Exception:
-            log.exception("동기화 요약: 상세콘티 화수 집계 실패")
+    # (대본/상세콘티 감지 표시는 _do_sync가 완료 메시지에 별도로 붙인다 — 아래 참고.)
 
     sheet.invalidate(work)
     return done, failed, summary
