@@ -2002,6 +2002,21 @@ def _do_progress_nl(channel: str, thread_ts: str, work: str, m: re.Match) -> Non
     sheet.invalidate(work)
     _reply(channel, thread_ts, f"✅ 진행상태를 *{status}* 로 갱신했어요. (회차 생략 시 이 화 기준으로 생성돼요)")
 
+# ★2026-07-20 "자연어로도 피드백 인식" — [피드백] 명령 없이 "1화 대본 피드백 좀", "이 개요
+# 평가해줘", "개연성 봐줘"처럼 자연어로 온 순수 피드백 요청도 구조화된 _do_feedback으로 라우팅
+# 하려는 감지기. '피드백/리뷰'는 그 자체로 명확한 신호, '평가'는 동사와 함께일 때만(오탐 방지),
+# '개연성/재미/완성도/퀄리티'는 평가를 묻는 동사와 함께일 때만 잡는다. 생성 동사가 같이 있는
+# 복합 요청("평가하고 생성해줘")은 _do_freeform/_do_revise의 생성 분기가 먼저 처리한다.
+_FEEDBACK_NL_RE = re.compile(
+    r"피드백|리뷰|review|"
+    r"평가\s*(?:해줘|해주|해봐|해도|좀|부탁|받|가능|해\b)|"
+    r"(?:개연성|재미|완성도|퀄리티)\s*(?:좀\s*)?(?:어때|어떤지|봐\s*줘?|봐주|체크|점검|괜찮은지|있는지|있나|평가)")
+
+def _feedback_nl_mode(q: str) -> str:
+    """자연어 피드백 요청에서 재미만/개연성만/둘 다 판별."""
+    fun, logic = bool(re.search(r"재미", q)), bool(re.search(r"개연성", q))
+    return "fun" if fun and not logic else "logic" if logic and not fun else "both"
+
 def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
     """스레드 후속 답글 → 스레드를 시작한 명령의 모드로 이어감 (아이디어는 아이디어, 생성은 수정 등)."""
     # '✏️ 수정' 버튼 클릭 후 대기 중인 캐릭터 카드가 있으면, 이 답글을 그 수정 지시로 반영
@@ -2112,6 +2127,12 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
         for top, ep in _jobs:
             _do_generate(channel, thread_ts,
                          f"<{work}> {top}" + (f" / {ep}화" if ep is not None else ""))
+        return
+    # 순수 자연어 피드백("이 대본 피드백 좀", "개연성 봐줘") → 구조화된 피드백으로(2026-07-20).
+    # 생성 의도(위 분기)는 이미 처리됐고, 질문형("어때?")은 _FEEDBACK_NL_RE가 피드백 단어 없인
+    # 안 잡으므로 아래 질문 분기로 그대로 간다.
+    if _FEEDBACK_NL_RE.search(feedback):
+        _do_feedback(channel, thread_ts, feedback, mode=_feedback_nl_mode(feedback))
         return
 
     em = re.search(r"(\d+)\s*화", feedback) or re.search(r"(\d+)\s*화", joined)
@@ -2715,6 +2736,11 @@ def _do_freeform(channel: str, thread_ts: str, query: str) -> None:
             _reply(channel, thread_ts, "①피드백 ②개요/대본 생성 순서로 진행할게요.")
             _do_feedback(channel, thread_ts, q, mode="both")
         _do_generate(channel, thread_ts, q)
+        return
+    # 순수 자연어 피드백("1화 대본 피드백 좀", "개연성 봐줘") → 구조화된 피드백으로(2026-07-20).
+    # 위 복합(생성+평가) 분기를 지난 뒤이므로 생성 의도가 없는 피드백 요청만 여기 걸린다.
+    if _FEEDBACK_NL_RE.search(q):
+        _do_feedback(channel, thread_ts, q, mode=_feedback_nl_mode(q))
         return
     if re.search(r"트렌드|유행|요즘 (뭐|뭔)|뜨는|인기\s*(있|많|글)", q):
         _do_trend(channel, thread_ts, q)

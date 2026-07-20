@@ -66,6 +66,7 @@ def _post_chunks(channel, thread_ts, text, replace_ts=None):
                 # blocks=[] — replace_ts 자리가 _thinking(stop_button=True)로 만든 placeholder면
                 # 여기서 최종 결과로 덮어쓰는 시점에 [🛑 중단] 버튼도 같이 지운다(끝난 작업을
                 # 다시 취소하려는 헛클릭 방지). placeholder에 버튼이 없었으면 그냥 no-op.
+                _STOP_BUTTON_TS.discard(replace_ts)
                 app.client.chat_update(channel=channel, ts=replace_ts, text=c, blocks=[]); continue
             except Exception:
                 pass
@@ -97,6 +98,16 @@ def _mrkdwn(text: str) -> str:
     return text
 
 # --- _thinking --- canonical: storyboard+patch (SIGNATURE DIFF + REAL FEATURE DIFF: storyboard's current body (re-verified after the live-file snapshot, see top-of-file note) adds a `stop_button=False` param that attaches a Slack [stop] button to the placeholder message -- a real feature add, paired with _update_note(clear=...) and _post_chunks' blocks=[] cleanup. cowriter has neither, but has a default value for `note` that storyboard's requires positionally; verified every call site in both files always passes `note` explicitly, so restoring the default is a safe superset patch on top of storyboard's body.)
+_STOP_BUTTON_TS: set = set()   # ★2026-07-20 [🛑 중단] 버튼이 붙은 placeholder ts 기억용
+
+def _stop_button_blocks(note: str) -> list:
+    return [
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"⏳ {note}"}},
+        {"type": "actions",
+         "elements": [{"type": "button", "text": {"type": "plain_text", "text": "🛑 중단"},
+                      "style": "danger", "action_id": "autopilot_stop"}]},
+    ]
+
 def _thinking(channel, thread_ts, note: str = "생성 중이에요… (몇 초~1분)", stop_button=False):
     """★2026-07-16 "잠깐만 멈춰줄래?" 같은 자연어 변형이 _STOP_RE에 안 걸려서 못 멈춰지는
     문제 — 텍스트 매칭을 더 넓히는 대신(사용자 요청), 이 placeholder 자체에 autopilot의
@@ -107,26 +118,34 @@ def _thinking(channel, thread_ts, note: str = "생성 중이에요… (몇 초~1
     try:
         kwargs = {}
         if stop_button:
-            kwargs["blocks"] = [
-                {"type": "section", "text": {"type": "mrkdwn", "text": f"⏳ {note}"}},
-                {"type": "actions",
-                 "elements": [{"type": "button", "text": {"type": "plain_text", "text": "🛑 중단"},
-                              "style": "danger", "action_id": "autopilot_stop"}]},
-            ]
-        return app.client.chat_postMessage(channel=channel, thread_ts=thread_ts,
-                                           text=f"⏳ {note}", **kwargs).get("ts")
+            kwargs["blocks"] = _stop_button_blocks(note)
+        ts = app.client.chat_postMessage(channel=channel, thread_ts=thread_ts,
+                                         text=f"⏳ {note}", **kwargs).get("ts")
+        if stop_button and ts:
+            _STOP_BUTTON_TS.add(ts)
+        return ts
     except Exception:
         return None
 
 # --- _update_note --- canonical: storyboard (REAL DIFF (same live-file re-check as above): storyboard adds `clear=False` to blank out the stop button when the final result overwrites the placeholder. Adopted as part of the same _thinking/_post_chunks/_update_note feature set.)
 def _update_note(channel, ts, note, clear=False):
     """clear=True — _thinking(stop_button=True)로 붙인 [🛑 중단] 버튼을 최종 결과/실패
-    메시지로 덮어쓸 때 같이 지운다(blocks=[]). 중간 진행 갱신(하트비트 등)은 기본값(False)으로
-    버튼을 그대로 유지해 생성 중에도 계속 누를 수 있게 둔다."""
+    메시지로 덮어쓸 때 같이 지운다(blocks=[]). 중간 진행 갱신(하트비트 등)은 버튼을 그대로
+    유지해 생성 중에도 계속 누를 수 있게 둔다.
+    ★2026-07-20 버그 수정 — 예전엔 clear=False일 때 blocks를 아예 안 넘겼는데, Slack
+    chat_update는 blocks를 안 주면 기존 blocks(버튼)를 지워버린다. 그래서 "컷 1/6 완료 →
+    컷 2/6 생성 중" 첫 갱신에서 [🛑 중단] 버튼이 사라졌다(실사용 리포트: "여기에 중단 버튼
+    없음"). 이제 이 ts가 stop-button placeholder였으면 갱신할 때마다 버튼 blocks를 다시 붙인다."""
     if not ts:
         return
     try:
-        kwargs = {"blocks": []} if clear else {}
+        if clear:
+            kwargs = {"blocks": []}
+            _STOP_BUTTON_TS.discard(ts)
+        elif ts in _STOP_BUTTON_TS:
+            kwargs = {"blocks": _stop_button_blocks(note)}   # 진행 갱신 때도 버튼 유지
+        else:
+            kwargs = {}
         app.client.chat_update(channel=channel, ts=ts, text=f"⏳ {note}", **kwargs)
     except Exception:
         pass
