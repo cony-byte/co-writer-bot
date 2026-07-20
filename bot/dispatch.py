@@ -123,7 +123,15 @@ _COMBINED_GUIDE = (
 # docstring for the full reasoning); copied here verbatim since this file is the
 # real implementation of that confirmed logic.
 # ============================================================================
-_COWRITER_INTENT_HINT_RE = re.compile(r"피드백|기획|트렌드|동기화|아이디어|별칭|재미\s*평가|개연성")
+# ★2026-07-20: "1화 사건 흐름까지 잡아서 생성해줘"(개요/기획 생성 요청, 스토리보드 의도 전혀
+# 없음)가 그냥 "1화"라는 화 번호 언급만으로 storyboard 캐치올(_do_storyboard_auto_chain)로
+# 잘못 새서 "씬 설계 중이에요…"가 튀어나온 실사용 사고 — 기존 vocabulary(피드백/기획/트렌드/
+# 동기화/아이디어/별칭/재미평가/개연성)에 세계관·사건 흐름·로그라인 같은 co-writer 기획
+# 도메인 어휘가 빠져있었다. FIX-1 가드가 이미 "강한 storyboard 키워드(스토리보드/씬설계/콘티/
+# 스틸컷/이미지)가 같이 있으면 취소 안 함"으로 안전장치를 두고 있어서, 이 목록을 넓혀도
+# 진짜 storyboard 시작 의도(예: "3화 스토리보드 진행해줘")는 그대로 보호된다.
+_COWRITER_INTENT_HINT_RE = re.compile(
+    r"피드백|기획|트렌드|동기화|아이디어|별칭|재미\s*평가|개연성|세계관|사건\s*흐름|로그라인")
 _STRONG_SB_KEYWORDS_RE = re.compile(r"스토리보드|씬\s*설계|콘티|스틸\s*컷|이미지|storyboard")
 _SB_STRUCTURAL_HINT_RE = re.compile(r"\d+\s*[화회]|스토리보드|씬\s*설계|storyboard")
 _SB_BARE_CONTI_RE = re.compile(r"콘티")
