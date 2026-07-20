@@ -316,6 +316,58 @@ def _legacy_freeform_chain(channel, thread_ts, query, event, in_thread):
         _reply(channel, thread_ts, _COMBINED_GUIDE)
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# ★2026-07-21 작업0: 폴백의 의미 뒤집기.
+# 라우터 실패(타임아웃/파싱/예외/미지 intent/미해결)는 더 이상 자유문장을 레거시
+# 파이프라인 매처로 실행하지 않는다. 조회성(읽기 전용) 핸들러만 시도하고, 그래도 못
+# 잡으면 스레드당 1회 안내 후 정지한다. → 오발 실행(엉뚱한 140초 파이프라인) 클래스 제거.
+# (킬스위치 COWRITER_ROUTER_ENABLED=0 은 의도적 되돌림이므로 그때만 전체 legacy 체인 유지.)
+_ROUTER_FAIL_NOTIFIED: set = set()   # thread_ts — 이 스레드에 라우터 실패 안내를 이미 보냄
+_ROUTER_FAIL_MSG = (
+    "⚠️ 지금 요청 해석기가 불안정해서 작업을 시작하지 않았어요. "
+    "잠시 후 같은 내용을 다시 보내주시면 처리할게요. "
+    "급하면 정식 명령(`[생성]`/`[이미지]`/`[스틸컷]` 등)은 바로 동작해요."
+)
+
+# 레거시 체인 핸들러 중 '읽기 전용'으로 분류돼 라우터 실패 시에도 안전하게 실행 가능한 것만.
+# 분류 근거(2026-07-21 감사): 아래 4개는 조회·요약만 하고 생성/파이프라인/상태변경이 없다
+# (_maybe_brief_conti_summary_request는 LLM 요약이지만 새로 만들거나 노션에 저장하지 않음).
+# 나머지 자유문장 매처(_maybe_generate_request·_maybe_conti_*·storyboard 캐치올·co-writer
+# 프리폼 등)는 라우터 실패 경로에서 호출하지 않는다. 코드는 _legacy_freeform_chain에 그대로
+# 남겨 킬스위치 롤백 시 재사용한다.
+_READONLY_LEGACY_CHAIN = (
+    sb._maybe_list_works,
+    sb._maybe_thread_status,
+    sb._maybe_episode_status,
+    sb._maybe_brief_conti_summary_request,
+)
+
+
+def _readonly_legacy_chain(channel, thread_ts, query, event) -> bool:
+    """조회성 레거시 핸들러만 순서대로 시도. 하나라도 처리하면 True."""
+    for fn in _READONLY_LEGACY_CHAIN:
+        try:
+            if fn(channel, thread_ts, query):
+                log.info("route=readonly_legacy:%s", fn.__name__)
+                return True
+        except Exception:
+            log.exception("readonly legacy 핸들러 예외: %s", fn.__name__)
+    return False
+
+
+def _safe_fallback(channel, thread_ts, query, event) -> None:
+    """라우터가 실패/미해결일 때의 안전 정지. 변형 작업을 절대 실행하지 않는다."""
+    if _readonly_legacy_chain(channel, thread_ts, query, event):
+        return
+    if thread_ts not in _ROUTER_FAIL_NOTIFIED:
+        _ROUTER_FAIL_NOTIFIED.add(thread_ts)
+        _reply(channel, thread_ts, _ROUTER_FAIL_MSG)
+        log.info("route=safe_stop:notified")
+    else:
+        # 2회째부터는 canned 무한 반복 대신 로그만 (사고 2/사고4의 3연발 방지).
+        log.info("route=safe_stop:silent")
+
+
 def _handle_dispatch(event: dict) -> None:
     """The merged router body. See module docstring for the confirmed order."""
     # step 0: dedup guard (storyboard's -- co-writer never had one)
@@ -343,6 +395,7 @@ def _handle_dispatch(event: dict) -> None:
         sb.interrupted_state.clear(thread_ts)
         _reply(channel, thread_ts, "🛑 이 스레드 작업을 중단할게요…" if got else
                "🛑 중단 요청했어요 (이미지 생성 중이면 진행 중인 컷까지만 끝내고 멈춰요).")
+        log.info("route=deterministic:stop")
         return
 
     # step 1.5: explicit "도움말"/"help" escape hatch (unconditional, fires even in a
@@ -352,6 +405,7 @@ def _handle_dispatch(event: dict) -> None:
     # storyboard pipeline exists (and vice versa).
     if sb._FULL_HELP_RE.match(query):
         _reply(channel, thread_ts, _COMBINED_HELP)
+        log.info("route=deterministic:help")
         return
 
     # step 2: resume an interrupted storyboard job ("재생성"/"다시 해줘"/...) -- a no-op
@@ -362,6 +416,7 @@ def _handle_dispatch(event: dict) -> None:
         if rec:
             sb.interrupted_state.clear(thread_ts)
             _reply(channel, thread_ts, "🔁 끊겼던 작업을 이어서 다시 시도할게요…")
+            log.info("route=deterministic:resume_interrupted")
             sb.sb_do_storyboard(channel, thread_ts, rec["rest"], stage=(1 if rec["kind"] == "plan" else 2))
             return
 
@@ -376,6 +431,7 @@ def _handle_dispatch(event: dict) -> None:
             query = _promoted
             m = cw.CMD_RE.match(query)
     if m:
+        log.info("route=deterministic:bracket cmd=%r", m.group(1))
         _dispatch_bracket_command(channel, thread_ts, query, event, m, in_thread)
         return
 
@@ -384,6 +440,7 @@ def _handle_dispatch(event: dict) -> None:
                sb._maybe_stillcut_regen_ask_reply, sb._maybe_element_regen_ask_reply,
                sb._maybe_planregen_ask_reply):
         if fn(channel, thread_ts, query):
+            log.info("route=deterministic:pending:%s", fn.__name__)
             return
 
     # 첨부 이미지를 기준으로 재생성하는 요청은 LLM보다 먼저 결정적으로 처리한다.
@@ -391,35 +448,36 @@ def _handle_dispatch(event: dict) -> None:
     # 잘못 답할 수 없게 하는 안전 경로다.
     nl_router.recover_event_files(channel, thread_ts, event)
     if sb._maybe_element_ref_generate_request(channel, thread_ts, query, event):
+        log.info("route=deterministic:element_ref")
         return
     if nl_router.preflight_missing_attachment(channel, thread_ts, query, event):
+        log.info("route=deterministic:preflight_missing_attachment")
         return
 
-    # ★ LLM 라우터 — 실패/예외 시 기존 step 4~7 체인으로 폴백
+    # ★ LLM 라우터. 성공 시 execute. execute 내부의 미해결 폴백(work/episode 못 잡음 등)도
+    # 파이프라인 매처가 아니라 _safe_fallback(읽기전용+안전정지)으로 보낸다 → 오발 실행 원천 차단.
     try:
         r = nl_router.route(channel, thread_ts, query, event)
         if r is not None:
+            log.info("route=nl_router:intent=%s conf=%.2f", r.intent, r.confidence)
             nl_router.execute(
                 channel, thread_ts, event, r,
                 dispatch_bracket=_run_bracket_text,
-                legacy_fallback=lambda ev: _legacy_freeform_chain(
-                    channel, thread_ts, query, ev, in_thread),
+                legacy_fallback=lambda ev: _safe_fallback(channel, thread_ts, query, ev),
             )
             return
     except Exception:
-        log.exception("nl_router 실행 예외 → legacy 폴백")
+        log.exception("nl_router 실행 예외 → 안전 정지")
 
-    # 명시적인 질문은 라우터 장애 시에도 씬 설계/생성 체인으로 보내지 않는다.
-    # 안전하게 조회 실패를 알리고 사용자가 같은 질문을 다시 보낼 수 있게 한다.
-    if nl_router.is_question_text(query):
-        _reply(
-            channel, thread_ts,
-            "질문으로 이해했지만 지금은 작품 자료를 안전하게 조회하지 못했어요. "
-            "작품명·화·인물명을 포함해 같은 질문을 한 번만 다시 보내주세요.",
-        )
+    # 여기 도달 = route()가 None(킬스위치 / 백엔드 실패·타임아웃 / 미지 intent) 또는 execute 예외.
+    if not nl_router.ROUTER_ENABLED:
+        # 킬스위치(COWRITER_ROUTER_ENABLED=0): 의도적으로 라우터를 끈 것 → 예전 전체 체인 유지.
+        log.info("route=killswitch_legacy")
+        _legacy_freeform_chain(channel, thread_ts, query, event, in_thread)
         return
 
-    _legacy_freeform_chain(channel, thread_ts, query, event, in_thread)
+    # 라우터 활성인데 해석 실패 → 안전 정지(변형 실행 안 함, 조회성만 시도 후 1회 안내).
+    _safe_fallback(channel, thread_ts, query, event)
 
 
 def _dispatch_bracket_command(channel: str, thread_ts: str, query: str, event: dict,
