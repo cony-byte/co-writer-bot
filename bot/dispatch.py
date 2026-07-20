@@ -457,6 +457,11 @@ def _dispatch_bracket_command(channel: str, thread_ts: str, query: str, event: d
         sb._do_episode_status(channel, thread_ts, rest_f)
     elif cmd in sb.CMD_STYLE:
         sb._do_style(channel, thread_ts, rest_f)
+    elif cmd.strip().lower() in sb._REF_TYPE_KW:
+        # ★2026-07-20 "[장소] 대기실 이미지 다시 만들어줘" / "[의상] 정장-A 이미지 다시 만들어줘" —
+        # 등록된 요소(장소/의상/소품/인물)의 참조 이미지를 AI로 다시 생성. 예전엔 이 브래킷이 어느
+        # 커맨드 셋에도 없어 아래 생성동사 rescue로 co-writer LLM에 새서 "이미지 생성 못 함"으로 거절됐다.
+        sb._do_typed_element_regen(channel, thread_ts, cmd, rest_f)
 
     # 3c. unknown-bracket fallback -- co-writer's richer version (notion-link / known-
     # work-tag / generation-verb rescue / typo suggestion). storyboard's own bracket
