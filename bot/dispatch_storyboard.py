@@ -3921,9 +3921,27 @@ def _maybe_ordered_ref(channel, thread_ts, query, event) -> bool:
     q = (query or "").strip()
     if "등록" not in q:
         return False
-    # 이름은 <꺾쇠> 토큰 우선(사용자가 인물명을 꺾쇠로 감싸는 흔한 습관), 없으면 '순서대로 …'
-    # 뒤 콤마 나열을 파싱.
+    # ★2026-07-20d: "<저연프> 김신우,이영,…니까 등록해줘"(작품은 꺾쇠, 인물명은 그냥 콤마
+    # 나열)에서 아래 이름 추출이 <저연프>까지 "이름"으로 주워버려 인물 목록이 아니라 작품명
+    # 하나만 등록되는 사고 — _maybe_natural_ref가 이미 쓰는 것과 같은 방식으로, 맨 앞 꺾쇠가
+    # 실제 등록된 작품명이면 먼저 떼어내 work로 확정하고 q에서 제거한다(이름 후보로 안 새게).
+    work = None
+    wm = re.search(r"<\s*([^>]+?)\s*>", q)
+    if wm and works.resolve(wm.group(1).strip()):
+        work = wm.group(1).strip()
+        q = (q[:wm.start()] + q[wm.end():]).strip()
+    # 이름은 <꺾쇠> 토큰 우선(사용자가 인물명을 꺾쇠로 감싸는 흔한 습관).
     names = [n.strip() for n in re.findall(r"<\s*([^>]+?)\s*>", q)]
+    if not names:
+        # ★2026-07-20d: "김신우,이영,…니까 등록해줘"처럼 이름 목록이 '순서대로'보다 **앞**에
+        # 나오고, 그 뒤에 "이미지 순서대로 첨부했으니까" 같은 설명이 붙는 실측 어순부터 먼저
+        # 시도한다 — q 맨 앞(위에서 작품 꺾쇠는 이미 제거됨)에 콤마로 나열된 2개 이상 토큰이
+        # 있으면 그걸 이름 목록으로 본다. 아래(구 방식, '순서대로' 뒤에 이름이 온다고 가정)보다
+        # 먼저 시도해야 한다 — 순서를 바꾸면 구 방식이 "첨부했으니까 인물들 이미지" 같은
+        # 쓰레기 문자열을 먼저 (비어있지 않다는 이유로) 채택해버려 이 폴백까지 못 온다.
+        mm2 = re.match(r"^([\w가-힣]+(?:\s*[,、/·]\s*[\w가-힣]+)+)", q)
+        if mm2:
+            names = [t.strip() for t in re.split(r"[,、/·]", mm2.group(1)) if t.strip()]
     if not names:
         mm = re.search(r"(?:순서대로|차례대로|순서)\s*(.+?)(?:니까|이니까|이야|야)?\s*등록", q)
         if mm:
@@ -3931,9 +3949,9 @@ def _maybe_ordered_ref(channel, thread_ts, query, event) -> bool:
     names = [n for n in names if n]
     if not names:
         return False
-    # 첫 토큰이 실제 등록된 작품이고 이름이 이미지보다 하나 많으면 그건 작품 지정으로 본다.
-    work = None
-    if len(names) == len(imgs) + 1 and works.resolve(names[0]):
+    # 위에서 이미 못 뗐지만, 여전히 첫 토큰이 실제 등록된 작품이고 이름이 이미지보다 하나
+    # 많으면(예: 이름도 전부 꺾쇠로 감싼 경우) 그건 작품 지정으로 본다.
+    if not work and len(names) == len(imgs) + 1 and works.resolve(names[0]):
         work = names[0]
         names = names[1:]
     if not work:
