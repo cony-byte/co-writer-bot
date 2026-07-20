@@ -97,6 +97,10 @@ CMD_AUTOPILOT = {"자동주행", "자율주행", "autopilot"}
 # 이름 결이 비슷하지만 파괴적 동작이 없어 danger 버튼 확인 절차가 필요 없다.
 CMD_EPISODE_STATUS = {"진행상황", "미완성확인", "남은작업", "status"}
 
+# ★2026-07-20 "작품마다 그림체를 다르게 쓰고 싶다" — [스타일] <작품> <스타일명> 명령으로
+# works.py에 등록된 style_key(STYLE_PRESETS 참고)를 바꾼다.
+CMD_STYLE = {"스타일", "그림체", "style"}
+
 _REF_SAVE_EXTS = (".png", ".jpg", ".jpeg", ".webp")     # openrouter_image._REF_EXTS와 동일해야 함
 
 _IMG_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".heic", ".tiff")
@@ -1716,7 +1720,7 @@ def _generate_element_candidate(work: str, name: str, etype: str, context: str,
         context_sentence = f"Context: {context[:300]}. " if context else ""
         # ★2026-07-15: costume 분기와 동일한 스타일 불일치(포토리얼 vs STILL_STYLE의 세미리얼
         # 일러스트) — prop도 최종 스틸컷과 맞춰 그린다.
-        prompt = (f"Semi-realistic painterly illustration reference of the object '{name}' alone on "
+        prompt = (f"{_element_ref_style_phrase(work)} reference of the object '{name}' alone on "
                   f"a plain neutral background, stylized illustration rendering, not a photograph. "
                   f"{mood_instr}{context_sentence}".strip())
     elif etype == "costume":
@@ -1750,11 +1754,11 @@ def _generate_element_candidate(work: str, name: str, etype: str, context: str,
             "no eye-catching or attention-grabbing details. "
             if not (context or "").strip() else ""
         )
-        prompt = (f"Semi-realistic painterly illustration reference of a clothing outfit called "
+        prompt = (f"{_element_ref_style_phrase(work)} reference of a clothing outfit called "
                   f"'{name}', shown as a flat lay or on an invisible mannequin (no visible face or "
                   "head), on a plain solid white background (no other colors, textures, or props "
                   "in the background), studio product-shot lighting. Stylized illustration rendering "
-                  "matching a semi-realistic cinematic drama look — clearly an illustration, not a "
+                  "matching this drama's cinematic look — clearly an illustration, not a "
                   "photograph. "
                   f"{no_context_instr}"
                   f"{mood_instr}"
@@ -2190,33 +2194,105 @@ def _do_images(channel, thread_ts, rest):
     # [이미지] 그리드 경로는 모델 기본값에 맡겨져 매번 다른 화풍(사진/애니메 등)으로 나왔다.
     _render_cuts_tracked("images", rest, channel, thread_ts, work, bible, conti, target=target,
                         title="스토리보드 그리드", filename=f"storyboard_{work or 'ep'}.png",
-                        style_suffix=STILL_STYLE)
+                        style_suffix=_style_for_work(work))
 
 STILL_CUTS_DEFAULT = 4    # 스틸컷은 기본 4컷·2x2 그리드 고정(스크린샷 레퍼런스와 동일)
 
 STILL_ASPECT = "9:16"     # 스틸컷은 세로 9:16 고정
 
-STILL_STYLE = ("semi-realistic illustration style, painterly rendering, cinematic still, "
-               "natural relaxed facial expression, not stiff or uncanny, "
-               "clearly a stylized illustration, not a photograph, "
-               "not resembling any real celebrity or public figure. "
-               f"{_IDEALIZED_FACE_GUIDANCE} "
-               # ★2026-07-14, "씬끼리 장소랑 옷 일관성이 안 맞음" 피드백 — 씬(그룹) 경계에서는
-               # prev_png 체이닝이 리셋돼서(다른 씬 사진이 섞이면 안 되니까) 참조 이미지만으로
-               # 옷차림·장소를 유지해야 하는데, 텍스트 프롬프트에 명시적 지시가 없으면 모델이
-               # 매번 옷·배경 디테일을 임의로 새로 그려버렸다. 참조 이미지에 있는 옷차림·헤어·
-               # 장소를 그대로 따르게 명시 지시를 추가.
-               "Character clothing, hairstyle, and styling must exactly match the reference "
-               "image(s) provided — do not invent different outfits or hairstyles. If a place "
-               "reference image is provided, match that location's environment, colors, and "
-               "objects closely rather than reimagining a new-looking space. "
-               # ★2026-07-15: 실측 사고 — 대사가 있는 컷에서 그 대사가 화면 안에 자막/캡션
-               # 글자로 렌더링됨(그리드의 no_text는 그리드 자체의 캡션바 장식만 끄는 옵션이라
-               # 이 문제와 무관). 이미지 자체에 텍스트를 넣지 말라는 지시가 어디에도 없었어서
-               # 명시적으로 금지한다.
-               "No text, letters, captions, subtitles, speech bubbles, or written words should "
-               "appear anywhere in the image — render a pure illustration with no on-screen "
-               "text of any kind.")
+# ★2026-07-20: 씬(그룹)·옷·텍스트 관련 공통 규칙 — 렌더링 화풍(realistic/2d_anim 등)과
+# 무관하게 모든 스타일 프리셋이 공유해야 하는 지시라 렌더링 화풍 서술과 분리해뒀다.
+_STYLE_COMMON_SUFFIX = (
+    # ★2026-07-14, "씬끼리 장소랑 옷 일관성이 안 맞음" 피드백 — 씬(그룹) 경계에서는
+    # prev_png 체이닝이 리셋돼서(다른 씬 사진이 섞이면 안 되니까) 참조 이미지만으로
+    # 옷차림·장소를 유지해야 하는데, 텍스트 프롬프트에 명시적 지시가 없으면 모델이
+    # 매번 옷·배경 디테일을 임의로 새로 그려버렸다. 참조 이미지에 있는 옷차림·헤어·
+    # 장소를 그대로 따르게 명시 지시를 추가.
+    "Character clothing, hairstyle, and styling must exactly match the reference "
+    "image(s) provided — do not invent different outfits or hairstyles. If a place "
+    "reference image is provided, match that location's environment, colors, and "
+    "objects closely rather than reimagining a new-looking space. "
+    # ★2026-07-15: 실측 사고 — 대사가 있는 컷에서 그 대사가 화면 안에 자막/캡션
+    # 글자로 렌더링됨(그리드의 no_text는 그리드 자체의 캡션바 장식만 끄는 옵션이라
+    # 이 문제와 무관). 이미지 자체에 텍스트를 넣지 말라는 지시가 어디에도 없었어서
+    # 명시적으로 금지한다.
+    "No text, letters, captions, subtitles, speech bubbles, or written words should "
+    "appear anywhere in the image — render a pure illustration with no on-screen "
+    "text of any kind."
+)
+
+# ★2026-07-20 "작품마다 그림체를 다르게 쓰고 싶다" — 실사풍(기존 기본값)/2D 애니메이션 중
+# 작품별로 고르게 한다. works.get_style(work)에 저장된 style_key로 STYLE_PRESETS를 찾고,
+# 없거나(=미지정) 모르는 값이면 항상 "realistic"(기존 STILL_STYLE과 완전히 동일한 문구,
+# 하위호환)로 폴백한다.
+STYLE_PRESETS = {
+    "realistic": (
+        "semi-realistic illustration style, painterly rendering, cinematic still, "
+        "natural relaxed facial expression, not stiff or uncanny, "
+        "clearly a stylized illustration, not a photograph, "
+        "not resembling any real celebrity or public figure. "
+        f"{_IDEALIZED_FACE_GUIDANCE} "
+        f"{_STYLE_COMMON_SUFFIX}"
+    ),
+    "2d_anim": (
+        "clean 2D animation illustration style, Japanese-anime-inspired flat cel shading, "
+        "bold clean linework/outlines, vibrant flat color fills, simplified anime-style "
+        "facial features, clearly a hand-drawn/vector 2D cartoon, not photorealistic, not "
+        "painterly, no realistic skin texture, no photographic or 3D-rendered lighting, "
+        "not resembling any real celebrity or public figure. "
+        f"{_STYLE_COMMON_SUFFIX}"
+    ),
+}
+
+DEFAULT_STYLE_KEY = "realistic"
+
+
+def _style_for_work(work: str | None) -> str:
+    """그 작품에 등록된 스타일(works.get_style)을 찾아 STYLE_PRESETS 문구로 변환. 작품이
+    없거나 스타일 미지정·모르는 키면 기본값(realistic)으로 폴백 — 항상 문자열을 반환한다."""
+    key = (work and works.get_style(work)) or DEFAULT_STYLE_KEY
+    return STYLE_PRESETS.get(key, STYLE_PRESETS[DEFAULT_STYLE_KEY])
+
+
+STILL_STYLE = STYLE_PRESETS[DEFAULT_STYLE_KEY]   # 하위호환 — 옛 호출부가 참조해도 기존 기본값 그대로
+
+# ★2026-07-20: 인물이 아닌 요소(소품/의상) 참조샷 프롬프트가 "Semi-realistic painterly
+# illustration"을 하드코딩하고 있었다 — 2d_anim 작품은 이 참조샷만 다른 화풍으로 나와 실제
+# 스틸컷과 어긋나므로(2026-07-15에 costume이 딱 이 문제로 한 번 고쳐진 전례가 있다), 요소
+# 참조샷에도 작품별 화풍이 반영되게 짧은 문구를 스타일별로 분리해뒀다.
+_ELEMENT_REF_STYLE_PHRASE = {
+    "realistic": "Semi-realistic painterly illustration",
+    "2d_anim": "Clean 2D flat cel-shaded anime/cartoon illustration",
+}
+
+
+def _element_ref_style_phrase(work: str | None) -> str:
+    key = (work and works.get_style(work)) or DEFAULT_STYLE_KEY
+    return _ELEMENT_REF_STYLE_PHRASE.get(key, _ELEMENT_REF_STYLE_PHRASE[DEFAULT_STYLE_KEY])
+
+# ★2026-07-20: 영상화 style_lock(_generate_video_for_cut)의 강조 단정문 — STYLE_PRESETS와
+# 짝을 맞춘 스타일별 버전. "제로 포토리얼/제로 3D" 같은 부정 나열이 스타일마다 달라야
+# 하므로 별도 dict로 둔다(realistic 문구는 기존 그대로, 하위호환).
+_VIDEO_STYLE_LOCK_EMPHASIS = {
+    "realistic": (
+        "The entire video must match this exact semi-realistic painterly illustration art "
+        "style, color palette, and rendering technique of the input reference image from the "
+        "first frame to the last — zero photorealistic rendering, zero live-action video look, "
+        "zero 3D-rendered or CGI look, zero realistic skin pores/texture or realistic film "
+        "lighting not present in the reference image. Every frame must show visible painterly "
+        "brushwork, soft painterly color gradients, and clean illustrated line quality, "
+        "consistent with a hand-painted illustration, not a filmed photograph."
+    ),
+    "2d_anim": (
+        "The entire video must match this exact clean 2D anime/cartoon illustration art style, "
+        "flat cel-shaded color fills, and bold clean linework of the input reference image from "
+        "the first frame to the last — zero photorealistic rendering, zero live-action video "
+        "look, zero 3D-rendered or CGI look, zero painterly brushwork or soft photographic "
+        "gradients, zero realistic skin texture or film lighting. Every frame must keep flat "
+        "cel-shaded coloring and bold clean 2D outlines, consistent with a hand-drawn/vector 2D "
+        "animation frame, not a painting and not a photograph."
+    ),
+}
 
 _PENDING_STILL: dict[str, dict] = {}   # 버튼 메시지 ts -> {work, scene_num, title, rest, grid_png}
 
@@ -2431,16 +2507,13 @@ def _generate_video_for_cut(channel, thread_ts, work, title, cut, num, scene_sec
     # 구체적으로 원치 않는 결과물을 나열하는 명시적 금지 목록(가이드의 "zero 3D, zero CGI"와
     # 같은 구체성), (3) STILL_STYLE의 기존 어휘(semi-realistic painterly illustration)에
     # 부합하는 구체적 렌더링 질감 키워드(붓터치·페인터리 그라데이션·일러스트 라인) 명시.
-    style_lock = (
-        f"{STILL_STYLE} The entire video must match this exact semi-realistic painterly "
-        f"illustration art style, color palette, and rendering technique of the input "
-        f"reference image from the first frame to the last — zero photorealistic rendering, "
-        f"zero live-action video look, zero 3D-rendered or CGI look, zero realistic skin "
-        f"pores/texture or realistic film lighting not present in the reference image. "
-        f"Every frame must show visible painterly brushwork, soft painterly color gradients, "
-        f"and clean illustrated line quality, consistent with a hand-painted illustration, "
-        f"not a filmed photograph."
-    )
+    # ★2026-07-20: 이 강조문 자체도 "semi-realistic painterly"를 못박고 있어서, 2D 애니메이션
+    # 스타일 작품에 그대로 쓰면 오히려 스틸컷 스타일과 모순되는 지시가 된다 — 스타일별로 이
+    # 강조 문구도 나눠서 그 작품이 실제로 쓰는 화풍과 일치하는 단정문을 넣는다.
+    style_lock_emphasis = _VIDEO_STYLE_LOCK_EMPHASIS.get(
+        (work and works.get_style(work)) or DEFAULT_STYLE_KEY,
+        _VIDEO_STYLE_LOCK_EMPHASIS[DEFAULT_STYLE_KEY])
+    style_lock = f"{_style_for_work(work)} {style_lock_emphasis}"
     # ★2026-07-15: 사용자 리포트 — 영상이 참조 스틸컷과 아예 다르게 나옴(머리색·옷·배경 전부
     # 다른 인물/장면으로 생성됨). 코드가 실제 컷 PNG를 input_references로 정확히 넘기는 건
     # 확인했지만(shot_refs·cut["png"] 매칭 로직 정상), 그 사실을 프롬프트 텍스트가 뒷받침 안
@@ -2977,13 +3050,13 @@ def _do_stills(channel, thread_ts, rest, feedback=None):
             t = STILL_CUTS_DEFAULT   # 그리드 열수 계산용 추정치일 뿐, target 자체는 None으로 넘김
             res = _render_cuts_tracked("stills", rest, channel, thread_ts, work, bible, conti + fb_note,
                                        target=None, cols=min(t, 2), auto_cut_judgment=True,
-                                       aspect_ratio=STILL_ASPECT, style_suffix=STILL_STYLE, no_text=True,
+                                       aspect_ratio=STILL_ASPECT, style_suffix=_style_for_work(work), no_text=True,
                                        title=auto_title, filename=f"still_{work or 'ep'}.png")
         else:
             t = target or STILL_CUTS_DEFAULT
             res = _render_cuts_tracked("stills", rest, channel, thread_ts, work, bible, conti + fb_note,
                                        target=t, cols=min(t, 2),
-                                       aspect_ratio=STILL_ASPECT, style_suffix=STILL_STYLE, no_text=True,
+                                       aspect_ratio=STILL_ASPECT, style_suffix=_style_for_work(work), no_text=True,
                                        title=auto_title, filename=f"still_{work or 'ep'}.png")
         grid_png, cuts = res if res else (None, None)
         if grid_png:
@@ -3142,7 +3215,7 @@ def _do_stills_render_one(channel, thread_ts, rest, work, bible, scenes, num,
                                        f"■ 씬{num} · {hdr}\n{body}{fb_note}", target=n_beats,
                                        cols=min(len(batch_filter), 2), cut_filter=batch_filter,
                                        auto_cut_judgment=False, aspect_ratio=STILL_ASPECT,
-                                       style_suffix=STILL_STYLE, no_text=True,
+                                       style_suffix=_style_for_work(work), no_text=True,
                                        title=f"스틸컷 씬{num} (컷{b_start}-{b_end}/{n_beats})",
                                        filename=f"still_{work or 'ep'}_s{num}_b{b_start}-{b_end}.png")
             grid_png, cuts = res if res else (None, None)
@@ -3173,7 +3246,7 @@ def _do_stills_render_one(channel, thread_ts, rest, work, bible, scenes, num,
     res = _render_cuts_tracked("stills", rest, channel, thread_ts, work, bible,
                                f"■ 씬{num} · {hdr}\n{body}{fb_note}", target=shot_target,
                                cols=min(t, 2), cut_filter=cut_filter, auto_cut_judgment=auto_cut,
-                               aspect_ratio=STILL_ASPECT, style_suffix=STILL_STYLE, no_text=True,
+                               aspect_ratio=STILL_ASPECT, style_suffix=_style_for_work(work), no_text=True,
                                title=f"스틸컷 씬{num}{cut_label}", filename=f"still_{work or 'ep'}_s{num}.png")
     grid_png, cuts = res if res else (None, None)
     if grid_png:
@@ -5182,6 +5255,61 @@ def _do_episode_status(channel, thread_ts, rest):
            f"\n합본: {compile_part}")
     _reply(channel, thread_ts, text)
 
+# ★2026-07-20 "작품마다 그림체를 다르게 쓰고 싶다" — [스타일] <작품> <스타일명> 명령/자연어로
+# works.py에 저장된 style_key(STYLE_PRESETS 참고)를 바꾼다. 자유롭게 들어오는 표현을 최대한
+# 폭넓게 인식하되, 애매하면 실패시키고 지원 목록을 안내한다(잘못된 값을 조용히 무시하지 않음).
+_STYLE_KEYWORDS = {
+    # 2d_anim을 먼저 검사해야 한다 — "리얼" 계열과 겹치는 단어가 없어 순서 자체는 안전하지만,
+    # 향후 프리셋이 늘어 겹치는 표현이 생기면 이 순서(구체적인 것 먼저)가 중요해진다.
+    "2d_anim": ("2d 애니메이션", "2d애니메이션", "2d 애니", "2d애니", "애니메이션", "애니메",
+               "애니풍", "카툰", "cartoon", "anime", "2d anim"),
+    "realistic": ("실사", "세미리얼", "반실사", "사진풍", "리얼", "realistic", "reality"),
+}
+STYLE_LABELS = {"realistic": "실사풍(세미리얼 일러스트)", "2d_anim": "2D 애니메이션"}
+
+def _parse_style_key(text: str) -> str | None:
+    t = (text or "").lower()
+    for key, keywords in _STYLE_KEYWORDS.items():
+        if any(kw in t for kw in keywords):
+            return key
+    return None
+
+def _do_style(channel, thread_ts, rest):
+    """[스타일] <작품> <스타일명> — 그 작품의 스틸컷/영상/소품·의상 참조 그림체를 바꾼다.
+    예) `[스타일] <코니> 2d 애니메이션`, `[스타일] <코니> 실사`."""
+    work, bible, tail, msgs = _resolve_work_bible(channel, thread_ts, rest)
+    if not work:
+        _reply(channel, thread_ts, _WORK_NOT_FOUND_MSG)
+        return
+    style_key = _parse_style_key(tail)
+    if not style_key:
+        options = ", ".join(f"`{label}`" for label in STYLE_LABELS.values())
+        _reply(channel, thread_ts,
+              f"어떤 스타일인지 못 알아들었어요 — 예: `[스타일] <{work}> 2d 애니메이션`. "
+              f"지원하는 스타일: {options}")
+        return
+    w = works.set_style(work, style_key)
+    if not w:
+        _reply(channel, thread_ts, f"'{work}' 작품을 못 찾았어요 — 먼저 노션 링크로 등록해주세요.")
+        return
+    _reply(channel, thread_ts,
+          f"✅ <{w}> 스타일을 *{STYLE_LABELS[style_key]}*로 설정했어요 — 이제부터 스틸컷·영상·"
+          "소품/의상 참조가 전부 이 화풍으로 만들어져요(이미 만든 컷은 그대로 유지).")
+
+# ★2026-07-20: "그림체를 2d 애니메이션으로 바꿔줘"/"스타일 실사로 해줘" 같은 자연어. 화 번호
+# 처리(_maybe_episode_status 등)와 동일하게, 구조적으로 명확한 트리거 문구가 있을 때만 걸리게
+# 좁혀서 "스타일"이라는 단어가 들어간 다른 잡담과 오충돌하지 않게 한다.
+_STYLE_CHANGE_RE = re.compile(r"(스타일|그림체).{0,15}(바꿔|바꾸고|변경|설정|로\s*(해|가)|하기로)")
+
+def _maybe_style_change_request(channel, thread_ts, query) -> bool:
+    q = (query or "").strip()
+    if not q or not _STYLE_CHANGE_RE.search(q):
+        return False
+    if not _parse_style_key(q):
+        return False   # "스타일 바꾸고 싶어" 같은 막연한 말은 통과시켜 일반 대화로 처리
+    _do_style(channel, thread_ts, q)
+    return True
+
 def _auto_register_element(work: str, name: str, etype: str, png: bytes) -> None:
     """AI로 만든 엘리먼트 후보를 확인 버튼 없이 바로 등록 — _act_element_gen_confirm과 동일한
     저장 로직(fixed-images 우선, 없으면 data/refs)이되 Slack 버튼 클릭 대신 자동주행이 바로 호출."""
@@ -5324,7 +5452,7 @@ def _autopilot_regen_shot_png(work, cut: dict, reason: str | None = None) -> byt
     ref_entries = oi.shot_ref_entries(work, shot)
     refs = [u for _role, u, *_ in ref_entries]
     reason_note = f", (참조와 안 맞는 부분 수정: {reason})" if reason else ""
-    prompt = f"{shot.get('prompt') or ''}, {STILL_STYLE}{reason_note}"
+    prompt = f"{shot.get('prompt') or ''}, {_style_for_work(work)}{reason_note}"
     role_block = oi.reference_priority_block(ref_entries)
     if role_block:
         prompt = f"{prompt}\n\n{role_block}"
@@ -5420,7 +5548,7 @@ def _autopilot_render_still_batch(channel, thread_ts, work, bible, num, episode,
     res = _render_cuts_tracked(
         "stills", f"[자동주행] {work} {episode or 0}화 씬{num}", channel, thread_ts, work, bible,
         batch_source_text, target=target, cols=min(target, 2), skip_confirm=True,
-        aspect_ratio=STILL_ASPECT, style_suffix=STILL_STYLE, no_text=True,
+        aspect_ratio=STILL_ASPECT, style_suffix=_style_for_work(work), no_text=True,
         title=f"스틸컷 씬{num}", filename=f"still_{work or 'ep'}_s{num}_b{batch_index}.png")
     if not res:
         return None, None, []

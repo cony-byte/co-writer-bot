@@ -132,3 +132,24 @@ def add_aliases(work: str, aliases: list) -> str | None:
     d[w] = entry
     _save(d)
     return w
+
+
+def get_style(work: str) -> str | None:
+    """★2026-07-20: 작품마다 스틸컷/영상 그림체(예: realistic/2d_anim)를 다르게 쓰고 싶다는
+    요청 — 등록된 style_key를 반환(없으면 None → 호출자가 기본 스타일을 쓴다)."""
+    w = resolve(work) or work
+    d = _load()
+    return (d.get(w) or {}).get("style")
+
+
+def set_style(work: str, style_key: str) -> str | None:
+    """작품에 그림체를 등록/변경. 반환: 정식 작품명(작품을 못 찾으면 None)."""
+    w = resolve(work)
+    if not w:
+        return None
+    d = _load()
+    entry = d.get(w) or {"page": page_of(w) or "", "aliases": []}
+    entry["style"] = style_key
+    d[w] = entry
+    _save(d)
+    return w
