@@ -291,28 +291,29 @@ def _run_bracket_text(channel, thread_ts, text, event):
 
 
 def _legacy_freeform_chain(channel, thread_ts, query, event, in_thread):
-    # pending-state 카드 응답 (레코드 게이트라 안전 — LLM 안 태움)
-    for fn in (sb._maybe_ref_edit_reply, sb._maybe_scene_pick_reply,
-               sb._maybe_stillcut_regen_ask_reply, sb._maybe_element_regen_ask_reply,
-               sb._maybe_planregen_ask_reply):
-        if fn(channel, thread_ts, query):
+    """기존 step 4~7 자유문장 체인. 라우터 실패 시에만 그대로 실행한다."""
+    # step 4: storyboard _maybe_* chain (23, exact order)
+    for fn, needs_event in _STORYBOARD_MAYBE_CHAIN:
+        hit = fn(channel, thread_ts, query, event) if needs_event else fn(channel, thread_ts, query)
+        if hit:
             return
 
-    # ★ LLM 라우터 — 실패 시 legacy 폴백
-    try:
-        r = nl_router.route(channel, thread_ts, query, event)
-        if r is not None:
-            nl_router.execute(
-                channel, thread_ts, event, r,
-                dispatch_bracket=_run_bracket_text,
-                legacy_fallback=lambda ev: _legacy_freeform_chain(
-                    channel, thread_ts, query, ev, in_thread),
-            )
-            return
-    except Exception:
-        log.exception("nl_router 실행 예외 → legacy 폴백")
+    # step 5: co-writer narrow inline chain
+    if _dispatch_cowriter_narrow_chain(channel, thread_ts, query, event, in_thread):
+        return
 
-    _legacy_freeform_chain(channel, thread_ts, query, event, in_thread)
+    # step 6: storyboard catch-all (FIX-1 + FIX-3 gated)
+    if _storyboard_wants_to_start(channel, thread_ts, query):
+        sb._do_storyboard_auto_chain(channel, thread_ts, query)
+        return
+
+    # step 7: co-writer fallback -- true last resort
+    if in_thread and query.strip():
+        cw._do_revise(channel, thread_ts, query)
+    elif query.strip():
+        cw._do_freeform(channel, thread_ts, query)
+    else:
+        _reply(channel, thread_ts, _COMBINED_GUIDE)
 
 
 def _handle_dispatch(event: dict) -> None:
@@ -378,29 +379,28 @@ def _handle_dispatch(event: dict) -> None:
         _dispatch_bracket_command(channel, thread_ts, query, event, m, in_thread)
         return
 
-    # step 4: storyboard _maybe_* chain (23, exact order)
-    for fn, needs_event in _STORYBOARD_MAYBE_CHAIN:
-        hit = fn(channel, thread_ts, query, event) if needs_event else fn(channel, thread_ts, query)
-        if hit:
+    # pending-state 카드 응답 (레코드 게이트라 안전 — LLM 안 태움)
+    for fn in (sb._maybe_ref_edit_reply, sb._maybe_scene_pick_reply,
+               sb._maybe_stillcut_regen_ask_reply, sb._maybe_element_regen_ask_reply,
+               sb._maybe_planregen_ask_reply):
+        if fn(channel, thread_ts, query):
             return
 
-    # step 5: co-writer narrow inline chain
-    if _dispatch_cowriter_narrow_chain(channel, thread_ts, query, event, in_thread):
-        return
+    # ★ LLM 라우터 — 실패/예외 시 기존 step 4~7 체인으로 폴백
+    try:
+        r = nl_router.route(channel, thread_ts, query, event)
+        if r is not None:
+            nl_router.execute(
+                channel, thread_ts, event, r,
+                dispatch_bracket=_run_bracket_text,
+                legacy_fallback=lambda ev: _legacy_freeform_chain(
+                    channel, thread_ts, query, ev, in_thread),
+            )
+            return
+    except Exception:
+        log.exception("nl_router 실행 예외 → legacy 폴백")
 
-    # step 6: storyboard catch-all (FIX-1 + FIX-3 gated)
-    if _storyboard_wants_to_start(channel, thread_ts, query):
-        sb._do_storyboard_auto_chain(channel, thread_ts, query)
-        return
-
-    # step 7: co-writer fallback -- true last resort (never storyboard's own "no signal"
-    # greeting -- see module docstring).
-    if in_thread and query.strip():
-        cw._do_revise(channel, thread_ts, query)
-    elif query.strip():
-        cw._do_freeform(channel, thread_ts, query)
-    else:
-        _reply(channel, thread_ts, _COMBINED_GUIDE)
+    _legacy_freeform_chain(channel, thread_ts, query, event, in_thread)
 
 
 def _dispatch_bracket_command(channel: str, thread_ts: str, query: str, event: dict,
