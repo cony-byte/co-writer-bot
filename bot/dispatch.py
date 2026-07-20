@@ -239,6 +239,7 @@ _STORYBOARD_MAYBE_CHAIN = (
     (sb._maybe_style_change_request, False),
     (sb._maybe_brief_conti_summary_request, False),
     (sb._maybe_unconfirm_conti, False),
+    (sb._maybe_ordered_ref, True),   # ★2026-07-20 "순서대로 <A>,<B>… 등록해줘" + 이미지 N장 → 순서 매칭 등록
     (sb._maybe_natural_ref, True),
     (sb._maybe_bare_costume_label_request, True),
     (sb._maybe_element_gen_request, True),

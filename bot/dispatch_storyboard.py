@@ -3778,6 +3778,52 @@ def _maybe_natural_ref(channel, thread_ts, query, event) -> bool:
     _post_ref_confirm(channel, thread_ts, work, etype, pairs)
     return True
 
+_ORDERED_REF_RE = re.compile(r"등록")   # 아래 핸들러는 이미지+이름목록이 있을 때만 최종 판단
+
+def _maybe_ordered_ref(channel, thread_ts, query, event) -> bool:
+    """★2026-07-20 "순서대로 <김신우>,<유나경>,…니까 등록해줘" + 이미지 여러 장 → 이미지 N장을
+    이름 N개에 순서대로 매칭해 참조로 등록(확정 카드). 예전엔 이 자연어 다중 등록을 받는 경로가
+    없어서(단일 "이 사진으로 해줘"만 있었고, 그것도 이미지 1장만 씀) 동작을 안 했다.
+    `[참조]`/타입키워드 없이도 "등록" + <이름> 목록 + 이미지가 오면 여기서 처리한다."""
+    imgs = _image_files(event)
+    if not imgs:
+        return False
+    q = (query or "").strip()
+    if "등록" not in q:
+        return False
+    # 이름은 <꺾쇠> 토큰 우선(사용자가 인물명을 꺾쇠로 감싸는 흔한 습관), 없으면 '순서대로 …'
+    # 뒤 콤마 나열을 파싱.
+    names = [n.strip() for n in re.findall(r"<\s*([^>]+?)\s*>", q)]
+    if not names:
+        mm = re.search(r"(?:순서대로|차례대로|순서)\s*(.+?)(?:니까|이니까|이야|야)?\s*등록", q)
+        if mm:
+            names = [t.strip() for t in re.split(r"[,/\n·]", mm.group(1)) if t.strip()]
+    names = [n for n in names if n]
+    if not names:
+        return False
+    # 첫 토큰이 실제 등록된 작품이고 이름이 이미지보다 하나 많으면 그건 작품 지정으로 본다.
+    work = None
+    if len(names) == len(imgs) + 1 and works.resolve(names[0]):
+        work = names[0]
+        names = names[1:]
+    if not work:
+        joined = "\n".join(mm2["content"] for mm2 in _thread_messages(channel, thread_ts))
+        work = _work_from_thread(joined, thread_ts)
+    if not work:
+        _reply(channel, thread_ts, _WORK_NOT_FOUND_MSG)
+        return True
+    work = works.resolve(work) or work
+    pairs, err = _pair_names_images(names, imgs)
+    if err:
+        _reply(channel, thread_ts, err)
+        return True
+    # 타입은 이름별로 추정하되, 확정 카드는 타입 하나만 받으므로(같은 카드에 섞으면 안 됨)
+    # 가장 많이 나온 타입으로 카드를 올린다(등록 대상은 대개 인물이라 person으로 수렴).
+    from collections import Counter
+    etype = Counter(_guess_ref_type(work, nm) for nm, *_ in pairs).most_common(1)[0][0]
+    _post_ref_confirm(channel, thread_ts, work, etype, pairs)
+    return True
+
 def _maybe_typed_ref(channel, thread_ts, query, event) -> bool:
     """`[참조]`도 "이걸로 해줘"도 없이, '장소 <2번 방>'처럼 타입 키워드로 바로 시작하는
     이미지 첨부 메시지를 등록 시도로 인식한다."""
