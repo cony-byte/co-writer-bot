@@ -392,9 +392,135 @@ def _explicit_work_token(text: str, ctx: dict) -> str | None:
     return None
 
 
+
+_QUESTION_END_RE = re.compile(
+    r"(?:뭐(?:지|야|예요|임)?|무엇|누구|어디|왜|어떻게|어떤\s+.+|있(?:지|어|나요)|됐(?:지|어|나요)|맞(?:지|아|나요)|알려줘)\s*[?？]*$"
+)
+_MUTATING_INTENTS = {
+    "script_generate", "script_revise", "plan_edit", "scene_design", "detail_conti",
+    "conti_rewrite", "storyboard_image", "stillcut", "video", "compile", "autopilot",
+    "convert", "element_register", "element_edit", "element_generate", "reset_episode",
+}
+
+
+def is_question_text(text: str) -> bool:
+    """명시적인 조회 질문인지 판별한다. 작업 동사가 있는 요청은 제외한다."""
+    q = (text or "").strip()
+    if not q:
+        return False
+    if re.search(r"(?:만들어|생성해|재생성|등록해|수정해|바꿔|고쳐|작성해|써줘|진행해|돌려줘)", q):
+        return False
+    return bool(
+        q.endswith(("?", "？"))
+        or _QUESTION_END_RE.search(q)
+        or re.search(r"(?:뭐뭐|누구누구|무슨\s+상태|등록되어\s*있|반영했어)", q)
+    )
+
+
+def _extract_episode(text: str, ctx: dict) -> int | None:
+    m = re.search(r"(\d+)\s*화", text or "")
+    if m:
+        return int(m.group(1))
+    tracked = ctx.get("tracked_episode")
+    return tracked if isinstance(tracked, int) else None
+
+
+def _extract_character_for_costume(text: str) -> str | None:
+    """'1화에 나올 이영 의상은 뭐지?'에서 이영을 결정적으로 추출한다."""
+    patterns = (
+        r"(?:\d+\s*화에\s*(?:나올|등장할)?\s*)([가-힣A-Za-z0-9_·-]{1,20})\s*(?:의상|옷|복장)",
+        r"([가-힣A-Za-z0-9_·-]{1,20})\s*(?:의상|옷|복장)(?:은|는|이|가)?\s*(?:뭐|무엇|어떤)",
+    )
+    for pattern in patterns:
+        m = re.search(pattern, text or "")
+        if m:
+            name = m.group(1).strip()
+            if name not in {"나올", "등장할", "인물", "캐릭터"}:
+                return name
+    return None
+
+
+def _deterministic_question_route(query_text: str, ctx: dict) -> Route | None:
+    """실사고가 반복된 상태조회 질문은 LLM 호출 없이 안전하게 분류한다."""
+    text = (query_text or "").strip()
+    if not is_question_text(text):
+        return None
+
+    work = _explicit_work_token(text, ctx) or ctx.get("tracked_work")
+    episode = _extract_episode(text, ctx)
+
+    costume_character = None
+    if re.search(r"(?:의상|옷|복장)", text) and re.search(r"(?:뭐|무엇|어떤)", text):
+        costume_character = _extract_character_for_costume(text)
+    if costume_character:
+        return Route(
+            intent="answer_question",
+            work=work if isinstance(work, str) else None,
+            episode=episode,
+            elements=[{"kind": "인물", "name": costume_character}],
+            question_type="episode_character_costume",
+            confidence=1.0,
+            raw={"_context": ctx, "deterministic": True},
+        )
+
+    required_match = re.search(
+        r"(\d+)\s*화.{0,20}(?:등록할|필요한|나올|등장할).{0,15}(?:인물|캐릭터|사람)",
+        text,
+    )
+    if required_match and re.search(r"누구|뭐뭐|목록|알려", text):
+        return Route(
+            intent="answer_question",
+            work=work if isinstance(work, str) else None,
+            episode=int(required_match.group(1)),
+            question_type="episode_required_elements",
+            confidence=1.0,
+            raw={"_context": ctx, "deterministic": True},
+        )
+
+    if re.search(r"(?:인물|장소|의상|옷|소품).{0,15}(?:등록|참조).{0,15}(?:뭐뭐|무엇|누구|있)", text):
+        return Route(
+            intent="answer_question",
+            work=work if isinstance(work, str) else None,
+            episode=episode,
+            question_type="registered_elements_status",
+            confidence=1.0,
+            raw={"_context": ctx, "deterministic": True},
+        )
+
+    if re.fullmatch(r"(?:지금\s*)?(?:뭐해|무슨\s*작업\s*중(?:이야|이야\?)?|진행\s*상황(?:은|이)?\??)", text):
+        return Route(
+            intent="answer_question",
+            work=work if isinstance(work, str) else None,
+            episode=episode,
+            question_type="pipeline_status",
+            confidence=1.0,
+            raw={"_context": ctx, "deterministic": True},
+        )
+
+    return None
+
+
 def _apply_safety_normalization(r: Route, query_text: str, ctx: dict) -> Route:
     """LLM 분류 뒤 실제 사고가 컸던 슬롯 혼동만 결정적으로 보정한다."""
     text = query_text.strip()
+
+    # 명시적인 질문이 생성/씬설계 등 변형 intent로 분류되면 실행 전에 차단한다.
+    # 특히 "1화에 나올 이영 의상은 뭐지?"가 scene_design으로 가는 사고를 막는다.
+    if is_question_text(text) and r.intent in _MUTATING_INTENTS:
+        r.intent = "answer_question"
+        r.reply_text = None
+        character = _extract_character_for_costume(text)
+        if character and re.search(r"의상|옷|복장", text):
+            r.question_type = "episode_character_costume"
+            r.elements = [{"kind": "인물", "name": character}]
+            r.episode = _extract_episode(text, ctx)
+        else:
+            r.question_type = r.question_type or "general"
+        r.episodes = None
+        r.scene = None
+        r.cuts = None
+        r.steps = None
+        r.needs_clarification = False
 
     # answer_question은 LLM 생성 답변을 절대 사용하지 않는다.
     if r.intent == "answer_question":
@@ -547,6 +673,18 @@ def route(
         return None
 
     ctx = _build_context(channel, thread_ts, event)
+
+    deterministic = _deterministic_question_route(query_text, ctx)
+    if deterministic is not None:
+        explicit_work = _explicit_work_token(query_text, ctx)
+        if explicit_work:
+            deterministic.work = explicit_work
+        log.info(
+            "nl_router: deterministic question=%s work=%r ep=%r",
+            deterministic.question_type, deterministic.work, deterministic.episode,
+        )
+        return deterministic
+
     system_text = build_system_prompt(ctx)
     t0 = time.time()
     try:
@@ -812,6 +950,77 @@ def _episode_required_people(work: str, episode: int) -> tuple[list[str], list[s
     missing = [name for name in people if not _is_registered(name)]
     return people, missing, None
 
+
+def _episode_character_costume(work: str, episode: int, character: str) -> tuple[str | None, str | None]:
+    """노션/캐시의 바이블·대본·상세콘티에서 특정 인물의 해당 화 의상을 찾는다."""
+    from . import dispatch_storyboard as sb
+    from . import reference
+
+    canonical = _canonical_work(work) or work
+    bible = None
+    try:
+        sheet = reference.sheet()
+        if sheet:
+            bible = sheet.get(canonical) or sheet.get(work)
+    except Exception:
+        log.exception("episode_character_costume: bible load failed work=%s", canonical)
+
+    script = ""
+    try:
+        script, _err = sb._script_for(canonical, episode, bible)
+        script = script or ""
+    except Exception:
+        log.exception("episode_character_costume: script load failed work=%s ep=%s", canonical, episode)
+
+    conti = ""
+    try:
+        conti, _source = sb._fetch_external_conti(canonical, episode)
+        conti = conti or ""
+    except Exception:
+        log.exception("episode_character_costume: conti load failed work=%s ep=%s", canonical, episode)
+
+    # 바이블의 캐릭터 구조에서 의상 필드를 먼저 확인한다.
+    characters = (bible or {}).get("characters") or {}
+    if isinstance(characters, dict):
+        info = characters.get(character)
+        if isinstance(info, dict):
+            for key in ("costume", "costumes", "outfit", "wardrobe", "의상", "복장", "옷"):
+                value = info.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip(), "작품 바이블"
+                if isinstance(value, list) and value:
+                    clean = [str(x).strip() for x in value if str(x).strip()]
+                    if clean:
+                        return ", ".join(clean), "작품 바이블"
+
+    source_text = "\n".join(x for x in (script, conti) if x).strip()
+    if not source_text:
+        return None, f"<{canonical}> {episode}화 대본이나 상세 콘티를 읽지 못했어요."
+
+    escaped = re.escape(character)
+    patterns = (
+        rf"{escaped}\s*\(\s*(?:의상\s*:\s*)?([^\n\)]+)\)",
+        rf"{escaped}[^\n]{{0,30}}(?:의상|복장|옷)\s*[:：-]\s*([^\n]+)",
+        rf"등장\s*:\s*[^\n]*{escaped}\s*\(([^\n\)]+)\)",
+    )
+    for pattern in patterns:
+        m = re.search(pattern, source_text, flags=re.I)
+        if m:
+            value = re.sub(r"\s+", " ", m.group(1)).strip(" ·,/")
+            if value:
+                return value, "1화 대본/상세 콘티"
+
+    # 구조가 느슨한 문서도 지원: 캐릭터와 의상 키워드가 함께 있는 줄을 그대로 근거로 반환.
+    for line in source_text.splitlines():
+        clean = line.strip()
+        if character in clean and re.search(r"의상|복장|옷|교복|셔츠|재킷|후드|원피스|정장", clean):
+            clean = re.sub(r"^[\-*•\s]+", "", clean)
+            if len(clean) <= 240:
+                return clean, "1화 대본/상세 콘티"
+
+    return None, f"<{canonical}> {episode}화 자료는 읽었지만 {character}의 의상 표기를 찾지 못했어요."
+
+
 def _answer_question(
     channel: str,
     thread_ts: str,
@@ -878,6 +1087,33 @@ def _answer_question(
             _reply(channel, thread_ts, f"<{work}>에서 {', '.join(dict.fromkeys(matches))}은 확인됐지만, {', '.join(missing)}은 등록 상태를 찾지 못했어요.")
         else:
             _reply(channel, thread_ts, f"아직 <{work}>에서 {', '.join(missing)} 참조가 등록된 상태로 확인되지 않아요.")
+        return
+
+    if qtype == "episode_character_costume":
+        if not work:
+            _reply(channel, thread_ts, "어느 작품인지 확인할 수 없어요. 작품명을 함께 알려주세요.")
+            return
+        if episode is None:
+            _reply(channel, thread_ts, "몇 화 의상인지 화 번호를 알려주세요.")
+            return
+        character = ""
+        for item in r.elements or []:
+            if isinstance(item, dict) and str(item.get("kind") or "") in ("인물", "person"):
+                character = str(item.get("name") or "").strip()
+                if character:
+                    break
+        if not character:
+            _reply(channel, thread_ts, "어느 인물의 의상인지 이름을 알려주세요.")
+            return
+        costume, source = _episode_character_costume(work, int(episode), character)
+        if costume:
+            _reply(
+                channel, thread_ts,
+                f"<{work}> {episode}화에서 {character}의 의상은 {costume}예요. "
+                f"({source} 기준)",
+            )
+        else:
+            _reply(channel, thread_ts, source or f"<{work}> {episode}화에서 {character}의 의상을 찾지 못했어요.")
         return
 
     if qtype == "episode_required_elements":

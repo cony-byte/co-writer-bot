@@ -409,6 +409,16 @@ def _handle_dispatch(event: dict) -> None:
     except Exception:
         log.exception("nl_router 실행 예외 → legacy 폴백")
 
+    # 명시적인 질문은 라우터 장애 시에도 씬 설계/생성 체인으로 보내지 않는다.
+    # 안전하게 조회 실패를 알리고 사용자가 같은 질문을 다시 보낼 수 있게 한다.
+    if nl_router.is_question_text(query):
+        _reply(
+            channel, thread_ts,
+            "질문으로 이해했지만 지금은 작품 자료를 안전하게 조회하지 못했어요. "
+            "작품명·화·인물명을 포함해 같은 질문을 한 번만 다시 보내주세요.",
+        )
+        return
+
     _legacy_freeform_chain(channel, thread_ts, query, event, in_thread)
 
 
