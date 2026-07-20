@@ -1070,6 +1070,38 @@ def _single_registered_work() -> str | None:
     reg = works.all_works()
     return next(iter(reg)) if len(reg) == 1 else None
 
+def _prereq_guidance(work: str, top: str, target, bible) -> str | None:
+    """★2026-07-20 "선행 정보가 없으면 엉뚱하게 생성하지 말고 안내문을 내보내라" —
+    생성 종류별로 반드시 있어야 할 상위 정보가 노션/시트(바이블)에 하나도 없으면, 생성 대신
+    무엇부터 채워야 하는지 안내 문구를 반환한다(있으면 None → 그대로 생성 진행).
+    - 대본: 그 화 개요 또는 전체 줄거리 중 하나는 있어야 함(없으면 인물·상황을 지어내 엉뚱한
+      대본이 나옴 — 실사용 사고).
+    - 개요: 로그라인·전체 줄거리·회차분배 중 최소 하나는 있어야 함(작품 페이지가 사실상 비어
+      있으면 개요가 근거 없이 창작됨).
+    다른 종류(줄거리·회차분배·인물 등 최상위 설정)는 게이트하지 않는다 — 그 자체가 바탕이므로."""
+    b = bible or {}
+    has_plot = bool((b.get("plot") or "").strip())
+    if top == "대본":
+        has_outline = bool((b.get("outlines") or {}).get(f"{target}화")) if target else False
+        if not has_outline and not has_plot:
+            ep = f"{target}화 " if target else ""
+            ep_cmd = f"{target}화" if target else "N화"
+            return (f"⚠️ <{work}>의 {ep}대본을 만들려면 먼저 *개요*나 *전체 줄거리*가 있어야 해요 "
+                    "— 지금은 노션/시트에 둘 다 없어서, 그대로 만들면 인물·상황을 지어낸 엉뚱한 "
+                    "대본이 나와요.\n"
+                    f"• `[생성] <{work}> {ep_cmd} 개요` 로 그 화 개요부터 만들거나\n"
+                    f"• `[생성] <{work}> 전체 줄거리` 로 줄거리를 먼저 잡아주세요.\n"
+                    "• 이미 노션 기획안에 있다면 그 페이지 링크를 다시 붙여넣어 동기화해주세요.")
+    elif top == "개요":
+        has_logline = bool((b.get("logline") or "").strip())
+        has_plan = bool(b.get("episode_plan"))
+        if not (has_plot or has_logline or has_plan):
+            return (f"⚠️ <{work}>는 아직 개요를 만들 *바탕 정보*가 없어요 — 로그라인·전체 줄거리·"
+                    "회차분배 중 최소 하나는 있어야 근거 없이 지어내지 않아요.\n"
+                    "• 노션 기획안 페이지에 로그라인/줄거리를 채우고 링크를 다시 붙여넣어 동기화하거나\n"
+                    f"• `[생성] <{work}> 전체 줄거리` 로 줄거리부터 잡아주세요.")
+    return None
+
 def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "",
                  force_generic: bool = False) -> None:
     """[생성] <작품> 경로(대본/N화 등) 또는 자연어('에피1~3 대본 써줘') → 바이블 참고 생성 + 시트 저장.
@@ -1157,6 +1189,15 @@ def _do_generate(channel: str, thread_ts: str, rest: str, files_text: str = "",
     bible = _override_intensity(bible, directive)   # '강도 N'(명령 줄/포인트) 이번만 재보정
     log.info("생성 top=%s target=%s 강도lvl=%s map=%s", top, target,
              (bible or {}).get("intensity_level"), (bible or {}).get("intensity_map"))
+
+    # ★2026-07-20 "선행 정보 없으면 엉뚱하게 생성하지 말고 안내" — 첨부 자료(files_text)가 있으면
+    # 그게 바탕이 되니 게이트를 건너뛰고, 작품이 지정된 정식 생성일 때만 선행조건을 확인한다
+    # (force_generic=일반 초안은 바이블 자체가 없는 게 당연하므로 제외).
+    if work and not force_generic and not (files_text and files_text.strip()):
+        _guide = _prereq_guidance(work, top, target, bible)
+        if _guide:
+            _reply(channel, thread_ts, _guide)
+            return
 
     messages = _thread_messages(channel, thread_ts)
     if not messages:
