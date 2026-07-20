@@ -214,14 +214,24 @@ def _event_files(channel: str, thread_ts: str, event: dict) -> list[dict]:
     return []
 
 
-def _looks_like_reference_image_request(text: str) -> bool:
-    """첨부 이미지를 기준으로 새 이미지를 만들려는 명시적 요청인지 판별."""
+def _presupposes_attachment(text: str) -> bool:
+    """이 문구가 '지금 이 메시지에 첨부가 있다'를 전제하는지(사고3 레이스 감지용).
+    ★2026-07-21 작업3: '비슷하게/이거로/이거랑/첨부' 등까지 넓혀 PD룩 참조 케이스도 포함."""
     q = text or ""
-    has_ref = bool(re.search(
-        r"(?:이|그|첨부한?)\s*(?:이미지|사진)|(?:이미지|사진)\s*(?:와|과|처럼|기준|참고)",
+    return bool(re.search(
+        r"이\s*(?:이미지|사진|그림)|이걸로|이거로|이거랑|이 사진|이 이미지|첨부(?:했|한|해)",
         q,
     ))
-    has_gen = bool(re.search(r"동일하게|똑같이|참고해서|참조해서|기준으로|재생성|다시\s*(?:생성|만들)|새로\s*만들", q))
+
+
+def _looks_like_reference_image_request(text: str) -> bool:
+    """첨부 이미지를 기준으로 새 이미지를 만들거나 참조를 교체·맞추려는 요청인지 판별."""
+    q = text or ""
+    has_ref = _presupposes_attachment(q) or bool(re.search(
+        r"(?:이미지|사진)\s*(?:와|과|처럼|기준|참고)", q))
+    has_gen = bool(re.search(
+        r"동일하게|똑같이|비슷하게|맞춰|맞게|참고해서|참조해서|기준으로|재생성|"
+        r"다시\s*(?:생성|만들)|새로\s*만들|교체|바꿔|수정", q))
     return has_ref and has_gen
 
 
@@ -244,9 +254,25 @@ def preflight_missing_attachment(channel: str, thread_ts: str, query_text: str, 
     return True
 
 
-def recover_event_files(channel: str, thread_ts: str, event: dict) -> list[dict]:
-    """기존 핸들러가 쓰도록 복구된 파일을 event에 채우고 반환."""
-    return _event_files(channel, thread_ts, event)
+_ATTACH_RACE_WAIT_SEC = float(os.environ.get("COWRITER_ATTACH_RACE_WAIT", "2.5"))
+
+
+def recover_event_files(channel: str, thread_ts: str, event: dict,
+                        query_text: str | None = None) -> list[dict]:
+    """기존 핸들러가 쓰도록 복구된 파일을 event에 채우고 반환.
+    ★2026-07-21 작업3(Slack 파일 이벤트 레이스): 문구가 첨부를 전제(_presupposes_attachment)
+    하는데 파일이 아직 안 보이면, Slack이 파일 전달을 늦출 수 있으므로 잠깐 기다렸다가 원본
+    메시지를 한 번 더 재조회한다(1회)."""
+    files = _event_files(channel, thread_ts, event)
+    if files:
+        return files
+    if query_text and _presupposes_attachment(query_text):
+        try:
+            time.sleep(_ATTACH_RACE_WAIT_SEC)
+        except Exception:
+            pass
+        files = _event_files(channel, thread_ts, event)
+    return files
 
 
 def _element_name(element: dict) -> str:
@@ -339,7 +365,13 @@ def _build_context(channel: str, thread_ts: str, event: dict) -> dict:
         )
 
     files = _event_files(channel, thread_ts, event)
+    # ★2026-07-21 작업1: 스레드 부모(루트) 메시지 텍스트 — 스레드 상단에 작품명만 적어둔 경우
+    # (예: 루트가 "저연프")를 이 스레드의 기본 작품으로 쓰기 위한 근거.
+    thread_parent_text = ((msgs[0].get("content") if msgs else "") or "")[:_CTX_MSG_MAXLEN]
     return {
+        "channel": channel,
+        "thread_ts": thread_ts,
+        "thread_parent_text": thread_parent_text,
         "tracked_work": tracked.get("work"),
         "tracked_episode": tracked.get("episode"),
         "sb_stage": stage,
@@ -391,6 +423,21 @@ def _explicit_work_token(text: str, ctx: dict) -> str | None:
             return token
     return None
 
+
+def _resolve_work_ctx(text: str, ctx: dict) -> str | None:
+    """★2026-07-21 작업1: 작품 해석을 works.resolve_work 단일 경로로 통일.
+    ctx의 channel/thread_ts가 있으면 스레드 부모·이력 스캔까지 포함(별칭·부분표기·스레드
+    상단 작품명 회수). 실패 시 명시 토큰/tracked_work로 폴백."""
+    ch, tts = ctx.get("channel"), ctx.get("thread_ts")
+    if ch and tts:
+        try:
+            from .shared import works
+            w = works.resolve_work(text or "", ch, tts)
+            if w:
+                return w
+        except Exception:
+            log.exception("resolve_work 실패")
+    return _explicit_work_token(text or "", ctx) or (ctx.get("tracked_work") or None)
 
 
 _QUESTION_END_RE = re.compile(
@@ -446,7 +493,7 @@ def _deterministic_question_route(query_text: str, ctx: dict) -> Route | None:
     if not is_question_text(text):
         return None
 
-    work = _explicit_work_token(text, ctx) or ctx.get("tracked_work")
+    work = _resolve_work_ctx(text, ctx)
     episode = _extract_episode(text, ctx)
 
     costume_character = None
@@ -676,7 +723,7 @@ def route(
 
     deterministic = _deterministic_question_route(query_text, ctx)
     if deterministic is not None:
-        explicit_work = _explicit_work_token(query_text, ctx)
+        explicit_work = _resolve_work_ctx(query_text, ctx)
         if explicit_work:
             deterministic.work = explicit_work
         log.info(
@@ -1035,7 +1082,7 @@ def _answer_question(
         return
 
     qtype = r.question_type or "general"
-    work = _canonical_work(r.work or ctx.get("tracked_work"))
+    work = _resolve_work_ctx(r.work or "", ctx) or _canonical_work(r.work or ctx.get("tracked_work"))
     episode = r.episode if r.episode is not None else ctx.get("tracked_episode")
     stage = int(ctx.get("sb_stage") or 0)
     # 컨텍스트 스냅숏은 질문 직전 등록을 놓칠 수 있으므로 실제 파일을 다시 읽는다.

@@ -36,6 +36,8 @@ def _check(expected: dict, route) -> list[str]:
         errs.append(f"intent {route.intent!r} != {expected['intent']!r}")
     if "intent_oneof" in expected and route.intent not in expected["intent_oneof"]:
         errs.append(f"intent {route.intent!r} not in {expected['intent_oneof']}")
+    if "forbid_intent" in expected and route.intent == expected["forbid_intent"]:
+        errs.append(f"intent must not be {expected['forbid_intent']!r}")
     if "episode" in expected and route.episode != expected["episode"]:
         errs.append(f"episode {route.episode!r} != {expected['episode']!r}")
     if "forbid_episode" in expected and route.episode == expected["forbid_episode"]:

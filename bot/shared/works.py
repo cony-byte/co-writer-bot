@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 
 from .. import config
 
@@ -93,6 +94,106 @@ def sanitize(name: str) -> str:
 def page_of(name: str) -> str | None:
     w = resolve(name)
     return all_works().get(w, {}).get("page") if w else None
+
+
+# ★2026-07-21 작업1 — 라우터 컨텍스트/프롬프트용 별칭 테이블. _build_context가
+# works.all_works_with_aliases()를 호출하는데 이 함수가 없어(all_names()도 없음) 항상
+# 빈 dict로 폴백 → 라우터가 등록 작품/별칭을 아예 못 봐서 별칭 미해석 사고(저연프)가 났다.
+def all_works_with_aliases() -> dict[str, list[str]]:
+    """{정식작품명: [별칭...]} — 라우터 프롬프트 컨텍스트(registered_works)용."""
+    return {canon: list(v.get("aliases") or []) for canon, v in all_works().items()}
+
+
+def all_names() -> list[str]:
+    """정식작품명 목록(구 호출부 호환)."""
+    return list(all_works().keys())
+
+
+_PARTICLE_SUFFIX_RE = re.compile(
+    r"(으로|에서|부터|까지|이랑|이나|은|는|이|가|을|를|의|에|도|만|로|랑|나|와|과)$")
+
+
+def _norm_match(s: str) -> str:
+    """비교용 정규화 — NFC + 공백·괄호·꺾쇠·구두점 제거 + 소문자."""
+    s = unicodedata.normalize("NFC", s or "")
+    s = re.sub(r"[\s「」『』<>《》〈〉\[\]（）()·,.!?~…]", "", s)
+    return s.strip().lower()
+
+
+def _name_alias_pairs() -> list[tuple[str, str]]:
+    """[(정식명, 매칭토큰)] — 정식명 + 각 별칭. 매칭토큰 긴 것부터(최장일치 우선)."""
+    out: list[tuple[str, str]] = []
+    for canon, v in all_works().items():
+        out.append((canon, canon))
+        for a in (v.get("aliases") or []):
+            if a:
+                out.append((canon, a))
+    out.sort(key=lambda t: len(_norm_match(t[1])), reverse=True)
+    return out
+
+
+def resolve_work(token_or_text: str | None, channel: str, thread_ts: str) -> str | None:
+    """어떤 표기(별칭/풀제목/괄호포함/부분)든 정식 작품명으로 통일하는 단일 진입점.
+    우선순위: ①<꺾쇠>/[대괄호] 토큰 최장일치 → ②본문 최장일치(조사 제거·정규화) →
+    ③conti_state tracked_work → ④스레드 이력 스캔(부모→사용자→봇 동기화/등록 확인) → ⑤None.
+    성공 시 conti_state에 tracked_work 캐시(episode/human_final은 안 건드림) → 이후 결정적."""
+    from .. import conti_state
+
+    text = (token_or_text or "").strip()
+    pairs = _name_alias_pairs()
+
+    def _cache(canon: str) -> str:
+        try:
+            conti_state.set_tracked_work(thread_ts, canon)
+        except Exception:
+            pass
+        return canon
+
+    # ① <꺾쇠>/[대괄호] 토큰
+    for m in re.finditer(r"[<\[]\s*([^<>\[\]]+?)\s*[>\]]", text):
+        tok = _norm_match(m.group(1))
+        if len(tok) < 1:
+            continue
+        for canon, alias in pairs:
+            na = _norm_match(alias)
+            if na and (na == tok or (len(na) >= 2 and na in tok)):
+                return _cache(canon)
+
+    # ② 본문 최장일치 (조사·괄호 무시). 토큰이 본문에 substring으로 들어오면 인정.
+    ntext = _norm_match(text)
+    if ntext:
+        for canon, alias in pairs:   # 이미 긴 것부터 정렬
+            na = _norm_match(alias)
+            if len(na) >= 2 and na in ntext:
+                return _cache(canon)
+
+    # ③ 스레드에 이미 추적 중인 작품
+    try:
+        tracked = (conti_state.get_episode(thread_ts) or {}).get("work")
+        tw = resolve(tracked) if tracked else None
+        if tw:
+            return tw
+    except Exception:
+        pass
+
+    # ④ 스레드 이력 스캔 — 부모/사용자 메시지, 봇의 동기화·등록 확인 메시지에서 작품명 추출.
+    #    봇 플레이스홀더("<작품명>")·진행("…중이에요") 메시지는 신뢰하지 않는다.
+    try:
+        from .slack_io import _thread_messages
+        msgs = _thread_messages(channel, thread_ts) or []
+        for m in msgs:
+            c = m.get("content") or ""
+            nc = _norm_match(c)
+            if not nc or "작품명" in c:   # placeholder 제외
+                continue
+            for canon, alias in pairs:
+                na = _norm_match(alias)
+                if len(na) >= 2 and na in nc:
+                    return _cache(canon)
+    except Exception:
+        pass
+
+    return None
 
 
 _BAD_WORK_TOKEN_RE = re.compile(r"^[@#!]|^[UBWC][A-Z0-9]{6,}(\||$)")   # <@U..>/<#C..|이름>/<!here> 등

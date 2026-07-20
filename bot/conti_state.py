@@ -41,6 +41,22 @@ def set_episode(thread_ts: str, work: str, episode: int | None, human_final: boo
         _save(d)
 
 
+def set_tracked_work(thread_ts: str, work: str) -> None:
+    """★2026-07-21 작업1: work만 캐시(episode/human_final 등 다른 필드는 안 건드림).
+    resolve_work가 해석 성공 시 다음 턴부터 결정적으로 같은 작품을 잡게 하기 위함 —
+    set_episode는 human_final을 False로 덮어써서 캐시 용도로 쓰면 안 된다."""
+    if not work:
+        return
+    with _LOCK:
+        d = _load()
+        entry = d.get(thread_ts) or {}
+        if entry.get("work") == work:
+            return
+        entry["work"] = work
+        d[thread_ts] = entry
+        _save(d)
+
+
 def get_episode(thread_ts: str) -> dict | None:
     return _load().get(thread_ts)
 

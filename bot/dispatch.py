@@ -446,7 +446,7 @@ def _handle_dispatch(event: dict) -> None:
     # 첨부 이미지를 기준으로 재생성하는 요청은 LLM보다 먼저 결정적으로 처리한다.
     # 라우터 호출이 실패해도 co-writer 자유응답으로 빠져 "이미지 기능 미지원"이라고
     # 잘못 답할 수 없게 하는 안전 경로다.
-    nl_router.recover_event_files(channel, thread_ts, event)
+    nl_router.recover_event_files(channel, thread_ts, event, query_text=query)
     if sb._maybe_element_ref_generate_request(channel, thread_ts, query, event):
         log.info("route=deterministic:element_ref")
         return

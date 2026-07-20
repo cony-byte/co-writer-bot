@@ -618,6 +618,116 @@
         "instruction_contains": "큰 움직임 없이"
       },
       "incident": "상세 콘티 전체 재생성이 아니라 특정 컷 연출 수정, 부정 조건 보존"
+    },
+    {
+      "id": "pdlook-ref-attached",
+      "text": "이영 PD룩은 이 이미지에 있는거랑 비슷하게 해줘",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "attached_image_count": 1,
+        "registered_works": {
+          "저는 연프 출연진이 아닌데요 !": [
+            "저연프"
+          ]
+        }
+      },
+      "expected": {
+        "intent": "element_edit",
+        "forbid_intent": "scene_design",
+        "forbid_episode": 3
+      },
+      "incident": "사고1: '이미지' 단어+진행도 화 추론으로 씬설계 3화 오발"
+    },
+    {
+      "id": "pdlook-ref-noattach",
+      "text": "이영 PD룩은 이 이미지에 있는거랑 비슷하게 해줘",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "attached_image_count": 0,
+        "registered_works": {
+          "저는 연프 출연진이 아닌데요 !": [
+            "저연프"
+          ]
+        }
+      },
+      "expected": {
+        "needs_clarification": true,
+        "forbid_intent": "scene_design"
+      },
+      "incident": "사고1/3: 첨부 전제인데 파일 0 → 되묻기(씬설계 아님)"
+    },
+    {
+      "id": "stafflook-ref-attached",
+      "text": "김신우 스탭룩 이 사진처럼 맞춰줘",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "attached_image_count": 1,
+        "registered_works": {
+          "저는 연프 출연진이 아닌데요 !": [
+            "저연프"
+          ]
+        }
+      },
+      "expected": {
+        "intent": "element_edit",
+        "forbid_intent": "scene_design"
+      },
+      "incident": "사고5: ~룩 의상 참조 수정(R23)"
+    },
+    {
+      "id": "alias-regstatus-parent",
+      "text": "지금 <저연프> 인물 이미지 뭐뭐 등록되어있지?",
+      "ctx": {
+        "thread_parent_text": "저연프",
+        "tracked_work": null,
+        "registered_works": {
+          "저는 연프 출연진이 아닌데요 !": [
+            "저연프"
+          ]
+        }
+      },
+      "expected": {
+        "intent": "answer_question",
+        "work": "저는 연프 출연진이 아닌데요 !"
+      },
+      "incident": "사고2: 별칭/스레드부모 작품 미해석 → '작품 안정해짐' 3연발"
+    },
+    {
+      "id": "costume-question-noaction",
+      "text": "1화에 나올 이영 의상은 뭐지?",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "registered_works": {
+          "저는 연프 출연진이 아닌데요 !": [
+            "저연프"
+          ]
+        }
+      },
+      "expected": {
+        "intent": "answer_question",
+        "forbid_intent": "scene_design"
+      },
+      "incident": "사고4: 단순 질문이 '🛑 중단했어요'로 종결"
+    },
+    {
+      "id": "alias-bracket-regstatus",
+      "text": "[저연프] 인물 뭐 등록됐어?",
+      "ctx": {
+        "registered_works": {
+          "저는 연프 출연진이 아닌데요 !": [
+            "저연프"
+          ]
+        }
+      },
+      "expected": {
+        "intent": "answer_question",
+        "work": "저는 연프 출연진이 아닌데요 !"
+      },
+      "incident": "사고2: 별칭 표기 등록현황 질문 work canon 해석"
     }
   ]
 }
