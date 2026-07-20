@@ -2530,49 +2530,33 @@ def _generate_video_for_cut_with_safety_retry(channel, thread_ts, work, title, c
     fail_out: dict = {}
     local_path = _generate_video_for_cut(channel, thread_ts, work, title, cut, num, scene_seconds,
                                          post_result=False, cost_out=cost_out, fail_reason_out=fail_out)
+    # ★2026-07-20 입력이미지 안전필터("실존 인물처럼 보인다")에 걸리면, 재스타일화 없이
+    # 곧바로 그 컷 스틸의 얼굴을 빨간 격자로 덮어(원본은 .orig.bak 백업) 한 번 재시도한다.
+    # 격자 스틸은 _generate_video_for_cut이 마커(.orig.bak)를 보고 프롬프트 앞줄 앵커 + 앞
+    # 0.1초 트림을 자동 적용한다. opencv 미설치 등으로 격자 적용이 실패하면 조용히 넘어간다
+    # (기존 실패 안내로 종결).
     if not local_path and fail_out.get("reason") == "입력 이미지가 실존 인물처럼 보인다는 안전필터에 걸림":
-        _reply(channel, thread_ts, f"⚠️ 컷 {num}: 실존 인물 안전필터에 걸렸어요 — 스틸컷을 더 "
-                                   "일러스트풍으로 다시 만들어서 재시도할게요…")
-        new_png = _autopilot_regen_shot_png(
-            work, cut, "실제 인물 사진처럼 보이지 않게, 명확한 일러스트/페인터리 그림체로 "
-                       "(사실적 피부 질감·실사 조명 최소화)")
-        if new_png:
-            cut["png"] = new_png
-            retry_cost_out: dict = {}
-            retry_fail_out: dict = {}
+        grid_png = None
+        try:
+            from bot import face_grid
+            grid_png = face_grid.overlay_grid(cut["png"])
+        except Exception:
+            log.exception("격자 자동 적용 실패 — 기존 실패 안내로 종결")
+        if grid_png:
+            _gs_m = re.search(r"씬(\d+)", title)
+            _gs = int(_gs_m.group(1)) if _gs_m else None
+            _gep = (conti_state.get_episode(thread_ts) or {}).get("episode")
+            vp_store.overwrite_still_with_backup(
+                work, scene_num=_gs, cut_num=num, episode=_gep,
+                new_png=grid_png, original_png=cut["png"])
+            cut["png"] = grid_png
+            _reply(channel, thread_ts, f"🔴 컷 {num}: 실존 인물 안전필터에 걸려서, 얼굴에 격자를 "
+                                       "덮어 다시 영상화해볼게요…")
+            grid_cost_out: dict = {}
             local_path = _generate_video_for_cut(channel, thread_ts, work, title, cut, num, scene_seconds,
-                                                 post_result=False, cost_out=retry_cost_out,
-                                                 fail_reason_out=retry_fail_out)
+                                                 post_result=False, cost_out=grid_cost_out)
             if local_path:
-                cost_out = retry_cost_out
-            else:
-                fail_out = retry_fail_out  # 최신 실패 사유로 갱신(격자 폴백 판단용)
-        # ★2026-07-20 재스타일화로도 여전히 실존인물 안전필터면, 마지막 자동 폴백으로 얼굴을
-        # 빨간 격자로 덮어(원본은 .orig.bak 백업) 딱 한 번 더 재시도한다. 격자 스틸은
-        # _generate_video_for_cut이 마커(.orig.bak)를 보고 프롬프트 앞줄 앵커 + 앞 0.1초 트림을
-        # 자동 적용한다. opencv 미설치 등으로 격자 적용이 실패하면 조용히 넘어간다(기존 실패 안내로 종결).
-        if not local_path and fail_out.get("reason") == "입력 이미지가 실존 인물처럼 보인다는 안전필터에 걸림":
-            grid_png = None
-            try:
-                from bot import face_grid
-                grid_png = face_grid.overlay_grid(cut["png"])
-            except Exception:
-                log.exception("격자 자동 적용 실패 — 기존 실패 안내로 종결")
-            if grid_png:
-                _gs_m = re.search(r"씬(\d+)", title)
-                _gs = int(_gs_m.group(1)) if _gs_m else None
-                _gep = (conti_state.get_episode(thread_ts) or {}).get("episode")
-                vp_store.overwrite_still_with_backup(
-                    work, scene_num=_gs, cut_num=num, episode=_gep,
-                    new_png=grid_png, original_png=cut["png"])
-                cut["png"] = grid_png
-                _reply(channel, thread_ts, f"🔴 컷 {num}: 재스타일화로도 안전필터에 걸려서, 얼굴에 "
-                                           "격자를 덮어 마지막으로 다시 영상화해볼게요…")
-                grid_cost_out: dict = {}
-                local_path = _generate_video_for_cut(channel, thread_ts, work, title, cut, num, scene_seconds,
-                                                     post_result=False, cost_out=grid_cost_out)
-                if local_path:
-                    cost_out = grid_cost_out
+                cost_out = grid_cost_out
     _post_generated_video(channel, thread_ts, work, title, num, local_path, cost_out.get("cost"))
 
 def _post_generated_video(channel, thread_ts, work, title, num, local_path, cost):
