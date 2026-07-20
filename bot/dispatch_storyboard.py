@@ -865,9 +865,19 @@ def sb_do_storyboard(channel, thread_ts, rest, stage=1):
         full_rewrite = bool(instr) and bool(_FULL_REWRITE_RE.search(instr))
         # 수정 지시가 씬 하나만 가리키면(번호 명시든, 내용으로 유추되든) 그 씬만 다시 써서
         # 통째로 교체 — 다른 씬까지 LLM이 따라 고쳐버리는(전체 재생성의) 위험을 없앤다(2026-07-13).
+        # ★2026-07-20 실사용 사고 — "씬3에서 짝꿍이 되는 장면은 이전 씬이랑 연결이 안 되는 것
+        # 같아. 1화에서 이 둘의 관계성을 더 보여줬으면 좋겠어."처럼 지시 안에 "씬3"이 명시돼 있어도
+        # 실제 요구는 씬3 하나가 아니라 앞선 씬들(관계성 빌드업)까지 걸친 수정이었다. 그런데
+        # _scene_num_from_instr는 순수 정규식이라 "씬3"이 보이는 순간 무조건 그 번호 하나로
+        # 확정해버려서, 여러 씬에 걸친 애매한 경우를 가려내는 LLM 판단(_guess_scene_num, "여러
+        # 씬에 걸치면 -1")이 아예 호출되지도 못했다. 지시문에 "이전 씬"/"관계성"/"연결" 같은
+        # 교차-씬 신호가 있으면 정규식 지름길을 건너뛰고 곧장 LLM 판단으로 넘긴다.
+        _CROSS_SCENE_HINT_RE = re.compile(
+            r"이전\s*씬|다른\s*씬|앞\s*씬|여러\s*씬|씬\s*(들|간)|관계성|연결이?\s*안|일관성|전체적으로")
         scene_num = None
         if prior_conti and instr and not full_rewrite:
-            scene_num = _scene_num_from_instr(instr)
+            if not _CROSS_SCENE_HINT_RE.search(instr):
+                scene_num = _scene_num_from_instr(instr)
             if scene_num is None:
                 scene_num = _guess_scene_num(prior_conti, instr)
         target_scene = next((s for s in _split_scenes(prior_conti) if s[0] == scene_num), None) if scene_num else None
