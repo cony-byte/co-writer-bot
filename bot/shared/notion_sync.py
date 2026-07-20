@@ -34,6 +34,30 @@ def _rt(arr) -> str:
     return "".join(t.get("plain_text", "") for t in (arr or []))
 
 
+_SECTION_LABELS = {
+    "진행상태", "로그라인", "키워드", "타겟층", "핵심정서", "금지사항",
+    "강도", "줄거리", "등장인물", "인물", "캐릭터", "회차분배",
+    "회차 분배", "개요", "대본", "상세콘티", "상세 콘티", "콘티",
+}
+
+
+def _paragraph_is_section_label(data: dict, txt: str) -> bool:
+    """노션에서 제목 블록 대신 '굵은 문단'으로 만든 섹션명도 헤딩으로 보존.
+
+    실사용 페이지는 `heading_2`가 아니라 굵은 paragraph로 `줄거리`, `등장인물`을
+    적는 경우가 많다. 평문 변환 때 annotations를 버리면 구조가 사라져 SYNC 파서가
+    문서 전체를 한 덩어리로 보게 되므로, 짧은 굵은 문단/대표 라벨은 소제목으로 승격한다.
+    """
+    clean = txt.strip().strip(":：").strip()
+    if not clean or len(clean) > 40:
+        return False
+    if clean in _SECTION_LABELS:
+        return True
+    rich = data.get("rich_text") or []
+    visible = [r for r in rich if (r.get("plain_text") or "").strip()]
+    return bool(visible) and all((r.get("annotations") or {}).get("bold") for r in visible)
+
+
 def _children(block_id: str, token: str) -> list[dict]:
     """블록의 자식 전부 (100개 페이지네이션)."""
     out, cur = [], None
@@ -60,7 +84,10 @@ def _render(blocks: list[dict], token: str) -> str:
             lines.append("\n" + "#" * int(t[-1]) + " " + txt)
         elif t == "paragraph":
             if txt:
-                lines.append(txt)
+                if _paragraph_is_section_label(data, txt):
+                    lines.append("\n## " + txt.strip().strip(":：").strip())
+                else:
+                    lines.append(txt)
         elif t == "bulleted_list_item":
             lines.append("- " + txt)
         elif t == "numbered_list_item":
