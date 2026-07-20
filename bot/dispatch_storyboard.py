@@ -3903,6 +3903,19 @@ _REGEN_FEEDBACK_RE = re.compile(
     r"별로|이상해|이상하|마음에\s*안|맘에\s*안|맘에\s*들지|다시\s*(만들|생성|해)|재생성|"
     r"안\s*어울|안\s*맞|바꿔|아쉬|불편|맘에\s*안들|어색|한\s*번\s*더|다시\s*한\s*번")
 
+# ★2026-07-20 "속보 사진 그렇게 강렬한 빨간색으로 하지 말고 평범한 화면으로 해"가 스틸컷
+# 피드백인데 상세 콘티로 새던 문제 — 불만/재생성 표현(_REGEN_FEEDBACK_RE)뿐 아니라 이렇게
+# 구성적인 '고쳐줘' 지시(색·톤·분위기·구도 등을 이렇게 바꿔라)도 스틸컷 피드백으로 본다.
+# (아래 _maybe_stillcut_regen_feedback가 "직전 출력이 스틸컷"인 스레드에서만 이걸 쓰므로 넓게 잡아도
+#  다른 잡담을 오인할 위험이 낮다.)
+_STILLCUT_CHANGE_RE = re.compile(
+    r"말고|색|컬러|톤|색감|빨강|빨간|붉|파란|채도|밝게|어둡게|화려|평범|수수|차분|"
+    r"분위기|느낌|스타일|그림체|배경|구도|표정|조명|의상|소품|빼|넣|줄여|늘려|강조|"
+    r"[가-힣]+게\s*(해|해줘|바꿔|가|되게)|[가-힣]+으?로\s*(해|해줘|바꿔|가)")
+# 스틸컷 피드백이 아니라 명백히 '다음 단계로 넘어가자'/다른 산출물 요청이면 스틸컷 재생성으로
+# 가로채지 않고 일반 라우팅에 맡긴다.
+_STILLCUT_NEXT_STAGE_RE = re.compile(r"영상|합본|콘티|씬\s*설계|스토리보드|처음부터|자동주행")
+
 def _thread_last_marker(msgs):
     """이 스레드의 최근 봇 출력이 스틸컷이었는지 콘티 단계였는지(더 최근 걸로) 판단."""
     for m in reversed(msgs):
@@ -4036,12 +4049,17 @@ def _maybe_stillcut_regen_feedback(channel, thread_ts, query) -> bool:
     info = still_state.get_last(thread_ts)
     if not info or not query.strip():
         return False
-    if not _REGEN_FEEDBACK_RE.search(query):
-        return False
     msgs = _thread_messages(channel, thread_ts)
     if _thread_last_marker(msgs) != "stillcut":
         return False   # 이 스레드에서 콘티 단계가 스틸컷보다 나중이면(=다시 콘티 얘기 중) 일반 처리로
     q = query.strip()
+    # 명백히 다음 단계/다른 산출물 요청이면 스틸컷 재생성으로 안 가로챈다.
+    if _STILLCUT_NEXT_STAGE_RE.search(q):
+        return False
+    # 직전 출력이 스틸컷인 스레드 → 불만 표현이든 구성적 수정 지시("빨간색 말고 평범하게")든
+    # 그 스틸컷에 대한 피드백으로 보고 재생성. 둘 다 안 걸리는 순수 잡담/질문은 일반 처리로.
+    if not (_REGEN_FEEDBACK_RE.search(q) or _STILLCUT_CHANGE_RE.search(q)):
+        return False
     _reply(channel, thread_ts, f"🔄 '{q}' 반영해서 다시 만들게요…")
     rest, feedback_text = _split_regen_cut_override(q, info["rest"])
     _do_stills(channel, thread_ts, rest, feedback=feedback_text or None)
