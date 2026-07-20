@@ -196,13 +196,16 @@ _return_poll_thread: threading.Thread | None = None
 
 def start_server() -> None:
     """config.FIGMA_BRIDGE_ENABLED일 때 app.py가 기동 시 1회 호출 — 백그라운드 스레드로
-    로컬 HTTP 서버를 띄운다. 이미 떠 있으면 아무것도 안 한다."""
+    로컬 HTTP 서버를 띄운다. 이미 떠 있으면 아무것도 안 한다.
+    ★2026-07-20: config.FIGMA_BRIDGE_HOST 기본값이 0.0.0.0이라, 봇과 피그마가 다른 머신에
+    있어도 같은 네트워크(LAN)에서는 이 머신의 IP:포트로 접근 가능하다(사내망 전제, 인증 없음
+    — 외부 인터넷에 노출하면 안 됨)."""
     global _server
     if _server is not None or not config.FIGMA_BRIDGE_ENABLED:
         return
-    _server = ThreadingHTTPServer(("127.0.0.1", config.FIGMA_BRIDGE_PORT), _Handler)
+    _server = ThreadingHTTPServer((config.FIGMA_BRIDGE_HOST, config.FIGMA_BRIDGE_PORT), _Handler)
     threading.Thread(target=_server.serve_forever, daemon=True).start()
-    log.info(f"피그마 브릿지 서버 시작: http://127.0.0.1:{config.FIGMA_BRIDGE_PORT} "
+    log.info(f"피그마 브릿지 서버 시작: {config.FIGMA_BRIDGE_HOST}:{config.FIGMA_BRIDGE_PORT} "
             f"(큐: {config.FIGMA_QUEUE_DIR})")
 
 
