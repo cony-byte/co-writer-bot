@@ -2412,13 +2412,16 @@ def _face_guidance_for_work(work: str | None) -> str:
 # 하므로 별도 dict로 둔다(realistic 문구는 기존 그대로, 하위호환).
 _VIDEO_STYLE_LOCK_EMPHASIS = {
     "realistic": (
-        "The entire video must match this exact semi-realistic painterly illustration art "
-        "style, color palette, and rendering technique of the input reference image from the "
-        "first frame to the last — zero photorealistic rendering, zero live-action video look, "
-        "zero 3D-rendered or CGI look, zero realistic skin pores/texture or realistic film "
-        "lighting not present in the reference image. Every frame must show visible painterly "
-        "brushwork, soft painterly color gradients, and clean illustrated line quality, "
-        "consistent with a hand-painted illustration, not a filmed photograph."
+        "The entire video MUST exactly match the art style, rendering, color palette, and level "
+        "of realism of the input reference image (the first frame) from the first frame to the "
+        "very last — a mostly-realistic cinematic look at roughly 80% realism with only a light "
+        "illustrative finish. Keep that identical rendering in every single frame; do NOT restyle "
+        "and do NOT drift toward either extreme. Specifically: zero photorealistic live-action "
+        "video look, zero literal-photograph look, zero 3D-rendered or CGI look, AND zero "
+        "painterly/watercolor/hand-painted brushwork or soft painterly gradients (this is NOT a "
+        "painting). No frame may look more realistic or more illustrated than the reference "
+        "still — the style must stay locked to the reference across the whole clip so cuts don't "
+        "look like different art styles."
     ),
     # ★2026-07-20b: 일본 애니메 화풍임을 명시적으로 못박는다 — "2D cartoon" 표현만으로는
     # 서구식 플랫 카툰(예: 심슨풍)으로 드리프트할 여지가 있어, 매 프레임 유지해야 할 구체
