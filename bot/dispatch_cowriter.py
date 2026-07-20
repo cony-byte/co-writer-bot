@@ -2706,6 +2706,14 @@ def _do_freeform(channel: str, thread_ts: str, query: str) -> None:
         work = (works.resolve(w) or w) if w else None
     if not work:
         work = _single_registered_work()
+    # 등록된 작품이 하나도 없으면(연동 자체가 안 된 상태) 애매한 자유 답변을 LLM에 그냥
+    # 던지는 대신(예: '저연프' 같은 알아듣기 힘든 한 단어에 엉뚱하게 되묻던 문제,
+    # 2026-07-20) 노션 연결부터 안내한다.
+    if not work and not works.all_works():
+        _reply(channel, thread_ts,
+               "아직 연동된 작품이 없어요 🙂 `[동기화] <노션링크>` 로 작품 노션 페이지를 먼저 "
+               "연결해주세요. 그다음부터 이 스레드에서 편하게 물어보면 돼요.")
+        return
     # 화 번호까지 콕 집었는데 어느 작품인지 여러 개라 못 골랐으면, 바이블 없이 얼버무려 답하는
     # 대신 바로 되물어서 정확한 답을 받게 한다(오늘 실측: 2화 대본을 못 읽어 애매하게 답함).
     if not work and re.search(r"\d+\s*화", q) and len(works.all_works()) > 1:
