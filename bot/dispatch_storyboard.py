@@ -2539,10 +2539,40 @@ def _generate_video_for_cut_with_safety_retry(channel, thread_ts, work, title, c
         if new_png:
             cut["png"] = new_png
             retry_cost_out: dict = {}
+            retry_fail_out: dict = {}
             local_path = _generate_video_for_cut(channel, thread_ts, work, title, cut, num, scene_seconds,
-                                                 post_result=False, cost_out=retry_cost_out)
+                                                 post_result=False, cost_out=retry_cost_out,
+                                                 fail_reason_out=retry_fail_out)
             if local_path:
                 cost_out = retry_cost_out
+            else:
+                fail_out = retry_fail_out  # 최신 실패 사유로 갱신(격자 폴백 판단용)
+        # ★2026-07-20 재스타일화로도 여전히 실존인물 안전필터면, 마지막 자동 폴백으로 얼굴을
+        # 빨간 격자로 덮어(원본은 .orig.bak 백업) 딱 한 번 더 재시도한다. 격자 스틸은
+        # _generate_video_for_cut이 마커(.orig.bak)를 보고 프롬프트 앞줄 앵커 + 앞 0.1초 트림을
+        # 자동 적용한다. opencv 미설치 등으로 격자 적용이 실패하면 조용히 넘어간다(기존 실패 안내로 종결).
+        if not local_path and fail_out.get("reason") == "입력 이미지가 실존 인물처럼 보인다는 안전필터에 걸림":
+            grid_png = None
+            try:
+                from bot import face_grid
+                grid_png = face_grid.overlay_grid(cut["png"])
+            except Exception:
+                log.exception("격자 자동 적용 실패 — 기존 실패 안내로 종결")
+            if grid_png:
+                _gs_m = re.search(r"씬(\d+)", title)
+                _gs = int(_gs_m.group(1)) if _gs_m else None
+                _gep = (conti_state.get_episode(thread_ts) or {}).get("episode")
+                vp_store.overwrite_still_with_backup(
+                    work, scene_num=_gs, cut_num=num, episode=_gep,
+                    new_png=grid_png, original_png=cut["png"])
+                cut["png"] = grid_png
+                _reply(channel, thread_ts, f"🔴 컷 {num}: 재스타일화로도 안전필터에 걸려서, 얼굴에 "
+                                           "격자를 덮어 마지막으로 다시 영상화해볼게요…")
+                grid_cost_out: dict = {}
+                local_path = _generate_video_for_cut(channel, thread_ts, work, title, cut, num, scene_seconds,
+                                                     post_result=False, cost_out=grid_cost_out)
+                if local_path:
+                    cost_out = grid_cost_out
     _post_generated_video(channel, thread_ts, work, title, num, local_path, cost_out.get("cost"))
 
 def _post_generated_video(channel, thread_ts, work, title, num, local_path, cost):
@@ -2657,7 +2687,20 @@ def _generate_video_for_cut(channel, thread_ts, work, title, cut, num, scene_sec
         "celebrity, public figure, or private individual.\n"
         "Stylized cinematic realism, clearly fictional digital character. "
     )
-    motion_prompt = (f"{fiction_lock}{ref_lock}{camera_lock}{tags} {cut['prompt']}. Scene action: {cut['caption']}. "
+    # ★2026-07-20: 얼굴이 안전필터에 걸려 face_grid로 얼굴을 빨간 격자로 덮어 승인한 컷 한정
+    # (스틸 옆 .orig.bak 백업으로 판별), 그 격자 스틸이 "승인된 시작 프레임"임을 프롬프트
+    # 맨 앞줄에 못박는다 — 나머지 프롬프트는 그대로 두고 이 한 줄만 앞에 추가. 이 격자 첫
+    # 프레임은 생성 후 앞 0.1초를 잘라 최종 영상에는 비치지 않게 한다(저장부 참조).
+    _grid_scene_m = re.search(r"씬(\d+)", title)
+    _grid_scene = int(_grid_scene_m.group(1)) if _grid_scene_m else None
+    _grid_ep = (conti_state.get_episode(thread_ts) or {}).get("episode")
+    is_grid_cut = vp_store.still_has_grid_backup(
+        work, scene_num=_grid_scene, cut_num=num, episode=_grid_ep)
+    grid_anchor = (
+        f"<<<cut{num}.png>>> is the clean approved start frame and must remain the exact "
+        f"identity, costume, location, lighting, and screen-direction anchor.\n"
+        if is_grid_cut else "")
+    motion_prompt = (f"{grid_anchor}{fiction_lock}{ref_lock}{camera_lock}{tags} {cut['prompt']}. Scene action: {cut['caption']}. "
                      f"{style_lock} "
                      f"Full scene script (Korean, for context/dialogue/emotion — animate only "
                      f"this cut's action, not other cuts in the scene): {scene_text}. "
@@ -2713,6 +2756,11 @@ def _generate_video_for_cut(channel, thread_ts, work, title, cut, num, scene_sec
                                              episode=episode,
                                              prompt_summary=motion_prompt[:300],
                                              application=hf_video.APPLICATION, cost=cost)
+        # ★2026-07-20 격자 anchor 컷 한정: 승인용 격자 첫 프레임이 최종 영상에 잠깐 비치지
+        # 않도록 앞 0.1초를 잘라낸다(격자 안 쓴 일반 컷은 건드리지 않음).
+        if is_grid_cut and local_path:
+            if vp_store.trim_head_seconds(local_path, 0.1):
+                log.info("격자 anchor 컷 — 영상 앞 0.1초 트림 완료: %s", local_path)
         if cost_out is not None:
             cost_out["cost"] = cost
         if post_result:

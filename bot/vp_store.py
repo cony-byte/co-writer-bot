@@ -100,6 +100,84 @@ def _episode_dir_name(episode: int | str | None) -> str:
     return f"{episode}화" if episode else "미분류"
 
 
+def still_path(work: str, *, scene_num: int | None, cut_num: int | None,
+               episode: int | str | None = None):
+    """이 씬·컷 스틸컷(cut{n}.png)의 로컬 경로(Path)를 반환. 프로젝트 못 찾으면 None.
+    save_still이 저장하는 경로 규칙과 동일하게 재구성한다."""
+    proj = oi.vp_project_dir(work)
+    if not proj:
+        return None
+    return (proj / "outputs" / "stills" / _episode_dir_name(episode)
+            / _scene_dir_name(scene_num) / f"cut{cut_num}.png")
+
+
+def still_has_grid_backup(work: str, *, scene_num: int | None, cut_num: int | None,
+                          episode: int | str | None = None) -> bool:
+    """이 컷 스틸이 얼굴 격자(face_grid)로 덮여 덮어써졌는지 판별. 격자 적용 시 원본을 항상
+    '<파일>.orig.bak'으로 백업하므로(overwrite_still_with_backup), 그 백업 파일의 존재를
+    '격자 적용된 승인 프레임' 마커로 쓴다(별도 상태 저장 없이 파일로만 신호)."""
+    p = still_path(work, scene_num=scene_num, cut_num=cut_num, episode=episode)
+    return bool(p and (p.parent / f"{p.name}.orig.bak").exists())
+
+
+def overwrite_still_with_backup(work: str, *, scene_num: int | None, cut_num: int | None,
+                                episode: int | str | None = None,
+                                new_png: bytes, original_png: bytes | None = None) -> bool:
+    """스틸(cut{n}.png)을 new_png로 덮어쓰되 원본을 '<파일>.orig.bak'으로 백업(없을 때만).
+    이 백업 파일이 still_has_grid_backup의 '격자 적용됨' 마커가 된다. 디스크에 스틸 파일이
+    아직 없으면 original_png를 백업으로 기록하고 new_png를 새로 쓴다. 성공 시 True."""
+    p = still_path(work, scene_num=scene_num, cut_num=cut_num, episode=episode)
+    if not p:
+        return False
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        bak = p.parent / f"{p.name}.orig.bak"
+        if not bak.exists():
+            if p.exists():
+                shutil.copy(p, bak)
+            elif original_png is not None:
+                bak.write_bytes(original_png)
+        p.write_bytes(new_png)
+        return True
+    except Exception:
+        log.exception("스틸 격자 덮어쓰기 실패")
+        return False
+
+
+def trim_head_seconds(local_path: str, seconds: float = 0.1, timeout: int = 60) -> bool:
+    """이미 저장된 mp4의 맨 앞 `seconds`초를 잘라 같은 경로에 덮어쓴다. 성공하면 True.
+    ★격자 anchor 컷 전용 — 격자로 덮은 첫 프레임이 승인 앵커로 생성에 쓰이지만 최종 영상에
+    그 격자 프레임이 잠깐 비치지 않도록 앞부분을 잘라낸다. 0.1초는 프레임 단위 정확도가
+    필요해 스트림 복사(-c copy)의 키프레임 정렬 오차를 피하려 재인코딩한다(짧아 부담 적음).
+    실패해도 원본은 그대로 두고 False 반환(영상 자체는 유효하므로 흐름을 막지 않는다)."""
+    import os
+    import pathlib
+    src = pathlib.Path(local_path)
+    if not src.exists():
+        return False
+    tmp = src.with_name(src.stem + "_trim" + src.suffix)
+    cmd = [config.FFMPEG_BIN, "-y", "-ss", str(seconds), "-i", str(src),
+           "-map", "0", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+           "-c:a", "copy", "-movflags", "+faststart", str(tmp)]
+    try:
+        r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+        if r.returncode != 0 or not tmp.exists() or tmp.stat().st_size == 0:
+            log.error("영상 앞 트림 실패(원본 유지): %s", r.stderr.decode("utf-8", "ignore")[-500:])
+            if tmp.exists():
+                tmp.unlink()
+            return False
+        os.replace(tmp, src)
+        return True
+    except Exception:
+        log.exception("영상 앞 트림 예외(원본 유지)")
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except Exception:
+                pass
+        return False
+
+
 def still_cut_path(work: str, scene_num: int | None, cut_num: int,
                    episode: int | str | None = None) -> Path | None:
     """save_still이 이 컷을 저장한다면(또는 이미 저장했다면) 쓰는 결정적 로컬 경로. 파일이
