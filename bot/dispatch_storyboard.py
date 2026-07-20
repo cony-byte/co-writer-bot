@@ -5906,7 +5906,8 @@ def _autopilot_stills_for_scene(channel, thread_ts, work, bible, num, hdr, body,
 def _autopilot_videos_for_scene(channel, thread_ts, work, title, cuts, scene_seconds,
                                 deadline: float | None = None,
                                 scene_num: int | None = None,
-                                episode: int | str | None = None) -> list[tuple[int, str]]:
+                                episode: int | str | None = None,
+                                force_regen: bool = False) -> list[tuple[int, str]]:
     """자동주행 전용 영상화 — _generate_videos_for_cuts와 같은 순차 생성이되(2026-07-15부터
     직전 컷 마지막 프레임 체이닝은 폐지 — 각 컷은 항상 자기 자신의 확정 스틸컷을 시작 이미지로
     씀, 아래 _generate_video_for_cut 참고), 컷마다 첫/끝 프레임 일관성 후검사를 끼워 넣는다.
@@ -5926,7 +5927,12 @@ def _autopilot_videos_for_scene(channel, thread_ts, work, title, cuts, scene_sec
     for c in ordered:
         if thread_ts in _CANCEL:   # ★2026-07-15: 컷 사이 취소 체크포인트 — 영상화는 컷 1개도 수십초~분 단위
             break
-        if scene_num is not None and vp_store.find_existing_video(work, scene_num, c["n"], episode=episode):
+        # ★2026-07-20 force_regen: 이 씬 스틸컷을 방금 새로 (재)생성한 경우엔(사용자가 맘에 안 드는
+        # 스틸컷을 지워서 다시 만든 경우 등) 컷 번호가 같아도 옛 영상은 새 스틸컷과 안 맞으니
+        # find_existing_video로 건너뛰지 않고 반드시 새로 만든다. 스틸컷을 그대로 재사용한
+        # 씬(✅ skip)일 때만 기존 영상을 재사용해 빠진 것만 채운다.
+        if (not force_regen and scene_num is not None
+                and vp_store.find_existing_video(work, scene_num, c["n"], episode=episode)):
             continue
         planned = c.get("duration")
         cut_seconds = (max(4.0, min(15.0, float(planned)))
@@ -6419,7 +6425,7 @@ def _do_autopilot(channel, thread_ts, rest, skip_stage_picker: bool = False):
         video_pool = cf.ThreadPoolExecutor(max_workers=1) if end_stage >= 5 else None
         video_futures: list = []
 
-        def _submit_video(num, cuts, scene_seconds):
+        def _submit_video(num, cuts, scene_seconds, force_regen=False):
             if video_pool is None:
                 return
 
@@ -6434,7 +6440,8 @@ def _do_autopilot(channel, thread_ts, rest, skip_stage_picker: bool = False):
                         _reply(channel, thread_ts, f"❌ 씬{num}에 컷{lo}~{hi} 범위에 해당하는 컷이 없어요 — 영상화를 건너뛰어요.")
                         return []
                 flagged = _autopilot_videos_for_scene(channel, thread_ts, work, f"씬{num}", video_cuts, scene_seconds,
-                                                      vision_deadline, scene_num=num, episode=episode)
+                                                      vision_deadline, scene_num=num, episode=episode,
+                                                      force_regen=force_regen)
                 return [(num, c, reason) for c, reason in flagged]
 
             video_futures.append(video_pool.submit(_run))
@@ -6494,7 +6501,9 @@ def _do_autopilot(channel, thread_ts, rest, skip_stage_picker: bool = False):
             # 버리지 않고 성공한 배치들의 컷으로 scene_cuts를 채운다.
             cuts, scene_seconds, gave_up, batch_failures = _autopilot_stills_for_scene(
                 channel, thread_ts, work, bible, num, hdr, body, vision_deadline=vision_deadline,
-                on_batch_ready=lambda batch_cuts, ss, n=num: _submit_video(n, batch_cuts, ss))
+                # ★2026-07-20 스틸컷을 방금 새로 만든 씬이니 옛 영상은 새 스틸컷과 안 맞는다 —
+                # force_regen=True로 이 씬 영상은 기존 게 있어도 무조건 다시 만든다.
+                on_batch_ready=lambda batch_cuts, ss, n=num: _submit_video(n, batch_cuts, ss, force_regen=True))
             if thread_ts in _CANCEL:
                 if video_pool is not None:
                     video_pool.shutdown(wait=False, cancel_futures=True)
