@@ -1,0 +1,623 @@
+{
+  "_comment": "2026-07-20 실사용 스레드 6개에서 수집한 오라우팅 사고 + 정상 케이스 회귀 코퍼스. expected.intent는 필수, 그 외 키는 있으면 검증. ctx는 라우터에 주입할 상태 스냅숏 오버라이드.",
+  "cases": [
+    {
+      "id": "cancel-leak-rewrite",
+      "text": "상세 콘티 1화 전체 내용 다시 적어줘. 지금은 씬2, 씬5 밖에 없어",
+      "ctx": {
+        "sb_stage": 2,
+        "tracked_episode": 1
+      },
+      "expected": {
+        "intent": "detail_conti",
+        "episode": 1
+      },
+      "incident": "재작성 요청이 '🛑 중단했어요'로 응답됨"
+    },
+    {
+      "id": "costume-register-3",
+      "text": "이미지 각각\n하루 의상, 겨울 의상, 여자 교복(엑스트라용)\n이야.",
+      "ctx": {
+        "attached_image_count": 3,
+        "tracked_work": "겨울 하루"
+      },
+      "expected": {
+        "intent": "element_register",
+        "elements_len": 3,
+        "element_names": [
+          "하루 의상",
+          "겨울 의상",
+          "여자 교복(엑스트라용)"
+        ],
+        "element_image_indices": [
+          0,
+          1,
+          2
+        ]
+      },
+      "incident": "'이미지' 단어 매칭으로 컷 분해 파이프라인 실행 → 오류 2연발"
+    },
+    {
+      "id": "clothes-and-background",
+      "text": "김신우, 이영, 유나영 옷 과 배경 이미지 생성해줘.",
+      "ctx": {
+        "attached_image_count": 0,
+        "tracked_work": "저연프"
+      },
+      "expected": {
+        "intent": "element_generate",
+        "elements_min": 3,
+        "forbid_element_names": [
+          "과 배경"
+        ]
+      },
+      "incident": "'과 배경'이라는 엘리먼트가 등록됨"
+    },
+    {
+      "id": "edit-verb-not-whitelisted",
+      "text": "하루 의상 이거로 수정해줘.",
+      "ctx": {
+        "attached_image_count": 1,
+        "tracked_work": "겨울 하루"
+      },
+      "expected": {
+        "intent": "element_edit"
+      },
+      "incident": "'수정해줘'가 동사 화이트리스트에 없어 무반응"
+    },
+    {
+      "id": "question-not-command-1",
+      "text": "<저연프> 인물 등록 다 한 거 아냐? 스토리보드 이미지가 왜 그렇게 뽑힌 거지?",
+      "ctx": {
+        "tracked_work": "저연프",
+        "sb_stage": 2
+      },
+      "expected": {
+        "intent": "answer_question",
+        "question_type": "storyboard_image_explanation"
+      },
+      "incident": "질문이 '🛑 중단했어요'로 처리됨"
+    },
+    {
+      "id": "question-not-command-2",
+      "text": "오 좋아 그럼 뭐하면돼 이제?",
+      "ctx": {
+        "tracked_work": "결혼 빼고 다",
+        "sb_stage": 0
+      },
+      "expected": {
+        "intent": "answer_question",
+        "episode": null,
+        "question_type": "next_step"
+      },
+      "incident": "단순 질문에 씬설계 헤더 + 3화 대본 환각"
+    },
+    {
+      "id": "outline-rewrite",
+      "text": "1화 개요 다시 쓰고 싶어 인물이랑 상황이 시청자들에게 충분히 설명이 잘되게",
+      "ctx": {
+        "last_bot_output_head": "1화 개요 초안 — 통과/재생성"
+      },
+      "expected": {
+        "intent": "script_revise",
+        "episode": 1
+      },
+      "incident": "'1화' 매칭으로 storyboard 씬설계로 샘"
+    },
+    {
+      "id": "stillcut-scene-cuts",
+      "text": "씬3 스틸컷 컷5,13,14 만들어줘",
+      "ctx": {
+        "sb_stage": 2
+      },
+      "expected": {
+        "intent": "stillcut",
+        "scene": 3,
+        "cuts": [
+          5,
+          13,
+          14
+        ]
+      },
+      "incident": "화 번호 없다고 씬설계 1단계부터 재실행"
+    },
+    {
+      "id": "revise-after-draft",
+      "text": "줄거리 수정해줘, 장면 연출 중심으로",
+      "ctx": {
+        "last_bot_output_head": "3화 대본 초안 — 통과/재생성",
+        "sb_stage": 1
+      },
+      "expected": {
+        "intent": "script_revise"
+      },
+      "incident": "대본 피드백이 storyboard 캐치올로 새서 상세 콘티 생성"
+    },
+    {
+      "id": "cut-level-directing",
+      "text": "씬1 1-1컷에서, 하루의 전신이 다 나오는 구도 말고, 하루가 교실의 앞문으로 얼굴만 빼꼼 내밀어 간을 보다가, 1-2컷에서 약간 웃으며 긴장한 듯한 표정 클로즈업, 그리고 1-3컷에서 자리로 걸어가는 장면 말고 자신의 자리에 앉는 장면을 묘사해줘.",
+      "ctx": {
+        "sb_stage": 2,
+        "tracked_episode": 1
+      },
+      "expected": {
+        "intent": "conti_rewrite",
+        "scene": 1
+      },
+      "incident": "2단계 컷 수정 지시가 1단계 요약 수정으로 처리돼 디테일 전부 유실"
+    },
+    {
+      "id": "episode-denial",
+      "text": "난 3화를 만든 적이 없어. 1화 스토리보드 이미지가 이상하니까 고치라고.",
+      "ctx": {
+        "tracked_episode": 3
+      },
+      "expected": {
+        "intent": "storyboard_image",
+        "episode": 1
+      },
+      "incident": "봇이 계속 3화를 참조하며 canned 안내문 반복"
+    },
+    {
+      "id": "target-not-episode",
+      "text": "4050 여성 타겟 회귀 로맨스인데 1화 대본 써줘",
+      "ctx": {},
+      "expected": {
+        "intent": "script_generate",
+        "episode": 1,
+        "forbid_episode": 4050
+      },
+      "incident": "타겟층 '4050'을 화 번호로 파싱 → 노션에 4050화 토글 생성"
+    },
+    {
+      "id": "visual-ref-request",
+      "text": "<결혼 빼고 다> 인물 비주얼 레퍼런스 텍스트",
+      "ctx": {
+        "registered_works": {
+          "결혼 빼고 다": []
+        }
+      },
+      "expected": {
+        "intent": "script_generate",
+        "work": "결혼 빼고 다"
+      },
+      "incident": "같은 요청이 상태 따라 '대본 없음'/'씬설계 시작'으로 제각각"
+    },
+    {
+      "id": "appearance-syn-text-1",
+      "text": "오미란 외모 스펙 정리해서 글로 써줘",
+      "ctx": {
+        "tracked_work": "결혼 빼고 다"
+      },
+      "expected": {
+        "intent": "script_generate"
+      },
+      "incident": "외형 동의어(외모) 미인식 확장 케이스"
+    },
+    {
+      "id": "appearance-syn-text-2",
+      "text": "주인공 비주얼 스펙이랑 룩앤필 텍스트로 정리해줘",
+      "ctx": {
+        "tracked_work": "저연프"
+      },
+      "expected": {
+        "intent": "script_generate"
+      },
+      "incident": "외형 동의어(비주얼 스펙/룩앤필) 확장 케이스"
+    },
+    {
+      "id": "appearance-syn-image",
+      "text": "김신우 비쥬얼 어떤지 이미지로 뽑아줘",
+      "ctx": {
+        "attached_image_count": 0,
+        "tracked_work": "저연프"
+      },
+      "expected": {
+        "intent": "element_generate"
+      },
+      "incident": "외형 동의어(비쥬얼, 오타 표기) + 이미지 생성 분기"
+    },
+    {
+      "id": "appearance-syn-edit",
+      "text": "하루 외형 좀 더 앳되게 바꿔줘",
+      "ctx": {
+        "attached_image_count": 0,
+        "tracked_work": "겨울 하루",
+        "registered_elements": {
+          "인물": [
+            "하루",
+            "겨울"
+          ]
+        }
+      },
+      "expected": {
+        "intent": "element_generate"
+      },
+      "incident": "외형 변경 요청 분기"
+    },
+    {
+      "id": "appearance-syn-register",
+      "text": "겨울 외관 참고용으로 이 사진 등록해줘",
+      "ctx": {
+        "attached_image_count": 1,
+        "tracked_work": "겨울 하루"
+      },
+      "expected": {
+        "intent": "element_register",
+        "elements_len": 1
+      },
+      "incident": "외형 동의어(외관)가 있어도 첨부 있으면 등록"
+    },
+    {
+      "id": "placeholder-guard",
+      "text": "<작품명> 인물 이미지 만들어줘",
+      "ctx": {
+        "registered_works": {
+          "저연프": [
+            "저는 연프 출연진이 아닌데요 !"
+          ]
+        }
+      },
+      "expected": {
+        "needs_clarification": true
+      },
+      "incident": "안내문 placeholder '<작품명>'이 실제 작품명으로 처리됨"
+    },
+    {
+      "id": "ordered-register-7",
+      "text": "<저연프> 김신우,이영,유나경,강해민,조이안,이도,온우주 이미지 순서대로 첨부했으니까 인물들 이미지 등록해줘.",
+      "ctx": {
+        "attached_image_count": 7,
+        "registered_works": {
+          "저연프": []
+        }
+      },
+      "expected": {
+        "intent": "element_register",
+        "work": "저연프",
+        "elements_len": 7,
+        "forbid_element_names": [
+          "저연프"
+        ]
+      },
+      "incident": "7명이 '저연프'(작품명) 인물 1명으로 등록됨"
+    },
+    {
+      "id": "detail-not-stage1",
+      "text": "<저연프> 1화 대본으로 상세 콘티 만들어달라고",
+      "ctx": {
+        "tracked_work": "저연프",
+        "sb_stage": 1,
+        "tracked_episode": 1
+      },
+      "expected": {
+        "intent": "detail_conti",
+        "episode": 1
+      },
+      "incident": "상세콘티 요청에 1단계 씬설계를 새로 돌림"
+    },
+    {
+      "id": "explicit-cancel",
+      "text": "그만",
+      "ctx": {},
+      "expected": {
+        "intent": "cancel_job"
+      }
+    },
+    {
+      "id": "complaint-then-request",
+      "text": "왜 자꾸 3화 얘기를 하지.. <저연프> 1화 대본이랑 상세 콘티 모두 노션에 있으니까 그거 확인해서 스토리보드 이미지 다시 만들라고.",
+      "ctx": {
+        "tracked_work": "저연프",
+        "tracked_episode": 3
+      },
+      "expected": {
+        "intent": "storyboard_image",
+        "episode": 1
+      },
+      "incident": "항의+요청 복합문에 canned 안내문만 반복"
+    },
+    {
+      "id": "feedback-own-output-guard",
+      "text": "[피드백] <저연프> 1화",
+      "ctx": {
+        "recent_messages": [
+          {
+            "role": "봇",
+            "text": "⏳ 노션 페이지 정리해서 시트에 반영하는 중이에요…"
+          }
+        ],
+        "registered_works": {
+          "저연프": []
+        }
+      },
+      "expected": {
+        "intent": "feedback",
+        "instruction_forbid": "반영하는 중"
+      },
+      "incident": "봇 진행 메시지를 대본으로 평가 → '평가 불가'"
+    },
+    {
+      "id": "paste-script-to-conti",
+      "text": "방금 그거 대본 초안인데 콘티로 만들어줘. *1화 대본*\n\n연애 프로그램에서 가장 중요한 것은 출연진들의 케미다. …(대본 원문)",
+      "ctx": {
+        "sb_stage": 0
+      },
+      "expected": {
+        "intent": "scene_design",
+        "episode": 1
+      },
+      "incident": "중단 메시지 + 개연성 리포트가 먼저 발사"
+    },
+    {
+      "id": "capability-question",
+      "text": "인물 이미지를 만드는 기능도 장착되어있나요?",
+      "ctx": {},
+      "expected": {
+        "intent": "answer_question",
+        "question_type": "capability"
+      },
+      "incident": "기능 질문에 핸들러마다 다른 답(지원 안 함 vs 생성 시도)"
+    },
+    {
+      "id": "scene-range-not-episodes",
+      "text": "씬 2~5도 그 내용 디벨롭해서 대본 작성해줘. 씬 1 포함해서 같이 작성해줘.",
+      "ctx": {
+        "tracked_work": "겨울 하루",
+        "tracked_episode": 1,
+        "sb_stage": 1
+      },
+      "expected": {
+        "intent_oneof": [
+          "script_revise",
+          "script_generate"
+        ],
+        "forbid_episode": 2,
+        "episodes": null
+      },
+      "incident": "'씬 2~5'가 '2화·3화·4화·5화 대본 생성'으로 실행됨"
+    },
+    {
+      "id": "episode-range",
+      "text": "2~5화 대본 써줘",
+      "ctx": {
+        "tracked_work": "저연프"
+      },
+      "expected": {
+        "intent": "script_generate",
+        "episodes": [
+          2,
+          3,
+          4,
+          5
+        ]
+      },
+      "incident": "다중 화 범위 전개"
+    },
+    {
+      "id": "confirm-word",
+      "text": "응 그렇게 해줘",
+      "ctx": {
+        "recent_messages": [
+          {
+            "role": "봇",
+            "text": "지금 요청이 *2단계 상세 콘티 생성* 맞을까요? 맞으면 \"응\"…"
+          }
+        ]
+      },
+      "expected": {
+        "intent": "confirm_previous"
+      },
+      "incident": "확인 질문 뒤 승인 한마디로 재개"
+    },
+    {
+      "id": "reject-word",
+      "text": "아니 그거 말고",
+      "ctx": {
+        "recent_messages": [
+          {
+            "role": "봇",
+            "text": "지금 요청이 *씬 설계* 맞을까요?"
+          }
+        ]
+      },
+      "expected": {
+        "intent": "reject_previous"
+      },
+      "incident": "직전 제안 거절"
+    },
+    {
+      "id": "resume-natural",
+      "text": "아까 하던 거 마저 해줘",
+      "ctx": {},
+      "expected": {
+        "intent": "resume_interrupted"
+      },
+      "incident": "봇 재시작으로 끊긴 작업 자연어 재개"
+    },
+    {
+      "id": "attachment-missing",
+      "text": "겨울 의상 이 사진으로 바꿔줘",
+      "ctx": {
+        "attached_image_count": 0,
+        "tracked_work": "겨울 하루"
+      },
+      "expected": {
+        "needs_clarification": true
+      },
+      "incident": "'첨부하신 이미지가 확인되지 않아요' — 파일 누락 시 재첨부 안내 없이 실패"
+    },
+    {
+      "id": "bare-notion-link",
+      "text": "https://app.notion.com/p/tainai/39dbeda6e49080be923acc71fe6c25fa",
+      "ctx": {
+        "tracked_work": "저연프"
+      },
+      "expected": {
+        "intent": "sync"
+      },
+      "incident": "맨 링크 = 동기화로 가정 + 가정 공개"
+    },
+    {
+      "id": "compound-register-then-still",
+      "text": "하루, 겨울 인물 등록하고 나서 씬3 스틸컷도 바로 뽑아줘",
+      "ctx": {
+        "attached_image_count": 2,
+        "tracked_work": "겨울 하루",
+        "sb_stage": 2
+      },
+      "expected": {
+        "intent": "element_register",
+        "steps_min": 2
+      },
+      "incident": "복합 요청 순차 분해"
+    },
+    {
+      "id": "negation-preserved",
+      "text": "전신 나오는 구도 말고 얼굴만 빼꼼 내미는 걸로 스틸컷 다시",
+      "ctx": {
+        "sb_stage": 2,
+        "tracked_episode": 1
+      },
+      "expected": {
+        "intent": "stillcut",
+        "instruction_contains": "말고"
+      },
+      "incident": "배제 조건('말고')이 지시에서 유실"
+    },
+    {
+      "id": "question-stillcut-explanation",
+      "text": "씬3 컷5 스틸컷은 왜 인물 의상이 다르게 나온 거야?",
+      "ctx": {
+        "tracked_work": "저연프",
+        "tracked_episode": 1,
+        "sb_stage": 2
+      },
+      "expected": {
+        "intent": "answer_question",
+        "question_type": "stillcut_explanation",
+        "scene": 3,
+        "cuts": [
+          5
+        ]
+      },
+      "incident": "스토리보드 그리드 설명과 특정 스틸컷 설명이 같은 경로로 처리됨"
+    },
+    {
+      "id": "angle-character-costume-register",
+      "text": "<하루> 의상",
+      "ctx": {
+        "attached_image_count": 1,
+        "tracked_work": "겨울 하루",
+        "registered_works": {
+          "겨울 하루": []
+        }
+      },
+      "expected": {
+        "intent": "element_register",
+        "work": "겨울 하루",
+        "element_names": [
+          "하루 의상"
+        ],
+        "element_image_indices": [
+          0
+        ]
+      },
+      "incident": "<하루>를 작품명으로 오해하지 않고 캐릭터 의상으로 등록"
+    },
+    {
+      "id": "element-reflection-question",
+      "text": "교복 이미지도 반영했어?",
+      "ctx": {
+        "tracked_work": "겨울 하루",
+        "registered_elements": {
+          "의상": [
+            "하루 의상",
+            "여자 교복(엑스트라용)"
+          ]
+        }
+      },
+      "expected": {
+        "intent": "answer_question",
+        "question_type": "element_reflection_status",
+        "element_names": [
+          "교복"
+        ]
+      },
+      "incident": "특정 참조 반영 여부는 LLM 답변이 아니라 실제 등록 상태 조회"
+    },
+    {
+      "id": "attached-costume-reference-regenerate",
+      "text": "<저연프> 1화에 나올 이영 옷 상의는 이 이미지에 있는 거랑 동일하게 이미지 재생성해줘.",
+      "ctx": {
+        "attached_image_count": 1,
+        "tracked_work": "저연프",
+        "registered_works": {
+          "저연프": []
+        }
+      },
+      "expected": {
+        "intent": "element_generate",
+        "work": "저연프",
+        "episode": 1,
+        "element_names": [
+          "이영 1화 상의"
+        ],
+        "instruction_contains": "첨부 이미지"
+      },
+      "incident": "첨부가 있어도 동일하게 재생성은 등록이 아니라 시각 참조 기반 생성"
+    },
+    {
+      "id": "episode-costumes-and-background-generate",
+      "text": "<저연프> 1화, 김신우, 이영, 유나영 옷과 배경 이미지 생성해줘.",
+      "ctx": {
+        "attached_image_count": 0,
+        "tracked_work": "저연프",
+        "registered_works": {
+          "저연프": []
+        }
+      },
+      "expected": {
+        "intent": "element_generate",
+        "work": "저연프",
+        "episode": 1,
+        "elements_min": 4,
+        "instruction_contains": "1화"
+      },
+      "incident": "스토리보드가 아니라 해당 화 대본/콘티 기반 의상·배경 엘리먼트 생성"
+    },
+    {
+      "id": "storyboard-rebuild-from-notion-tracked-episode",
+      "text": "<저연프> 대본이랑 상세 콘티 이미 되어있으니까 확인하고, 스토리보드 이미지 잘못 생성된 거 고치라고.",
+      "ctx": {
+        "tracked_work": "저연프",
+        "tracked_episode": 3,
+        "sb_stage": 2,
+        "registered_works": {
+          "저연프": []
+        }
+      },
+      "expected": {
+        "intent": "storyboard_image",
+        "work": "저연프",
+        "episode": 3,
+        "instruction_contains": "노션"
+      },
+      "incident": "화 번호를 되묻거나 로컬 파일 없음으로 끝내지 말고 추적 중인 3화 노션 자료 기준 재생성"
+    },
+    {
+      "id": "conti-rewrite-static-moment",
+      "text": "씬1 1-1컷은 전신 말고 앞문으로 얼굴만 빼꼼, 1-2컷은 긴장한 미소 클로즈업과 작은 땀방울, 1-3컷은 걸어가는 장면 말고 자리에 앉은 찰나로. 큰 움직임 없이 묘사해줘.",
+      "ctx": {
+        "tracked_episode": 1,
+        "sb_stage": 2
+      },
+      "expected": {
+        "intent": "conti_rewrite",
+        "scene": 1,
+        "instruction_contains": "큰 움직임 없이"
+      },
+      "incident": "상세 콘티 전체 재생성이 아니라 특정 컷 연출 수정, 부정 조건 보존"
+    }
+  ]
+}
