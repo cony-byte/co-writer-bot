@@ -5,17 +5,23 @@
 <style>
   body { font: 12px -apple-system, sans-serif; padding: 12px; color: #333; }
   #status { margin-bottom: 8px; }
-  #log { font-size: 11px; color: #666; white-space: pre-wrap; max-height: 240px; overflow-y: auto; }
+  button {
+    width: 100%; padding: 8px; margin-bottom: 10px; border: none; border-radius: 6px;
+    background: #18a0fb; color: white; font-weight: 600; cursor: pointer;
+  }
+  button:hover { background: #0d8ee0; }
+  #log { font-size: 11px; color: #666; white-space: pre-wrap; max-height: 200px; overflow-y: auto; }
 </style>
 </head>
 <body>
   <div id="status">봇 브릿지에 연결하는 중…</div>
+  <button id="sendBackBtn">↩️ 선택한 이미지 봇으로 보내기</button>
   <div id="log"></div>
   <script>
     // co-writer-bot이 로컬에 띄운 브릿지 서버(bot/figma_bridge.py)를 몇 초마다 폴링해서
     // 대기 중인 스틸컷이 있으면 code.js(플러그인 메인 스레드)로 넘긴다. fetch는 이 UI
-    // iframe(브라우저 컨텍스트)에서만 가능해서(플러그인 코드 쪽은 API 버전에 따라 제한적) 여기서
-    // 처리하고, 실제 캔버스 삽입은 postMessage로 code.js에 위임한다.
+    // iframe(브라우저 컨텍스트)에서만 안정적으로 되므로 여기서 처리하고, 실제 캔버스
+    // 삽입/내보내기는 postMessage로 code.js에 위임한다.
     const BASE = "http://127.0.0.1:8933";
     const logEl = document.getElementById("log");
     const statusEl = document.getElementById("status");
@@ -39,6 +45,10 @@
       }
     }
 
+    document.getElementById("sendBackBtn").onclick = () => {
+      parent.postMessage({ pluginMessage: { type: "send_back" } }, "*");
+    };
+
     window.onmessage = async (event) => {
       const msg = event.data.pluginMessage;
       if (!msg) return;
@@ -47,6 +57,21 @@
         log(`씬${msg.scene_num ?? "?"} 컷${msg.cut_num ?? "?"} 캔버스에 삽입 완료`);
       } else if (msg.type === "insert_failed") {
         log(`삽입 실패: ${msg.error}`);
+      } else if (msg.type === "send_back_ready") {
+        try {
+          const res = await fetch(`${BASE}/return/${msg.id}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image_b64: msg.image_b64 }),
+          });
+          const ok = res.ok;
+          log(ok ? `"${msg.node_name}" 봇으로 전송 완료 — 슬랙 스레드에서 확인해주세요.`
+                : `"${msg.node_name}" 전송 실패(만료됐거나 이미 처리된 항목일 수 있어요).`);
+        } catch (e) {
+          log(`"${msg.node_name}" 전송 중 오류: ${e}`);
+        }
+      } else if (msg.type === "send_back_failed") {
+        log(`봇으로 보내기 실패: ${msg.error}`);
       }
     };
 
