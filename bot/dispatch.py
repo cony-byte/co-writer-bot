@@ -73,6 +73,26 @@ MENTION_RE = re.compile(rf"<@{BOT_USER_ID}>\s*")
 # as `cw._WORK_CMDS`. Recomputed here, verbatim same member sets.
 _WORK_CMDS = cw.CMD_GEN | cw.CMD_FEEDBACK | cw.CMD_FB_FUN | cw.CMD_FB_LOGIC | cw.CMD_IDEA | cw.CMD_CONVERT
 
+# ★2026-07-20 "[명령]"을 문장 끝/중간에 써도(예: "<저연프> 대본 1화 [피드백]") 인식하려고,
+# 알려진 명령어 키워드 전체를 모아둔다. CMD_RE(맨 앞 [...]만)로 안 잡힐 때 이 목록에 있는
+# 브래킷을 앞으로 끌어와 재인식한다(_promote_bracket_command).
+_KNOWN_BRACKET_CMDS = {c.lower() for c in (
+    cw.CMD_INPUT | cw.CMD_EDIT | cw.CMD_GEN | cw.CMD_PLAN | cw.CMD_CONVERT | cw.CMD_TREND
+    | cw.CMD_IDEA | cw.CMD_SYNC | cw.CMD_CHECK | cw.CMD_ALIAS | cw.CMD_FEEDBACK | cw.CMD_FB_FUN
+    | cw.CMD_FB_LOGIC | cw.CMD_FILE | cw.CMD_REF | cw.CMD_REFRESH | cw.CMD_RELOAD | cw.CMD_HELP
+    | sb.CMD_STORYBOARD_ALL | sb.CMD_IMG | sb.CMD_STILL | sb.CMD_CONTI_FINAL | sb.CMD_COMPILE
+    | sb.CMD_RESET_EPISODE | sb.CMD_AUTOPILOT | sb.CMD_EPISODE_STATUS | sb.CMD_STYLE)}
+
+def _promote_bracket_command(q: str) -> "str | None":
+    """맨 앞이 아닌 곳에 있는 알려진 명령 브래킷([피드백] 등)을 맨 앞으로 옮긴 새 문자열 반환
+    (없으면 None). 예: "<저연프> 대본 1화 [피드백]" → "[피드백] <저연프> 대본 1화"."""
+    for mm in re.finditer(r"\[\s*([^\]]+?)\s*\]", q or ""):
+        inner = mm.group(1).strip()
+        if inner.lower() in _KNOWN_BRACKET_CMDS:
+            rest = (q[:mm.start()] + q[mm.end():]).strip()
+            return f"[{inner}] {rest}".strip()
+    return None
+
 # (2026-07-16, Phase 4) combined typo-suggestion vocabulary -- cw._ALL_CMD_NAMES only ever
 # listed co-writer's own command names (a typo'd "[스토리보드]" would get no suggestion, or
 # worse, the single closest co-writer command regardless of relevance). Defined here rather
@@ -309,6 +329,14 @@ def _handle_dispatch(event: dict) -> None:
 
     # step 3: bracket-command parse
     m = cw.CMD_RE.match(query)
+    if not m:
+        # ★2026-07-20 "[피드백]"을 문장 끝에 쓴 경우("<저연프> 대본 1화 [피드백]") 등 — 맨 앞이
+        # 아니라 명령으로 인식 못 하고 스토리보드 등으로 새던 문제. 알려진 명령 브래킷을 앞으로
+        # 끌어와 다시 인식한다.
+        _promoted = _promote_bracket_command(query)
+        if _promoted:
+            query = _promoted
+            m = cw.CMD_RE.match(query)
     if m:
         _dispatch_bracket_command(channel, thread_ts, query, event, m, in_thread)
         return
