@@ -136,7 +136,7 @@ _HELP = (
     "스틸컷/이미지가 있으면 → 영상으로 만들기: \"영상으로 만들어줘\"라고 그 씬에서 말하면 됨\n"
     "화 전체를 합본으로: [합본] <작품> 또는 \"합본해줘\" — 콘티+생성된 컷 영상을 LLM이 편집 전략 짜서 "
     "이어붙이고 나레이션 TTS(캐릭터별 고정 목소리)까지 믹싱한 mp4. `씬2,3`/`씬2-4`처럼 뒤에 붙이면 그 씬들만 테스트로 돌릴 수 있음\n"
-    "한 번에 전 단계 자동으로: [자동주행] <작품> 3화 — 등록확인→씬설계→상세콘티→샷분해/스틸컷→영상화까지 자동으로 "
+    "한 번에 전 단계 자동으로: [자동주행] <작품> 3화 — 개요/대본(없으면 자동 생성)→등록확인→씬설계→상세콘티→샷분해/스틸컷→영상화까지 자동으로 "
     "이어서 돌리고, 합본만 확인 요청(기본 켜져있음). *화 번호 필수* — 없으면 실행 안 함(단, 이전에 "
     "진행하던 화가 있으면 화 번호 없이 그대로 이어받음)\n"
     "\n"
@@ -5974,9 +5974,63 @@ def _act_autopilot_stage_pick(ack, body):
     _disable_buttons(body, f"✅ {label}부터 시작할게요…")
     _do_autopilot(ch, tts, f"{pending['rest']} {stage}단계부터", skip_stage_picker=True)
 
+def _autopilot_prepare_script(channel, thread_ts, work, bible, episode):
+    """★2026-07-20 "[자동주행] 모드에 개요랑 대본 생성 단계도 넣자" — 기존 1~6단계(등록확인~
+    합본) 번호는 그대로 두고 그 앞에 얹는 "0단계". 이미 있으면 건너뛰고, 없는 것만
+    co-writer의 실제 생성+저장 함수를 그대로 재사용해 사람 확인(✅ 통과) 버튼 없이 곧바로
+    만든다 — _do_generate로 초안을 스레드에 만들고, 그 직후 _do_input(mode="save")로 "방금
+    만든 초안을 확정 저장"시킨다(두 함수 다 실제 버튼 핸들러가 쓰는 것과 동일한 경로, 자동주행
+    전용 특수 로직이 아니라 기존 저장 흐름을 헤드리스로 그대로 태우는 것). 반환: 최신 bible
+    (개요/대본이 반영된 새로고침본), 생성 자체가 실패하면 None(호출자가 자동주행을 중단해야 함).
+    ★co-writer 쪽 함수를 이 storyboard 모듈에서 직접 호출하는 것은 dispatch_cowriter.py가
+    dispatch_storyboard.py를 거꾸로 import하지 않아 순환 임포트가 없기 때문에 안전하다(둘 다
+    dispatch.py에서만 동시에 import됨)."""
+    from bot import dispatch_cowriter as cw
+    sh = _sheet()
+    if not sh:
+        return bible   # 시트 연결 자체가 없으면(SHEET_WEBAPP_URL 미설정) 이 준비 단계는 조용히 생략
+    script, script_err = _script_for(work, episode, bible)
+    if script_err:
+        _reply(channel, thread_ts, f"⚠️ {episode}화 대본을 확인하는 중 오류가 났어요({script_err}) — 자동주행을 멈출게요.")
+        return None
+    if script:
+        return bible   # 이미 대본이 있으면 개요 유무와 무관하게 준비 끝(콘티는 대본만 있으면 됨)
+    outline = ((bible or {}).get("outlines") or {}).get(f"{episode}화")
+    if not outline:
+        _reply(channel, thread_ts, f"📝 0단계 — <{work}> {episode}화 대본이 없어서 개요부터 자동으로 만들게요…")
+        try:
+            cw._do_generate(channel, thread_ts, f"<{work}> {episode}화 개요")
+            cw._do_input(channel, thread_ts, f"<{work}> 개요/{episode}화", mode="save")
+        except Exception:
+            log.exception("자동주행 0단계(개요) 생성 실패")
+            _reply(channel, thread_ts, "⚠️ 개요 생성 중 오류가 나서 자동주행을 멈출게요 — 대본을 직접 만들거나 다시 시도해주세요.")
+            return None
+        bible = sh.get(work, force=True)
+        if not ((bible or {}).get("outlines") or {}).get(f"{episode}화"):
+            _reply(channel, thread_ts, "⚠️ 개요가 저장되지 않은 것 같아요 — 자동주행을 멈출게요. 스레드에서 개요 초안을 확인해주세요.")
+            return None
+    _reply(channel, thread_ts, f"📝 0단계 — <{work}> {episode}화 대본을 자동으로 만들게요…")
+    try:
+        cw._do_generate(channel, thread_ts, f"<{work}> {episode}화 대본")
+        cw._do_input(channel, thread_ts, f"<{work}> 대본/{episode}화", mode="save")
+    except Exception:
+        log.exception("자동주행 0단계(대본) 생성 실패")
+        _reply(channel, thread_ts, "⚠️ 대본 생성 중 오류가 나서 자동주행을 멈출게요 — 대본을 직접 만들거나 다시 시도해주세요.")
+        return None
+    bible = sh.get(work, force=True)
+    new_script, _err = _script_for(work, episode, bible)
+    if not new_script:
+        _reply(channel, thread_ts, "⚠️ 대본이 저장되지 않은 것 같아요 — 자동주행을 멈출게요. 스레드에서 대본 초안을 확인해주세요.")
+        return None
+    _reply(channel, thread_ts, f"✅ 0단계 완료 — <{work}> {episode}화 개요·대본 준비됨. 이어서 진행할게요…")
+    return bible
+
 def _do_autopilot(channel, thread_ts, rest, skip_stage_picker: bool = False):
-    """[자동주행] <작품> <화번호> — 등록확인→씬설계→상세콘티→샷분해/스틸컷→영상화→합본을
-    한 번에 이어서 돌린다. 사람 확인은 마지막 합본(_do_compile, draft+확정 버튼) 단계에서만 받는다.
+    """[자동주행] <작품> <화번호> — (없으면) 개요/대본→등록확인→씬설계→상세콘티→샷분해/스틸컷→
+    영상화→합본을 한 번에 이어서 돌린다. 사람 확인은 마지막 합본(_do_compile, draft+확정 버튼)
+    단계에서만 받는다. 개요/대본 생성(★2026-07-20 "0단계"로 신규 — _autopilot_prepare_script
+    참고)은 기존 1~6단계 번호를 그대로 유지하기 위해 그 앞에 붙는 별도 단계로 뒀다 — 이미 대본이
+    있으면 조용히 건너뛰고, 개요만 없으면 개요부터, 대본까지 없으면 개요+대본 둘 다 자동 생성.
     ★2026-07-15 "실패하면 왠만해서는 중단하지 말고 실패 이유를 찾고 쭉 진행하게 해야한다" —
     씬 설계/상세 콘티는 없으면 이후 아무것도 진행할 수 없어(진짜 복구불가) 1회 자동 재시도 후에도
     실패하면 그때만 멈추고, 등록확인 gap·씬 단위 스틸컷 전멸·컷 단위 일관성 검사 실패는 전부
@@ -6018,6 +6072,13 @@ def _do_autopilot(channel, thread_ts, rest, skip_stage_picker: bool = False):
     else:
         episode = int(epm.group(1))
     if not _require_genre(channel, thread_ts, work):
+        return
+    # ★2026-07-20 "[자동주행] 모드에 개요랑 대본 생성 단계도 넣자" — 지금까지 자동주행은
+    # 대본이 이미 있다는 전제로 등록확인부터 시작했다(대본이 없으면 sb_do_storyboard가 그때
+    # 가서야 "대본을 못 찾았어요"로 막았음). 기존 1~6단계 번호는 그대로 두고(재개 상태·드롭다운
+    # 호환), 그 앞에 "0단계"로 개요/대본을 필요할 때만(이미 있으면 건너뜀) 자동 생성+저장한다.
+    bible = _autopilot_prepare_script(channel, thread_ts, work, bible, episode)
+    if bible is None:   # 개요/대본 생성 자체가 실패 — 이후 단계를 진행할 근거가 없어 중단
         return
     # ★2026-07-15: 사용자 요청 — "1씬만 하게 해서" 테스트로 짧게 돌려보고 싶다는 요구. 자동주행은
     # 원래 화 전체 씬을 다 처리하는데, 첫 실전 테스트는 시간이 오래 걸리는 영상화가 씬 수에
@@ -6088,11 +6149,12 @@ def _do_autopilot(channel, thread_ts, rest, skip_stage_picker: bool = False):
     reg_skip_note = (" ⚠️ 3단계부터 시작해 등록확인(3단계)은 건너뛰므로 미등록 요소로 인한 일관성 문제는 "
                      "이번 실행에서 걸러지지 않아요." if start_stage >= 4 else "")
     _reply_with_stop_button(channel, thread_ts,
-          f"🚀 <{work}> {episode}화 자동주행 시작{stage_scope_note}{scene_only_note}{cut_range_note}{resume_note} — 등록확인→씬설계→상세콘티→샷분해/스틸컷→영상화까지 "
+          f"🚀 <{work}> {episode}화 자동주행 시작{stage_scope_note}{scene_only_note}{cut_range_note}{resume_note} — "
+          f"개요/대본(없으면 자동 생성)→등록확인→씬설계→상세콘티→샷분해/스틸컷→영상화까지 "
           f"자동으로 진행하고, 합본만 확인 요청할게요.{reg_skip_note} 씬 설계/상세 콘티가 완전히 실패하는 경우만 멈추고, "
           "그 외 부분 실패(미등록 요소/특정 씬·컷 문제)는 기록만 남기고 계속 진행할게요. "
           "중간에 멈추려면 아래 [🛑 중단] 버튼을 누르거나 \"취소\"/\"중단\"이라고 답해주세요.\n"
-          "(1/6 씬 설계 · 2/6 상세 콘티 · 3/6 등록 확인 · 4/6 샷분해·스틸컷 · 5/6 영상화 · 6/6 합본)")
+          "(0/6 개요·대본 준비 · 1/6 씬 설계 · 2/6 상세 콘티 · 3/6 등록 확인 · 4/6 샷분해·스틸컷 · 5/6 영상화 · 6/6 합본)")
 
     # ★2026-07-15: 개별 단계 함수들(_render_cuts_tracked/_generate_video_for_cut)은 각자 자기
     # 몫만 job_ledger에 등록해서, 그 사이(등록확인의 AI 이미지 생성 등)는 아무 job도 안 잡혀
