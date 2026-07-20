@@ -5903,11 +5903,57 @@ def _autopilot_stills_for_scene(channel, thread_ts, work, bible, num, hdr, body,
 
     return all_cuts, scene_seconds, all_gave_up, batch_failures
 
+
+def _autopilot_regen_missing_stills(channel, thread_ts, work, bible, num, hdr, body,
+                                    missing_ns, episode):
+    """★2026-07-20 "없는 스틸컷만 체크해서 그것만 재생성" — 사용자가 맘에 안 드는 스틸컷을
+    지운 씬을, 통째로 다시 만들지 않고 빠진 컷(missing_ns)만 골라서 다시 만든다. 컷 번호 n은
+    씬 안 n번째 [N초] 비트에 대응한다(전체 스틸컷 생성부의 offset 로직이 '비트 1개 = 컷 1개'를
+    전제로 컷 번호를 매기는 것과 동일 규약 — 콘티가 안 바뀌었으면 결정적이다). 비트마다 그 비트
+    한 개만 떼어(공통 헤더 preamble은 같이 붙여) 1컷 배치로 렌더·저장한다.
+    반환: (새로 만든 cuts[], gave_up[(n,사유)]) 또는 비트 매핑이 불가능하면 (None, None)."""
+    beat_matches = list(_BEAT_TAG_RE.finditer(body))
+    if not beat_matches:
+        return None, None   # 비트가 없으면 컷↔비트 매핑을 못 하므로 호출부가 전체 재생성으로 폴백
+    preamble = body[:beat_matches[0].start()]
+    new_cuts: list[dict] = []
+    gave_up: list[tuple[int, str]] = []
+    for n in sorted(missing_ns):
+        if thread_ts in _CANCEL:
+            break
+        if not (1 <= n <= len(beat_matches)):
+            continue   # 콘티 비트 수보다 큰 번호(콘티가 줄었음) — 만들 근거가 없어 건너뜀
+        b_start = beat_matches[n - 1].start()
+        b_end = beat_matches[n].start() if n < len(beat_matches) else len(body)
+        beat_text = body[b_start:b_end]
+        src = f"■ 씬{num} · {hdr}\n{preamble}{beat_text}"
+        _reply(channel, thread_ts, f"🎯 씬{num} 컷{n}만 다시 만드는 중… (지워진 스틸컷)")
+        grid_png, cuts, gu = _autopilot_render_still_batch(
+            channel, thread_ts, work, bible, num, episode, src, 1, n)
+        if not cuts:
+            reason = _LAST_RENDER_FAIL_REASON.get(thread_ts) or "사유 불명"
+            gave_up.append((n, f"생성 실패(재시도 후에도): {reason}"))
+            continue
+        c = cuts[0]
+        c["n"] = n   # 배치는 1번으로 매겨 나오므로 씬 전체 기준 컷 번호로 되돌린다
+        if vp_store.available(work):
+            try:
+                vp_store.save_still(work, scene_num=num, prompt_summary=f"스틸컷 씬{num} 컷{n}",
+                                    png=grid_png, cuts=[c], episode=episode)
+            except Exception:
+                log.exception("자동주행: 컷 단위 스틸컷 저장 실패(계속 진행)")
+        gu_by_n = {gn: gr for gn, gr in gu}   # 배치 내 gave_up도 컷 번호가 1이므로 n으로 환산
+        if 1 in gu_by_n:
+            gave_up.append((n, gu_by_n[1]))
+        new_cuts.append(c)
+    return new_cuts, gave_up
+
 def _autopilot_videos_for_scene(channel, thread_ts, work, title, cuts, scene_seconds,
                                 deadline: float | None = None,
                                 scene_num: int | None = None,
                                 episode: int | str | None = None,
-                                force_regen: bool = False) -> list[tuple[int, str]]:
+                                force_regen: bool = False,
+                                force_regen_ns: set | None = None) -> list[tuple[int, str]]:
     """자동주행 전용 영상화 — _generate_videos_for_cuts와 같은 순차 생성이되(2026-07-15부터
     직전 컷 마지막 프레임 체이닝은 폐지 — 각 컷은 항상 자기 자신의 확정 스틸컷을 시작 이미지로
     씀, 아래 _generate_video_for_cut 참고), 컷마다 첫/끝 프레임 일관성 후검사를 끼워 넣는다.
@@ -5931,7 +5977,8 @@ def _autopilot_videos_for_scene(channel, thread_ts, work, title, cuts, scene_sec
         # 스틸컷을 지워서 다시 만든 경우 등) 컷 번호가 같아도 옛 영상은 새 스틸컷과 안 맞으니
         # find_existing_video로 건너뛰지 않고 반드시 새로 만든다. 스틸컷을 그대로 재사용한
         # 씬(✅ skip)일 때만 기존 영상을 재사용해 빠진 것만 채운다.
-        if (not force_regen and scene_num is not None
+        _force_this = force_regen or (force_regen_ns is not None and c["n"] in force_regen_ns)
+        if (not _force_this and scene_num is not None
                 and vp_store.find_existing_video(work, scene_num, c["n"], episode=episode)):
             continue
         planned = c.get("duration")
@@ -6425,7 +6472,7 @@ def _do_autopilot(channel, thread_ts, rest, skip_stage_picker: bool = False):
         video_pool = cf.ThreadPoolExecutor(max_workers=1) if end_stage >= 5 else None
         video_futures: list = []
 
-        def _submit_video(num, cuts, scene_seconds, force_regen=False):
+        def _submit_video(num, cuts, scene_seconds, force_regen=False, force_regen_ns=None):
             if video_pool is None:
                 return
 
@@ -6441,7 +6488,7 @@ def _do_autopilot(channel, thread_ts, rest, skip_stage_picker: bool = False):
                         return []
                 flagged = _autopilot_videos_for_scene(channel, thread_ts, work, f"씬{num}", video_cuts, scene_seconds,
                                                       vision_deadline, scene_num=num, episode=episode,
-                                                      force_regen=force_regen)
+                                                      force_regen=force_regen, force_regen_ns=force_regen_ns)
                 return [(num, c, reason) for c, reason in flagged]
 
             video_futures.append(video_pool.submit(_run))
@@ -6478,20 +6525,38 @@ def _do_autopilot(channel, thread_ts, rest, skip_stage_picker: bool = False):
                     return
             # ★2026-07-15 "단계 안에서의 재개" — 4단계 도중 취소하고 같은 화로 다시 돌리면 이미
             # 끝난 씬까지 처음부터 다시 만들던 문제. 이 씬이 이미 (기대 컷 수만큼) 저장돼있으면
-            # 재생성 없이 그대로 재사용한다. 컷 수가 기대치보다 적으면(중간에 취소된 씬) 안전하게
-            # 판단해 그냥 다시 전부 생성 — 어느 컷이 빠졌는지 골라내는 부분 재생성은 _render_cuts의
-            # 샷분해 자체가 매번 새로 이뤄져(컷 번호가 재호출마다 안정적이라는 보장이 없음) 여기서는
-            # 지원하지 않는다(영상화 단계는 파일명이 컷 번호로 결정적이라 부분 재개가 가능했던 것과 다름).
+            # 재생성 없이 그대로 재사용한다.
             n_beats = len(_BEAT_TAG_RE.findall(body))
             expect_n = n_beats if n_beats else STILL_CUTS_DEFAULT
-            existing_cuts = vp_store.load_latest_cuts(work, num, episode=episode)
-            if existing_cuts and len(existing_cuts) >= expect_n:
-                dm = re.search(r"(\d+)\s*초", hdr)
-                scene_seconds = int(dm.group(1)) if dm else None
+            dm = re.search(r"(\d+)\s*초", hdr)
+            scene_seconds = int(dm.group(1)) if dm else None
+            existing_cuts = vp_store.load_latest_cuts(work, num, episode=episode) or []
+            existing_ns = {c["n"] for c in existing_cuts}
+            missing_ns = {n for n in range(1, expect_n + 1) if n not in existing_ns}
+            if existing_cuts and not missing_ns:
                 scene_cuts[num] = (existing_cuts, scene_seconds)
                 _submit_video(num, existing_cuts, scene_seconds)
-                _reply(channel, thread_ts, f"⏭️ 씬{num}은 이미 스틸컷이 저장돼있어 다시 안 만들고 이어가요.")
+                _reply(channel, thread_ts, f"⏭️ 씬{num}은 이미 스틸컷이 다 있어 다시 안 만들고 이어가요.")
                 continue
+            # ★2026-07-20 "없는 스틸컷만 체크해서 그것만 재생성" — 일부만 있고 일부만 빠진 씬은
+            # (사용자가 맘에 안 드는 컷만 지운 경우 등) 씬 전체를 다시 만들지 않고 빠진 컷만
+            # 골라 만든다. 비트↔컷 매핑이 되는 경우(_BEAT_TAG_RE)에만 시도하고, 매핑이 안 되거나
+            # (비트 없는 옛 콘티) 아예 하나도 없으면 아래 전체 생성으로 폴백. 새로 만든 컷은
+            # 스틸컷이 바뀌었으니 그 컷의 옛 영상도 다시 만들어야 해 force_regen_ns로 넘긴다;
+            # 그대로 둔 기존 컷은 영상이 없으면 채우고 있으면 재사용한다.
+            if existing_cuts and missing_ns and n_beats:
+                new_cuts, regen_gave_up = _autopilot_regen_missing_stills(
+                    channel, thread_ts, work, bible, num, hdr, body, missing_ns, episode)
+                if new_cuts is not None:
+                    merged = sorted(existing_cuts + new_cuts, key=lambda c: c["n"])
+                    scene_cuts[num] = (merged, scene_seconds)
+                    _submit_video(num, merged, scene_seconds,
+                                  force_regen_ns={c["n"] for c in new_cuts})
+                    pending_review += [f"씬{num} 스틸컷 컷{c} — {reason}" for c, reason in (regen_gave_up or [])]
+                    made = ", ".join(f"컷{c['n']}" for c in new_cuts) or "없음"
+                    _reply(channel, thread_ts,
+                          f"🎯 씬{num} — 빠진 스틸컷만 다시 만들었어요({made}), 나머지 {len(existing_ns)}컷은 그대로 유지.")
+                    continue
             # ★2026-07-15 "그 씬 전체를 다 만들고 나서야 영상화 시작하지 말고 4컷 배치마다 끝나는
             # 대로 바로 영상화 넘기게" — 스틸컷 생성을 씬 내부에서 ≤4컷 배치로 쪼개 배치가 끝날
             # 때마다(검수까지 마친 뒤) on_batch_ready로 그 배치를 곧장 _submit_video에 넘긴다.
