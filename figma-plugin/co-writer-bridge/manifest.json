@@ -6,7 +6,6 @@
   "ui": "ui.html",
   "editorType": ["figma"],
   "networkAccess": {
-    "allowedDomains": ["none"],
-    "devAllowedDomains": ["localhost:8933", "koniui-Macmini.local:8933", "koniui-macmini.local:8933"]
+    "allowedDomains": ["*"]
   }
 }
