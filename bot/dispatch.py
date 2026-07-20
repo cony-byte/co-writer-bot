@@ -160,6 +160,31 @@ def _looks_like_storyboard_start_guarded(channel: str, thread_ts: str, query: st
     return bool(sb._work_from_thread(joined, thread_ts))
 
 
+# ★2026-07-20: 스토리보드 스레드 마커 substring — sb._thread_last_marker와 동일 기준.
+_SB_MARKER_SUBSTRINGS = ("[1단계]", "[2단계]", "씬 설계안", "visual-pipeline 프로젝트에 저장돼요", "스틸컷")
+
+
+def _last_output_is_cowriter_draft(msgs) -> bool:
+    """가장 최근 봇 출력이 co-writer 초안(개요/대본/줄거리, 통과/재생성 대기)인지 — 그게
+    스토리보드 마커보다 더 최근이면 True. ★2026-07-20 실사용 사고: 대본을 방금 뽑은 스레드에
+    이전 스토리보드 작업이 남아있으면(sb_stage>=1) 대본에 대한 자유 피드백("줄거리 수정해줘,
+    장면 연출 중심으로")이 storyboard 캐치올로 새서 상세 콘티를 만들어버렸다. 대본 초안이 가장
+    최근 산출물이면 그 피드백은 '대본 수정'이지 '스토리보드 시작'이 아니다 — 이 경우 캐치올을
+    막고 co-writer 수정(step 7)으로 흘려보낸다.
+    reverse 스캔에서 스토리보드 마커를 먼저 만나면 storyboard가 더 최근이므로 False,
+    co-writer 초안 신호(_BUTTON_PROMPT_RE=통과/재생성 버튼 안내, _DRAFT_FOOT_RE=초안 꼬리말)를
+    먼저 만나면 True."""
+    for m in msgs[::-1]:
+        if m.get("role") != "assistant":
+            continue
+        c = m.get("content") or ""
+        if any(s in c for s in _SB_MARKER_SUBSTRINGS):
+            return False   # 스토리보드 출력이 더 최근
+        if cw._BUTTON_PROMPT_RE.search(c) or cw._DRAFT_FOOT_RE.search(c):
+            return True    # co-writer 초안이 더 최근
+    return False
+
+
 def _storyboard_wants_to_start(channel: str, thread_ts: str, query: str) -> bool:
     """Real analog of simulate_dispatch.py's sb_catchall()'s 'fires' computation
     (FIX-1 + FIX-3 applied). True iff the storyboard auto-chain (_do_storyboard_auto_chain)
@@ -174,6 +199,11 @@ def _storyboard_wants_to_start(channel: str, thread_ts: str, query: str) -> bool
     fires = stage >= 1 or looks_like_start
     if fires and _COWRITER_INTENT_HINT_RE.search(q) and not _STRONG_SB_KEYWORDS_RE.search(q):
         fires = False   # FIX-1
+    # ★2026-07-20 FIX-4: 가장 최근 산출물이 co-writer 초안(대본/개요/줄거리)이면, 명시적 강한
+    # 스토리보드 키워드가 없는 한 이 자유 답글은 그 초안에 대한 수정 지시로 본다(스토리보드
+    # 시작 아님) — 대본 뽑은 직후 "줄거리 수정/장면 연출 중심" 피드백이 상세 콘티로 새던 사고.
+    if fires and not _STRONG_SB_KEYWORDS_RE.search(q) and _last_output_is_cowriter_draft(msgs):
+        fires = False
     return fires
 
 
