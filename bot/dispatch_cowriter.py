@@ -2897,7 +2897,7 @@ def _autosync_link(channel: str, thread_ts: str, url: str, explicit: str | None 
     works.register(work, pid)
     ph = _thinking(channel, thread_ts, f"노션 '{work}' 동기화하는 중이에요…")
     try:
-        done, failed, summary = _sync_apply(sheet, work, content)
+        done, failed, summary = _sync_apply(sheet, work, content, page_id=pid)
     except Exception:
         log.exception("autosync link apply failed")
         _post_chunks(channel, thread_ts,
@@ -2943,6 +2943,7 @@ def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
         if not pid:
             _reply(channel, thread_ts, "노션 링크에서 페이지 ID를 못 찾았어요. 링크를 다시 확인해 주세요.")
             return
+        page_id = pid   # ★2026-07-20: 아래 else 분기의 page_id와 이름을 맞춰 _sync_apply 호출부를 공유
         if not config.NOTION_TOKEN:
             _reply(channel, thread_ts, "노션 토큰이 설정 안 돼서 링크를 못 읽어요. `<작품>` + 내용 붙여넣기로 해주세요.")
             return
@@ -3009,7 +3010,7 @@ def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
     else:
         ph = _thinking(channel, thread_ts, note)
     try:
-        done, failed, summary = _sync_apply(sheet, work, content)
+        done, failed, summary = _sync_apply(sheet, work, content, page_id=page_id)
     except ValueError:   # JSON 파싱 실패
         # 인식된 섹션이 0개일 때 뭘 찾았는지(헤딩/블록)까지 보여줘야 사용자가 뭘 고쳐야
         # 할지 알 수 있음(2026-07-15) — 소제목 후보로 보이는 줄만 추려 함께 안내.
@@ -3065,10 +3066,16 @@ def _normalize_gu(raw: str) -> str:
     m = re.match(r"\s*(\d+)\s*막(?=\s|[.,!?/·\-–—]|$)", raw or "")
     return f"{m.group(1)}막" if m else (raw or "").strip()
 
-def _sync_apply(sheet, work: str, content: str) -> tuple[int, int, list]:
+def _sync_apply(sheet, work: str, content: str, page_id: str | None = None) -> tuple[int, int, list]:
     """동기화 소스 텍스트 → LLM 스키마 파싱 → 시트 upsert. 슬랙 무관(백그라운드 재사용).
-    반환 (done, failed, summary). JSON 파싱 실패 시 ValueError."""
+    반환 (done, failed, summary). JSON 파싱 실패 시 ValueError.
+
+    page_id: 노션 페이지 ID가 있으면(=content가 그 페이지 텍스트) 대본/상세콘티가 몇 화
+    분량 있는지도 요약에 같이 보여준다(2026-07-20, 사용자 요청 — "요약에 대본/상세콘티
+    반영 개수도 추가"). 대본/상세콘티 자체는 시트로 옮기지 않고 매번 노션에서 직접 읽으므로
+    (위 주석 참고) 이건 순수 안내용 카운트일 뿐, sheet.upsert 대상이 아니다."""
     from bot.sheet_bible import CHAR_SUBS
+    from bot.shared import notion_sync
     raw = generator.complete(prompts.SYNC_SYSTEM + content,
                              "위 문서를 스키마 JSON으로 변환하라.", timeout=600)
     data = _json_loads(raw)   # 실패 시 예외 → 호출부가 ValueError로 처리
@@ -3122,6 +3129,19 @@ def _sync_apply(sheet, work: str, content: str) -> tuple[int, int, list]:
         summary.append(f"개요 {len(outs)}화")
     # 대본은 시트로 안 옮긴다 — SYNC_SYSTEM이 애초에 안 뽑지만, 혹시 모델이 넣어도 방어적으로 무시.
     # 대본은 노션에서 매번 직접 읽는다(bot/sheet_bible.py의 _notion_scripts) — 2026-07-13 결정.
+    if page_id:
+        try:
+            n_scripts = len(notion_sync.parse_episode_scripts(content))
+            if n_scripts:
+                summary.append(f"대본 {n_scripts}화")
+        except Exception:
+            log.exception("동기화 요약: 대본 화수 집계 실패")
+        try:
+            n_contis = notion_sync.count_conti_episodes(page_id, token=config.NOTION_TOKEN)
+            if n_contis:
+                summary.append(f"상세콘티 {n_contis}화")
+        except Exception:
+            log.exception("동기화 요약: 상세콘티 화수 집계 실패")
 
     sheet.invalidate(work)
     return done, failed, summary
