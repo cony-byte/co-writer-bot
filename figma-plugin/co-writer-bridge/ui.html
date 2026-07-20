@@ -1,0 +1,57 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { font: 12px -apple-system, sans-serif; padding: 12px; color: #333; }
+  #status { margin-bottom: 8px; }
+  #log { font-size: 11px; color: #666; white-space: pre-wrap; max-height: 240px; overflow-y: auto; }
+</style>
+</head>
+<body>
+  <div id="status">봇 브릿지에 연결하는 중…</div>
+  <div id="log"></div>
+  <script>
+    // co-writer-bot이 로컬에 띄운 브릿지 서버(bot/figma_bridge.py)를 몇 초마다 폴링해서
+    // 대기 중인 스틸컷이 있으면 code.js(플러그인 메인 스레드)로 넘긴다. fetch는 이 UI
+    // iframe(브라우저 컨텍스트)에서만 가능해서(플러그인 코드 쪽은 API 버전에 따라 제한적) 여기서
+    // 처리하고, 실제 캔버스 삽입은 postMessage로 code.js에 위임한다.
+    const BASE = "http://127.0.0.1:8933";
+    const logEl = document.getElementById("log");
+    const statusEl = document.getElementById("status");
+    function log(msg) {
+      logEl.textContent = `[${new Date().toLocaleTimeString()}] ${msg}\n` + logEl.textContent;
+    }
+
+    async function poll() {
+      try {
+        const res = await fetch(`${BASE}/pending`);
+        const data = await res.json();
+        const items = data.items || [];
+        statusEl.textContent = items.length
+          ? `대기 중인 스틸컷 ${items.length}개 — 캔버스에 올리는 중…`
+          : "대기 중인 스틸컷 없음 (봇에서 '🎨 피그마로 보내기'를 누르면 여기 나타나요)";
+        for (const item of items) {
+          parent.postMessage({ pluginMessage: { type: "insert", item } }, "*");
+        }
+      } catch (e) {
+        statusEl.textContent = `봇 브릿지에 연결 못함(${BASE}) — 봇이 켜져 있고 같은 머신인지 확인해주세요.`;
+      }
+    }
+
+    window.onmessage = async (event) => {
+      const msg = event.data.pluginMessage;
+      if (!msg) return;
+      if (msg.type === "inserted") {
+        await fetch(`${BASE}/ack/${msg.id}`, { method: "POST" });
+        log(`씬${msg.scene_num ?? "?"} 컷${msg.cut_num ?? "?"} 캔버스에 삽입 완료`);
+      } else if (msg.type === "insert_failed") {
+        log(`삽입 실패: ${msg.error}`);
+      }
+    };
+
+    poll();
+    setInterval(poll, 4000);
+  </script>
+</body>
+</html>

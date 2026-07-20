@@ -171,6 +171,17 @@ OPENROUTER_MUSIC_MODEL = os.environ.get("OPENROUTER_MUSIC_MODEL", "google/lyria-
 OPENROUTER_MUSIC_TIMEOUT = int(os.environ.get("OPENROUTER_MUSIC_TIMEOUT", "120"))
 OPENROUTER_MUSIC_VOLUME_DB = float(os.environ.get("OPENROUTER_MUSIC_VOLUME_DB", "-18"))
 
+# ── 피그마 브릿지 — 2026-07-20 신규 ──
+# 영상화가 안전필터에 걸린 스틸컷을 사용자가 직접 손볼 수 있게 피그마로 넘기는 기능.
+# 피그마 REST API는 파일에 이미지 노드를 추가하는 쓰기 기능이 없어(읽기 전용) 봇이 직접 밀어
+# 넣을 수 없다 — 대신 봇이 로컬 큐(figma_bridge.py)에 이미지를 쌓아두고 작은 HTTP 서버로
+# 노출하면, 사용자가 설치한 피그마 플러그인(figma-plugin/co-writer-bridge/)이 그 서버를
+# 폴링해서 캔버스에 이미지를 직접 삽입한다. 봇과 피그마 데스크톱 앱이 같은 머신(또는 같은
+# 네트워크에서 이 포트에 접근 가능)이어야 동작한다.
+FIGMA_BRIDGE_ENABLED = os.environ.get("SB_FIGMA_BRIDGE_ENABLED", "false").lower() == "true"
+FIGMA_BRIDGE_PORT = int(os.environ.get("SB_FIGMA_BRIDGE_PORT", "8933"))
+FIGMA_QUEUE_DIR = os.environ.get("SB_FIGMA_QUEUE_DIR") or str(Path.home() / ".co-writer-figma-queue")
+
 # ── 이미지 백엔드 선택 ──
 # "openrouter"(기본) = OpenRouter gpt-image-2 / "higgsfield" = Higgsfield /v1/generations.
 # OpenRouter는 그대로 두고, IMAGE_BACKEND=higgsfield 로 바꾸면 Higgsfield로 생성.

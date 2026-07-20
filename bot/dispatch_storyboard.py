@@ -40,6 +40,7 @@ from bot import video_index
 from bot import edit_plan
 from bot import episode_compile
 from bot import openrouter_music as music
+from bot import figma_bridge
 from bot.shared import job_ledger
 from bot import still_state
 from bot import pending_element_state
@@ -2530,13 +2531,63 @@ def _generate_video_for_cut(channel, thread_ts, work, title, cut, num, scene_sec
         if fail_reason_out is not None:
             fail_reason_out["reason"] = reason
             fail_reason_out["detail"] = str(e)
-        app.client.chat_postMessage(channel=channel, thread_ts=thread_ts,
-                                    text=f"⚠️ 영상화에 실패했어요({reason}). 잠시 후 다시 시도해주세요.")
+        # ★2026-07-20 "안전필터 걸리면 스틸컷을 사용자가 직접 손보고 싶다" — 안전필터로 실패한
+        # 경우에 한해, 원인이 된 스틸컷(seed_png)을 피그마로 보낼 수 있는 버튼을 붙인다. 다른
+        # 실패 사유(네트워크 오류 등)는 스틸컷 문제가 아니므로 버튼을 안 붙인다.
+        seed_png = cut.get("png")
+        blocks = _figma_send_blocks() if ("안전필터" in reason and seed_png) else None
+        resp = app.client.chat_postMessage(
+            channel=channel, thread_ts=thread_ts,
+            text=f"⚠️ 영상화에 실패했어요({reason}). 잠시 후 다시 시도해주세요.",
+            blocks=blocks)
+        if blocks:
+            scene_m = re.search(r"씬(\d+)", title)
+            _PENDING_FIGMA_SEND[resp["ts"]] = {
+                "png": seed_png, "work": work,
+                "scene_num": int(scene_m.group(1)) if scene_m else None,
+                "cut_num": num, "reason": reason,
+            }
         return None
     finally:
         job_ledger.finish_job(jid)
 
 _PENDING_VIDEO_CONFIRM: dict[str, dict] = {}   # 버튼 메시지 ts -> {work,title,cut,num,scene_seconds,local_path}
+
+_PENDING_FIGMA_SEND: dict[str, dict] = {}   # 버튼 메시지 ts -> {png,work,scene_num,cut_num,reason} — ★2026-07-20
+
+def _figma_send_blocks():
+    return [{
+        "type": "actions",
+        "elements": [{"type": "button", "text": {"type": "plain_text", "text": "🎨 피그마로 보내기"},
+                     "action_id": "figma_send_still"}],
+    }]
+
+@app.action("figma_send_still")
+def _act_figma_send_still(ack, body):
+    """★2026-07-20 안전필터로 실패한 컷의 원인 스틸컷을 피그마 큐에 올린다 — 실제로 피그마
+    캔버스에 얹는 건 그쪽에 설치된 동반 플러그인(figma-plugin/co-writer-bridge/)이
+    figma_bridge의 로컬 HTTP 서버를 폴링해서 한다(REST API로는 파일에 못 씀, 모듈 docstring
+    참고). 그래서 이 핸들러는 큐에 넣는 것까지만 하고, 실제로 캔버스에 올라왔는지는
+    플러그인이 열려 있어야 확인된다."""
+    ack()
+    ch, tts = _action_ctx(body)
+    msg_ts = body["message"]["ts"]
+    pending = _PENDING_FIGMA_SEND.pop(msg_ts, None)
+    if not pending:
+        _reply(ch, tts, "이 스틸컷 정보가 만료됐어요 — 다시 영상화를 시도한 뒤 눌러주세요.")
+        return
+    if not config.FIGMA_BRIDGE_ENABLED:
+        _disable_buttons(body, "⚠️ 피그마 브릿지가 꺼져있어요 — 봇 설정에서 SB_FIGMA_BRIDGE_ENABLED를 켜야 해요.")
+        return
+    try:
+        figma_bridge.enqueue(pending["png"], {
+            "work": pending.get("work"), "scene_num": pending.get("scene_num"),
+            "cut_num": pending.get("cut_num"), "reason": pending.get("reason"),
+        })
+        _disable_buttons(body, "🎨 피그마 대기열에 올렸어요 — 피그마에서 플러그인을 실행하면 캔버스에 자동으로 올라와요.")
+    except Exception:
+        log.exception("피그마 큐 등록 실패")
+        _disable_buttons(body, "⚠️ 피그마로 보내기 실패 — 다시 시도해주세요.")
 
 def _video_confirm_blocks():
     return [{
