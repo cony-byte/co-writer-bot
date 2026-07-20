@@ -6117,9 +6117,18 @@ def _do_autopilot(channel, thread_ts, rest, skip_stage_picker: bool = False):
     # 안 붙인 맨몸 "[자동주행]"이면(=epm 없음) 이 스레드에 기록된 이전 자동주행 진행 상태를 찾아
     # work/화/씬 범위/시작 단계를 자동으로 채운다. 화 번호를 명시했으면(재시작이 아니라 새로
     # 지정한 것으로 간주) 이 자동완성은 건너뛰고 기존처럼 새 실행으로 처리한다.
+    # ★2026-07-20 "여기서 다시 [자동주행] 하면 이어서 하게" — 예전엔 화 번호를 붙이면(=epm 있음)
+    # 무조건 새 실행으로 쳐서, 취소하고 습관적으로 "[자동주행] 작품 4화"를 다시 치면 이미 만든
+    # 씬설계·콘티·스틸컷까지 처음부터 다 다시 만들었다. 이제는 이 스레드에 진행 기록이 있고
+    # 그게 같은 화(또는 화 번호를 안 붙인 맨몸 재실행)를 가리키면 이어서 진행한다. 정말 처음부터
+    # 다시 하려면 "처음부터"/"1단계부터"/"씬설계부터 다시" 등을 붙이면 강제 새 실행이 된다.
     resumed_progress = None
-    if not epm:
-        resumed_progress = conti_state.get_autopilot_progress(thread_ts)
+    _saved_progress = conti_state.get_autopilot_progress(thread_ts)
+    _force_fresh = bool(_FORCE_STAGE1_RE.search(tail))
+    if _saved_progress and not _force_fresh:
+        _same_episode = (not epm) or (int(epm.group(1)) == _saved_progress.get("episode"))
+        if _same_episode:
+            resumed_progress = _saved_progress
     # ★2026-07-15: resumed_progress가 있으면 work/episode 둘 다 거기서 채우므로, work/epm이
     # 스레드 문맥만으로 못 찾아졌어도 진짜 실패는 아니다 — resumed_progress가 없을 때만
     # work·epm 둘 다 있어야 한다는 기존 검증을 적용한다.
