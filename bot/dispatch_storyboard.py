@@ -2658,7 +2658,7 @@ def _generate_video_for_cut(channel, thread_ts, work, title, cut, num, scene_sec
             _PENDING_FIGMA_SEND[resp["ts"]] = {
                 "png": seed_png, "work": work,
                 "scene_num": int(scene_m.group(1)) if scene_m else None,
-                "cut_num": num, "reason": reason,
+                "cut_num": num, "reason": reason, "episode": episode,
                 "channel": channel, "thread_ts": thread_ts,
             }
         return None
@@ -2694,14 +2694,18 @@ def _act_figma_send_still(ack, body):
         _disable_buttons(body, "⚠️ 피그마 브릿지가 꺼져있어요 — 봇 설정에서 SB_FIGMA_BRIDGE_ENABLED를 켜야 해요.")
         return
     try:
-        # ★2026-07-20 still_path=pending["png"] — 되돌리기 폴러(_on_figma_returned)가 나중에
-        # 이 경로를 편집본으로 그대로 덮어써야, 다음에 이 컷을 다시 영상화할 때(기존 재생성
-        # 흐름 그대로) 자동으로 손본 이미지를 쓰게 된다. channel/thread_ts는 되돌아왔을 때
-        # 어느 스레드에 알릴지 위해 필요.
+        # ★2026-07-20 still_path — 되돌리기 폴러(_on_figma_returned)가 나중에 이 경로를
+        # 편집본으로 그대로 덮어써야, 다음에 이 컷을 다시 영상화할 때(기존 재생성 흐름 그대로)
+        # 자동으로 손본 이미지를 쓰게 된다. 이 흐름의 컷은 영상화 전 이미 확정 저장됐으므로
+        # (still_confirm 단계) cut{n}.png가 그 결정적 경로에 이미 있어야 정상이다.
+        # channel/thread_ts는 되돌아왔을 때 어느 스레드에 알릴지 위해 필요.
+        still_path = vp_store.still_cut_path(pending.get("work"), pending.get("scene_num"),
+                                             pending.get("cut_num"), episode=pending.get("episode"))
         figma_bridge.enqueue(pending["png"], {
             "work": pending.get("work"), "scene_num": pending.get("scene_num"),
             "cut_num": pending.get("cut_num"), "reason": pending.get("reason"),
-            "still_path": pending["png"], "channel": pending.get("channel"),
+            "still_path": str(still_path) if still_path and still_path.exists() else None,
+            "channel": pending.get("channel"),
             "thread_ts": pending.get("thread_ts"),
         })
         _disable_buttons(body, "🎨 피그마 대기열에 올렸어요 — 피그마에서 플러그인을 실행하면 캔버스에 자동으로 올라와요. "
@@ -4237,17 +4241,32 @@ def _act_figma_send_stillbatch(ack, body):
     cuts = [c for c in (p.get("cuts") or []) if c.get("png")]
     try:
         if cuts:
+            # ★확정(still_confirm) 전에도 이 버튼을 누를 수 있어 아직 디스크에 파일이 없을 수
+            # 있다 — 되돌리기(_on_figma_returned)가 덮어쓸 실제 경로가 있어야 하므로 확정과
+            # 동일한 방식으로 미리 저장해둔다(cut{n}.png 파일명이 결정적이라 이후 확정 시
+            # 다시 저장해도 안전하게 덮어써질 뿐이다).
+            episode = (conti_state.get_episode(tts) or {}).get("episode")
+            if vp_store.available(p.get("work")):
+                vp_store.save_still(p["work"], scene_num=p.get("scene_num"), prompt_summary=p.get("title"),
+                                    png=p["grid_png"], requested_by=(body.get("user") or {}).get("id"),
+                                    cuts=p.get("cuts"), episode=episode)
             for c in cuts:
+                still_path = vp_store.still_cut_path(p.get("work"), p.get("scene_num"), c["n"], episode=episode)
                 figma_bridge.enqueue(c["png"], {
                     "work": p.get("work"), "scene_num": p.get("scene_num"), "cut_num": c.get("n"),
-                    "reason": "사용자 요청", "still_path": c["png"], "channel": ch, "thread_ts": tts,
+                    "reason": "사용자 요청",
+                    "still_path": str(still_path) if still_path and still_path.exists() else None,
+                    "channel": ch, "thread_ts": tts,
                 })
             _reply(ch, tts, f"🎨 컷 {len(cuts)}개를 피그마 대기열에 올렸어요 — 플러그인을 실행하면 "
                            "캔버스에 자동으로 올라와요. 손본 뒤 「봇으로 보내기」를 누르면 여기로 반영돼요.")
         else:
+            # ★그리드 합성본은 더 이상 디스크에 저장되지 않아(vp_store.save_still 참고) 되돌릴
+            # 실제 파일이 없다 — still_path 없이 올려서 편집본이 돌아와도 되돌리기 반영은
+            # 건너뛰게 한다(업로드 자체는 그대로 가능).
             figma_bridge.enqueue(p["grid_png"], {
                 "work": p.get("work"), "scene_num": p.get("scene_num"), "cut_num": None,
-                "reason": "사용자 요청", "still_path": p["grid_png"], "channel": ch, "thread_ts": tts,
+                "reason": "사용자 요청", "still_path": None, "channel": ch, "thread_ts": tts,
             })
             _reply(ch, tts, "🎨 그리드 이미지를 피그마 대기열에 올렸어요 — 플러그인을 실행하면 캔버스에 자동으로 올라와요.")
     except Exception:

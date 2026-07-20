@@ -44,15 +44,16 @@ def _sub_dir(name: str) -> Path:
     return d
 
 
-def enqueue(image_path: str, meta: dict) -> str:
-    """스틸컷 PNG 하나를 pending/ 큐에 올린다. 반환: item id(uuid). meta에는 되돌아온 편집본을
-    나중에 그 컷 파일에 반영하기 위해 최소한 still_path(그 컷이 실제로 읽는 로컬 PNG 경로)와,
-    슬랙에 결과를 알리기 위한 channel/thread_ts를 담아둬야 한다. 예:
+def enqueue(png_bytes: bytes, meta: dict) -> str:
+    """스틸컷 PNG 하나를 pending/ 큐에 올린다. 호출부는 이미 메모리에 들고 있는 PNG 바이트를
+    그대로 넘긴다(디스크 경로가 아님 — 컷은 확정 저장 전엔 파일로 존재하지 않을 수 있다).
+    반환: item id(uuid). meta에는 되돌아온 편집본을 나중에 그 컷 파일에 반영하기 위해
+    still_path(그 컷이 실제로 읽는 로컬 PNG 경로, 없으면 되돌리기 반영을 건너뜀)와, 슬랙에
+    결과를 알리기 위한 channel/thread_ts를 담아둬야 한다. 예:
     {"work": "코니", "scene_num": 3, "cut_num": 5, "reason": "실존인물 안전필터",
-     "still_path": "/…/still_컷5.png", "channel": "C123", "thread_ts": "170…"}."""
+     "still_path": "/…/cut5.png", "channel": "C123", "thread_ts": "170…"}."""
     item_id = uuid.uuid4().hex
     d = _sub_dir("pending")
-    png_bytes = Path(image_path).read_bytes()
     (d / f"{item_id}.png").write_bytes(png_bytes)
     (d / f"{item_id}.json").write_text(json.dumps({**meta, "id": item_id}, ensure_ascii=False),
                                        encoding="utf-8")

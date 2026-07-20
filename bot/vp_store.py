@@ -100,6 +100,17 @@ def _episode_dir_name(episode: int | str | None) -> str:
     return f"{episode}화" if episode else "미분류"
 
 
+def still_cut_path(work: str, scene_num: int | None, cut_num: int,
+                   episode: int | str | None = None) -> Path | None:
+    """save_still이 이 컷을 저장한다면(또는 이미 저장했다면) 쓰는 결정적 로컬 경로. 파일이
+    실제로 존재하는지는 호출부에서 확인해야 한다 — 프로젝트를 못 찾으면 None."""
+    proj = oi.vp_project_dir(work)
+    if not proj:
+        return None
+    return (proj / "outputs" / "stills" / _episode_dir_name(episode)
+           / _scene_dir_name(scene_num) / f"cut{cut_num}.png")
+
+
 def save_video(work: str, *, scene_num: int | None, cut_num: int | None, url: str,
               episode: int | str | None = None,
               prompt_summary: str = "", application: str = "", requested_by: str | None = None,
