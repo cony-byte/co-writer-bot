@@ -136,7 +136,10 @@ def page_text(page_id: str, token: str | None = None) -> str:
     return _render(_children(page_id, token), token).strip()
 
 
-_EP_SCRIPT_HEAD = re.compile(r"^\s*#*\s*대본\s*(\d+)\s*화\b.*$", re.M)
+# ★2026-07-20 "대본 N화"뿐 아니라 "N화 대본" 어순도 인식 — 사용자가 노션에서 토글 제목을
+# "1화 대본"으로 쓰는 경우가 흔한데(스크린샷 실측), 예전엔 "대본 N화"만 잡아서 이 토글이
+# 대본 섹션으로 인식되지 않아 "N화:" 콜론 헤딩 폴백(②)에만 의존해 취약했다.
+_EP_SCRIPT_HEAD = re.compile(r"^\s*#*\s*(?:대본\s*(\d+)\s*화|(\d+)\s*화\s*대본)\b.*$", re.M)
 _EP_COLON_HEAD = re.compile(r"^\s*#{1,3}\s*.*?\b(\d+)\s*화\s*:.*$", re.M)
 _ANY_HEAD_LINE = re.compile(r"^\s*#{1,3}\s.*$", re.M)
 
@@ -154,7 +157,8 @@ def parse_episode_scripts(full_text: str) -> dict[str, str]:
     if heads1:
         for i, m in enumerate(heads1):
             end = heads1[i + 1].start() if i + 1 < len(heads1) else len(full_text)
-            out[f"{m.group(1)}화"] = full_text[m.start():end].strip()
+            ep = m.group(1) or m.group(2)   # "대본 N화" 또는 "N화 대본" 어느 쪽이든
+            out[f"{ep}화"] = full_text[m.start():end].strip()
         return out
     heads2 = list(_EP_COLON_HEAD.finditer(full_text))
     for i, m in enumerate(heads2):

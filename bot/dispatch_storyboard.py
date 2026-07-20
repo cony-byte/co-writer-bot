@@ -226,10 +226,12 @@ def _notion_episode_script(full_text, episode):
        코드블록도 펜스(```) 없이 평문으로 풀어버려서 코드펜스 유무는 신경 쓰지 않는다."""
     if not full_text or not episode:
         return ""
-    pat = re.compile(rf"^\s*#*\s*대본\s*{episode}\s*화\b.*$", re.M)
+    # ★2026-07-20 "대본 N화"뿐 아니라 "N화 대본" 어순도 인식(노션 토글 제목이 "1화 대본"인
+    # 흔한 케이스 — parse_episode_scripts와 동일하게 맞춤).
+    pat = re.compile(rf"^\s*#*\s*(?:대본\s*{episode}\s*화|{episode}\s*화\s*대본)\b.*$", re.M)
     m = pat.search(full_text)
     if m:
-        nxt = re.search(r"^\s*#*\s*대본\s*\d+\s*화\b", full_text[m.end():], re.M)
+        nxt = re.search(r"^\s*#*\s*(?:대본\s*\d+\s*화|\d+\s*화\s*대본)\b", full_text[m.end():], re.M)
         end = m.end() + nxt.start() if nxt else len(full_text)
         return full_text[m.start():end].strip()
     pat2 = re.compile(rf"^\s*#{{1,3}}\s*.*?\b{episode}\s*화\s*:.*$", re.M)
