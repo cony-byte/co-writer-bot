@@ -5705,7 +5705,6 @@ def _autopilot_vision_budget_left(deadline: float | None) -> bool:
     return deadline is None or time.monotonic() < deadline
 
 _AUTOPILOT_CONSISTENCY_MAX_RETRIES = 2   # ★2026-07-16 "일단 2번 재시도까지로 올려" — 기존 1회에서 상향
-_AUTOPILOT_SAFETY_FILTER_MAX_RETRIES = 3   # ★2026-07-20 "안전필터 걸리면 그 구간 스틸컷만 다시 생성하는 루프 3회로" — 기존 1회에서 상향
 
 def _autopilot_check_stills(work, cuts: list[dict], deadline: float | None = None) -> list[tuple[int, str]]:
     """스틸컷 후검사 — 컷마다 실제 shot_refs() 참조와 비교해 'no'면 focus_char 격리로 최대
@@ -5985,39 +5984,16 @@ def _autopilot_videos_for_scene(channel, thread_ts, work, title, cuts, scene_sec
                                             cut_seconds, post_confirm_buttons=False,
                                             post_result=False, cost_out=cost_out, fail_reason_out=fail_out)
         if not local_path:
-            # ★2026-07-15 "자동주행 중 실존 인물 안전필터로 영상화 실패하면 어떻게?" — 이 필터는
-            # 모션 프롬프트 텍스트가 아니라 입력 이미지(=그 컷의 확정 스틸컷) 자체가 "실사 인물
-            # 사진처럼 보인다"고 판단해서 걸린다. 그래서 스틸컷 그림체를 더 뚜렷하게 일러스트/
-            # 페인터리 쪽으로 밀어 재생성한 뒤(_autopilot_regen_shot_png — 일관성 재검사 실패
-            # 때와 같은 함수, reason 문구만 이 상황에 맞게) 영상화를 재시도한다. 프롬프트
-            # 텍스트 문제(세이프티 필터 거부 등)와 원인이 달라서 그냥 재시도해도 똑같이 걸릴 뿐 —
-            # 반드시 참조 이미지 자체를 바꿔야 의미가 있다.
-            # ★2026-07-20 "안전필터 걸리면 그 구간 스틸컷만 다시 생성하는 루프 3회로" — 기존엔
-            # 스틸컷 재생성→영상화 재시도가 딱 1회뿐이라, 그 1번의 재생성으로도 여전히 실사
-            # 인물처럼 보이면 그대로 포기했다. 일관성 재검사 재시도(위 _AUTOPILOT_CONSISTENCY_
-            # MAX_RETRIES)와 동일한 방식으로 _AUTOPILOT_SAFETY_FILTER_MAX_RETRIES(3)회까지 반복한다.
-            for _ in range(_AUTOPILOT_SAFETY_FILTER_MAX_RETRIES):
-                if fail_out.get("reason") != "입력 이미지가 실존 인물처럼 보인다는 안전필터에 걸림":
-                    break
-                new_png = _autopilot_regen_shot_png(
-                    work, c, "실제 인물 사진처럼 보이지 않게, 명확한 일러스트/페인터리 그림체로 "
-                             "(사실적 피부 질감·실사 조명 최소화)")
-                if not new_png:
-                    break
-                c["png"] = new_png
-                retry_cost_out, retry_fail_out = {}, {}
-                retry_path = _generate_video_for_cut(
-                    channel, thread_ts, work, title, c, c["n"], cut_seconds,
-                    post_confirm_buttons=False, post_result=False,
-                    cost_out=retry_cost_out, fail_reason_out=retry_fail_out)
-                if retry_path:
-                    local_path = retry_path
-                    cost_out = retry_cost_out
-                    break
-                fail_out = retry_fail_out or fail_out
-            if not local_path:
-                flagged.append((c["n"], fail_out.get("reason") or "영상 생성 실패"))
-                continue
+            # ★2026-07-20 "[자동생성]에 안전 필터 걸릴 경우 스틸컷으로 돌아가는 루프 빼자" —
+            # 예전엔 실존인물 안전필터 실패 시 스틸컷을 자동으로 다시 그려 최대 3회까지
+            # 재시도했다(2026-07-20 상향분). 그런데 그 사이에 안전필터 걸린 스틸컷을 사용자가
+            # 직접 손봐서 되돌리는 피그마 브릿지 기능이 생겼다(figma_bridge.py) — 자동
+            # 재생성 루프가 남아있으면 사용자가 손보기도 전에 스틸컷이 계속 자동으로 덮어써질
+            # 수 있어 서로 충돌한다. 그래서 자동 재시도 없이 다른 실패 사유와 동일하게 그냥
+            # flagged 처리만 한다 — 사용자가 "🎨 피그마로 보내기"로 직접 고친 뒤 재시도하는
+            # 흐름을 그대로 타게 한다.
+            flagged.append((c["n"], fail_out.get("reason") or "영상 생성 실패"))
+            continue
         verdict, reason = _autopilot_check_video(work, c, local_path, deadline)
         # ★2026-07-16 "일단 2번 재시도까지로 올려" — 스틸컷 일관성 재검사와 동일하게 기존 1회에서
         # _AUTOPILOT_CONSISTENCY_MAX_RETRIES(2)회로 상향.
