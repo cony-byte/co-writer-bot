@@ -3748,8 +3748,17 @@ def _maybe_natural_ref(channel, thread_ts, query, event) -> bool:
     wm = re.search(r"<\s*([^>]+?)\s*>", q)
     work = None
     if wm and not _looks_like_mention(wm.group(1)):
-        work = wm.group(1).strip()
-        q = (q[:wm.start()] + q[wm.end():]).strip()
+        inner = wm.group(1).strip()
+        # ★2026-07-20 "<김신우> 이 사진으로 해줘"가 등록 안 되던 문제 — <...>는 작품명 문법인데
+        # 사용자가 인물 이름을 꺾쇠로 감싸면(흔한 실수) 예전엔 무조건 작품으로 보고 통째로
+        # 지워서, 정작 인물 이름을 찾는 _NATURAL_REF_RE가 이름을 못 찾고 조용히 무반응이 됐다.
+        # 꺾쇠 안이 실제 등록된 작품일 때만 작품으로 떼어내고, 아니면 꺾쇠만 벗겨 이름 후보로
+        # 남겨 정규식이 잡게 한다("<김신우> 이 사진으로" → "김신우 이 사진으로").
+        if works.resolve(inner):
+            work = inner
+            q = (q[:wm.start()] + q[wm.end():]).strip()
+        else:
+            q = (q[:wm.start()] + inner + q[wm.end():]).strip()
     m = _NATURAL_REF_RE.search(q)
     if not m:
         return False
