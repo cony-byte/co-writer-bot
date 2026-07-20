@@ -44,7 +44,7 @@ from dataclasses import dataclass, field
 
 from . import config
 from .nl_router_prompt import INTENT_SPECS, build_system_prompt
-from .shared.slack_io import _reply, _thread_messages, log
+from .shared.slack_io import _reply, _thread_messages, app, log
 
 ROUTER_BACKEND = os.environ.get(
     "COWRITER_ROUTER_BACKEND",
@@ -153,6 +153,76 @@ def _extract_json(text: str) -> dict:
     raise ValueError(f"unbalanced JSON in router output: {text[:200]!r}")
 
 
+def _event_files(channel: str, thread_ts: str, event: dict) -> list[dict]:
+    """Slack 이벤트에서 첨부 파일을 복구한다.
+
+    app_mention 이벤트에는 화면상 파일이 있어도 event["files"]가 빠지는 경우가 있다.
+    그때 원본 메시지를 conversations.replies로 다시 읽고, 찾은 파일은 event에도
+    되채워 이후 기존 등록/생성 핸들러가 그대로 사용할 수 있게 한다.
+    """
+    direct = list(event.get("files") or [])
+    if direct:
+        return direct
+
+    message_ts = str(event.get("ts") or "")
+    root_ts = str(event.get("thread_ts") or thread_ts or message_ts)
+    if not (channel and message_ts and root_ts):
+        return []
+    try:
+        resp = app.client.conversations_replies(
+            channel=channel, ts=root_ts, limit=config.THREAD_HISTORY_LIMIT
+        )
+        for message in resp.get("messages", []):
+            if str(message.get("ts") or "") != message_ts:
+                continue
+            recovered = list(message.get("files") or [])
+            if recovered:
+                event["files"] = recovered
+                log.info("nl_router: Slack 원본 메시지에서 첨부 %d개 복구", len(recovered))
+            return recovered
+    except Exception as exc:
+        log.warning("nl_router 첨부 파일 재조회 실패: %s", exc)
+    return []
+
+
+def _element_name(element: dict) -> str:
+    """elements.json의 현행 display와 레거시 name/tag_name을 모두 지원."""
+    return str(
+        element.get("display")
+        or element.get("name")
+        or element.get("tag_name")
+        or ""
+    ).strip()
+
+
+def _canonical_work(work: str | None) -> str | None:
+    if not work:
+        return work
+    try:
+        from .shared import works
+        return works.resolve(work) or work
+    except Exception:
+        return work
+
+
+def _load_registered_elements(work: str | None) -> dict[str, list[str]]:
+    """질문 시점의 실제 디스크 레지스트리를 정식 작품명 기준으로 다시 읽는다."""
+    result: dict[str, list[str]] = {}
+    canonical = _canonical_work(work)
+    if not canonical:
+        return result
+    try:
+        from . import openrouter_image as oi
+        for element in oi.load_elements(canonical):
+            kind = str(element.get("type") or "?")
+            name = _element_name(element)
+            if name:
+                result.setdefault(kind, []).append(name)
+    except Exception:
+        log.exception("nl_router 등록 엘리먼트 조회 실패: work=%s", canonical)
+    return result
+
+
 def _build_context(channel: str, thread_ts: str, event: dict) -> dict:
     """라우터 프롬프트에 넣을 스레드 상태 스냅숏."""
     from . import dispatch_storyboard as sb
@@ -181,8 +251,10 @@ def _build_context(channel: str, thread_ts: str, event: dict) -> dict:
     try:
         if tracked.get("work"):
             from . import openrouter_image as oi
-            for el in oi.load_elements(tracked["work"]):
-                elements.setdefault(el.get("type", "?"), []).append(el.get("name", ""))
+            for el in oi.load_elements(_canonical_work(tracked["work"])):
+                name = _element_name(el)
+                if name:
+                    elements.setdefault(el.get("type", "?"), []).append(name)
     except Exception:
         pass
 
@@ -202,7 +274,7 @@ def _build_context(channel: str, thread_ts: str, event: dict) -> dict:
             }
         )
 
-    files = event.get("files") or []
+    files = _event_files(channel, thread_ts, event)
     return {
         "tracked_work": tracked.get("work"),
         "tracked_episode": tracked.get("episode"),
@@ -304,6 +376,18 @@ def _apply_safety_normalization(r: Route, query_text: str, ctx: dict) -> Route:
     attached = int(ctx.get("attached_image_count") or 0)
     generate_from_ref = bool(re.search(r"동일하게|참고해서|참조해서|재생성|새로\s*만들", text))
     register_words = bool(re.search(r"등록|각각|순서대로|(?:이야|입니다)[.!]?$", text))
+
+    # 사용자가 "이 이미지/사진/첨부"를 전제했는데 Slack API에서도 파일을 못 찾은 경우.
+    # LLM의 임의 안내(예: "이미지 생성 기능이 없다")는 절대 노출하지 않고,
+    # 실제 기능을 정확히 설명하는 짧은 재첨부 문구로 고정한다.
+    expects_image = bool(re.search(r"(?:이|그|첨부한?)\s*(?:이미지|사진)|이걸로|첨부했", text))
+    if expects_image and attached == 0:
+        r.needs_clarification = True
+        r.reply_text = (
+            "첨부 이미지를 불러오지 못했어요. 같은 이미지와 문구를 한 번만 "
+            "다시 보내주세요. 확인되는 즉시 요청하신 이미지 작업을 진행할게요."
+        )
+        return r
 
     # 이미지가 첨부됐고 현재 메시지에 등록 의사가 명시되면, 최근 봇 출력의
     # 대본/콘티/화 번호와 무관하게 참조 등록이 항상 우선한다.
@@ -647,7 +731,7 @@ def _episode_required_people(work: str, episode: int) -> tuple[list[str], list[s
         for el in oi.load_elements(work):
             kind = str(el.get("type") or "")
             if kind in ("person", "인물"):
-                name = str(el.get("name") or "").strip()
+                name = _element_name(el)
                 if name:
                     registered.append(name)
     except Exception:
@@ -678,10 +762,11 @@ def _answer_question(
         return
 
     qtype = r.question_type or "general"
-    work = r.work or ctx.get("tracked_work")
+    work = _canonical_work(r.work or ctx.get("tracked_work"))
     episode = r.episode if r.episode is not None else ctx.get("tracked_episode")
     stage = int(ctx.get("sb_stage") or 0)
-    elements = ctx.get("registered_elements") or {}
+    # 컨텍스트 스냅숏은 질문 직전 등록을 놓칠 수 있으므로 실제 파일을 다시 읽는다.
+    elements = _load_registered_elements(work) if work else {}
 
     if qtype == "element_reflection_status":
         if not work:
