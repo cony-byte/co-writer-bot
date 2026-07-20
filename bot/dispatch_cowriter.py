@@ -3005,7 +3005,7 @@ def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
             return
         ph = None
     _CANCEL.discard(thread_ts)
-    note = f"{src} 정리해서 시트에 반영하는 중이에요…"
+    note = f"{src} 읽어서 작품 설정에 반영하는 중이에요…"   # ★2026-07-20 사용자 요청: "시트" 문구 제거(내부 저장소일 뿐)
     if ph:
         _update_note(channel, ph, note)            # 읽는 중 플레이스홀더 재사용
     else:
