@@ -2233,7 +2233,7 @@ def _guess_scene_num(conti, instr):
 
 def _do_images(channel, thread_ts, rest):
     work, bible, tail, msgs = _resolve_work_bible(channel, thread_ts, rest)
-    if not _require_genre(channel, thread_ts, work):
+    if not _require_genre(channel, thread_ts, work, resume=lambda: _do_images(channel, thread_ts, rest)):
         return
     tm = re.search(r"\b(\d{1,3})\b", tail)          # [이미지] <작품> N → 목표 컷 수
     target = int(tm.group(1)) if tm else None
@@ -3088,7 +3088,8 @@ def _do_stills(channel, thread_ts, rest, feedback=None):
     그 씬(또는 콘티 전체) source_text 끝에 명시적 수정 지시로 덧붙여 3단계 샷분해 LLM이
     반영하게 한다 — rest/tail 파싱(씬 번호·컷수 등)에는 관여하지 않고 프롬프트 내용에만 영향."""
     work, bible, tail, msgs = _resolve_work_bible(channel, thread_ts, rest)
-    if not _require_genre(channel, thread_ts, work):
+    if not _require_genre(channel, thread_ts, work,
+                           resume=lambda: _do_stills(channel, thread_ts, rest, feedback=feedback)):
         return
     # "컷1,3"/"1-3컷" 등 특정 컷만 골라 뽑는 지정(2026-07-15) — 있으면 아래 'N컷' 총개수
     # 오버라이드보다 우선한다(둘이 동시에 쓰이는 경우는 없다고 가정).
@@ -5390,20 +5391,59 @@ def _do_style(channel, thread_ts, rest):
           f"✅ <{w}> 스타일을 *{STYLE_LABELS[style_key]}*로 설정했어요 — 이제부터 스틸컷·영상·"
           "소품/의상 참조가 전부 이 화풍으로 만들어져요(이미 만든 컷은 그대로 유지).")
 
-def _require_genre(channel, thread_ts, work: str | None) -> bool:
+_PENDING_GENRE: dict[str, dict] = {}   # 드롭다운 메시지 ts -> {channel, thread_ts, work, resume}
+
+def _genre_picker_blocks(work: str):
+    options = [{"text": {"type": "plain_text", "text": label}, "value": key}
+               for key, label in STYLE_LABELS.items()]
+    return [{
+        "type": "section",
+        "text": {"type": "mrkdwn", "text": f"⚠️ <{work}>은 아직 장르(실사화/2D 애니메이션) 지정이 필요해요 — "
+                                            "스틸컷·영상 화풍이 여기 달려있어서 먼저 골라야 진행할 수 있어요."},
+        "accessory": {
+            "type": "static_select",
+            "placeholder": {"type": "plain_text", "text": "장르 선택"},
+            "action_id": "sb_pick_genre",
+            "options": options,
+        },
+    }]
+
+def _require_genre(channel, thread_ts, work: str | None, resume=None) -> bool:
     """★2026-07-20 "노션에도 필수로 추가" — dispatch_cowriter._do_sync가 노션 링크로 신규
     등록하면서 페이지 본문에서 장르를 못 찾은 작품만 works.mark_genre_required로 표시해둔다
     (이미 등록돼 있던 작품은 절대 이 표시가 안 붙으므로, 기존 작품들의 생성은 전혀 영향 없다).
     스틸컷/이미지/자동주행 진입부에서 생성 직전에 이 게이트를 태워, 장르 미지정 신규 작품은
-    `[스타일]`로 먼저 지정해야만 다음 단계로 진행되게 막는다. True=통과, False=막힘(이미
-    안내 메시지도 보냄)."""
+    드롭다운으로 골라야만 다음 단계로 진행되게 막는다. True=통과, False=막힘(드롭다운 전송).
+    ★2026-07-20c "선택하면 바로 반영 후 이전 요청 처리" — resume에 원래 요청을 그대로
+    재실행할 zero-arg 콜백을 넘기면, 사용자가 드롭다운에서 고른 직후 works.set_style로
+    저장하고 이어서 resume()을 호출해 원래 하려던 생성을 그대로 이어간다(다시 명령어를
+    치게 하지 않음). resume 없이 부르는 기존 호출부는 예전처럼 안내만 하고 멈춘다."""
     if not work or not works.genre_required(work):
         return True
-    _reply(channel, thread_ts,
-          f"⚠️ <{work}>은 아직 장르(실사화/2D 애니메이션) 지정이 필요해요 — 스틸컷·영상 화풍이 "
-          f"여기 달려있어서 먼저 정해야 진행할 수 있어요. `[스타일] <{work}> 실사화` 또는 "
-          f"`[스타일] <{work}> 2d 애니메이션`으로 알려주세요.")
+    if resume is None:
+        _reply(channel, thread_ts,
+              f"⚠️ <{work}>은 아직 장르(실사화/2D 애니메이션) 지정이 필요해요 — 스틸컷·영상 화풍이 "
+              f"여기 달려있어서 먼저 정해야 진행할 수 있어요. `[스타일] <{work}> 실사화` 또는 "
+              f"`[스타일] <{work}> 2d 애니메이션`으로 알려주세요.")
+        return False
+    posted = app.client.chat_postMessage(channel=channel, thread_ts=thread_ts,
+                                          text=f"<{work}> 장르를 먼저 골라주세요",
+                                          blocks=_genre_picker_blocks(work))
+    _PENDING_GENRE[posted["ts"]] = {"channel": channel, "thread_ts": thread_ts, "work": work, "resume": resume}
     return False
+
+@app.action("sb_pick_genre")   # 장르 드롭다운 선택 → 바로 저장하고 막혀있던 원래 요청을 이어서 처리
+def _act_pick_genre(ack, body):
+    ack()
+    ts = body["message"]["ts"]
+    p = _PENDING_GENRE.pop(ts, None)
+    if not p:
+        _disable_buttons(body, "⚠️ 만료된 요청이에요 (봇이 재시작되면 대기 중인 요청은 사라져요) — 다시 요청해주세요.")
+        return
+    style_key = body["actions"][0]["selected_option"]["value"]
+    works.set_style(p["work"], style_key)
+    _disable_buttons(body, f"✅ <{p['work']}> 장르를 *{STYLE_LABELS[style_key]}*로 설정했어요 — 이어서 진행할게요…")
+    p["resume"]()
 
 # ★2026-07-20: "그림체를 2d 애니메이션으로 바꿔줘"/"스타일 실사로 해줘" 같은 자연어. 화 번호
 # 처리(_maybe_episode_status 등)와 동일하게, 구조적으로 명확한 트리거 문구가 있을 때만 걸리게
@@ -6091,7 +6131,8 @@ def _do_autopilot(channel, thread_ts, rest, skip_stage_picker: bool = False):
         episode = resumed_progress["episode"]
     else:
         episode = int(epm.group(1))
-    if not _require_genre(channel, thread_ts, work):
+    if not _require_genre(channel, thread_ts, work,
+                           resume=lambda: _do_autopilot(channel, thread_ts, rest, skip_stage_picker=skip_stage_picker)):
         return
     # ★2026-07-20 "[자동주행] 모드에 개요랑 대본 생성 단계도 넣자" — 지금까지 자동주행은
     # 대본이 이미 있다는 전제로 등록확인부터 시작했다(대본이 없으면 sb_do_storyboard가 그때
