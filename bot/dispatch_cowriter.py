@@ -2344,7 +2344,18 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
             answer = f"{banner}\n\n" + answer
     _post_chunks(channel, thread_ts, answer or "(빈 응답)", replace_ts=ph)
     if gen_buttons:
-        _post_revise_actions(channel, thread_ts, *gen_buttons)
+        # ★2026-07-20 "저장 누르니깐 저장 안 하고 재생성함" — 예전엔 수정된 초안에 [🆕 생성]/
+        # [✏️ 수정] 버튼(_post_revise_actions)만 붙어서 '저장' 버튼이 아예 없었다. 사용자가 방금
+        # 고친 초안을 저장하려고 눈에 띄는 [🆕 생성]을 누르면 저장이 아니라 새로 생성돼버림.
+        # 수정 결과도 엄연한 초안이므로 [✅ 통과(저장)]/[🔄 재생성] 버튼(_post_draft_actions)을
+        # 붙여, 마음에 들면 바로 저장하고 아니면 재생성(방향 다시 묻기)할 수 있게 한다.
+        _gb_work, _gb_kind, _gb_ep = gen_buttons
+        if _gb_work:
+            _post_draft_actions(channel, thread_ts, _gb_work, _gb_kind,
+                                f"{_gb_ep}화" if _gb_ep else "")
+        else:
+            # 작품 미등록이면 시트 저장 자체가 안 되므로 예전처럼 수정 안내만.
+            _post_revise_actions(channel, thread_ts, *gen_buttons)
 
 def _do_plan(channel: str, thread_ts: str, rest: str, files_text: str = "", in_thread: bool = False) -> None:
     """[기획] 컨셉·로그라인 → 노션 기획안 구조 초안 (로그라인·타겟·인물·줄거리·회차분배). 초안만, 자동저장 X.
