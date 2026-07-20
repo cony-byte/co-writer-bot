@@ -231,6 +231,31 @@ def _registered_work_names(ctx: dict) -> set[str]:
     return {name for name in names if name}
 
 
+# 기존 브래킷 명령은 작품명 대괄호 표기와 구분한다.
+_COMMAND_TOKENS = {
+    "생성", "기획", "피드백", "재미", "개연성", "트렌드", "아이디어",
+    "동기화", "별칭", "변환", "확인", "파일", "스토리보드", "이미지",
+    "합본", "자동주행", "진행상황", "스타일", "콘티확정", "화초기화",
+}
+
+
+def _explicit_work_token(text: str, ctx: dict) -> str | None:
+    """현재 문장의 <작품명> 또는 [작품명]을 등록 작품/별칭 기준으로 찾는다.
+
+    대괄호는 [피드백], [이미지] 같은 정식 명령과 충돌하므로 등록된 작품명/별칭과
+    정확히 일치하는 경우에만 작품 토큰으로 인정한다. 꺾쇠도 같은 기준을 적용해
+    <하루>처럼 미등록 캐릭터 이름을 작품명으로 오인하지 않는다.
+    """
+    registered = _registered_work_names(ctx)
+    for match in re.finditer(r"<([^<>]+)>|\[([^\[\]]+)\]", text):
+        token = (match.group(1) or match.group(2) or "").strip()
+        if not token or token in _COMMAND_TOKENS:
+            continue
+        if token in registered:
+            return token
+    return None
+
+
 def _apply_safety_normalization(r: Route, query_text: str, ctx: dict) -> Route:
     """LLM 분류 뒤 실제 사고가 컸던 슬롯 혼동만 결정적으로 보정한다."""
     text = query_text.strip()
@@ -238,6 +263,12 @@ def _apply_safety_normalization(r: Route, query_text: str, ctx: dict) -> Route:
     # answer_question은 LLM 생성 답변을 절대 사용하지 않는다.
     if r.intent == "answer_question":
         r.reply_text = None
+
+    # 현재 메시지에 등록 작품명이 명시돼 있으면 스레드의 이전 작품보다 우선한다.
+    # <저연프>와 [저연프]를 모두 지원하되 [피드백]/[이미지] 등 명령은 제외한다.
+    explicit_work = _explicit_work_token(text, ctx)
+    if explicit_work:
+        r.work = explicit_work
 
     # “씬 2~5”를 “2~5화”로 팬아웃하는 사고 차단.
     has_scene_range = bool(re.search(r"씬\s*\d+\s*(?:~|-|부터)\s*\d+", text))
