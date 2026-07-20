@@ -1146,7 +1146,8 @@ def _render_cuts(channel, thread_ts, work, bible, source_text, *,
                  aspect_ratio=None, style_suffix=None, no_text=False,
                  retry_shots=None, retry_results=None, retry_cost=0.0,
                  kind=None, orig_rest=None, skip_confirm=False, group_bounds=None,
-                 cut_filter: "set[int] | None" = None, auto_cut_judgment: bool = False):
+                 cut_filter: "set[int] | None" = None, auto_cut_judgment: bool = False,
+                 state_key: str | None = None):
     """source_text(콘티 전체 또는 한 씬)를 컷 분해 → 인물 참조로 생성 → 그리드 업로드.
     retry_shots/retry_results가 주어지면(실패 컷만 재시도, C3): 샷 분해를 새로 안 하고 그
     shots를 그대로 쓰며, retry_results 중 실패(None)한 것만 다시 생성해 성공분과 합친다.
@@ -1159,6 +1160,11 @@ def _render_cuts(channel, thread_ts, work, bible, source_text, *,
     1..N으로 온전히 번호매긴 뒤, 그 결과 중 cut_filter에 있는 번호만 남기고 나머지는 이미지
     생성 루프 전에 버린다(2026-07-15, "긴 씬 전체 대신 컷 몇 개만 뽑고 싶다"). None이면(기존
     모든 호출자) 완전히 기존과 동일하게 동작한다."""
+    # ★2026-07-20 자동주행 씬 병렬화: _LAST_RENDER/_LAST_RENDER_FAIL_REASON는 원래 thread_ts로
+    # 키를 잡는데, 두 씬을 같은 스레드에서 동시에 렌더하면 서로 덮어써서 실패 컷 재시도/사유
+    # 진단이 엉킨다. state_key가 주어지면(=자동주행 씬 병렬 경로) 그 씬 전용 키로 렌더 상태를
+    # 격리한다. 안 주어지면(모든 기존/수동 호출) 예전처럼 thread_ts로 — 동작 변화 없음.
+    _skey = state_key or thread_ts
     img = hf if config.IMAGE_BACKEND == "higgsfield" else oi   # 생성 백엔드(참조 색인은 oi 그대로)
     if not img.available():
         key = "HIGGSFIELD_API_KEY" if config.IMAGE_BACKEND == "higgsfield" else "OPENROUTER_API_KEY"  # 관리자용 설정 키, 사용자 메시지에는 노출하지 않음
@@ -1306,10 +1312,10 @@ def _render_cuts(channel, thread_ts, work, bible, source_text, *,
                 group_bounds = [(s, min(e, len(shots))) for s, e in group_bounds if s < len(shots)]
         except Exception as e:
             log.exception("shots failed")
-            _set_render_fail_reason(thread_ts, "컷 분해 중 오류가 났어요.")
+            _set_render_fail_reason(_skey, "컷 분해 중 오류가 났어요.")
             _post_chunks(channel, thread_ts, "컷 분해 중 오류가 났어요. 잠시 후 다시 시도해주세요.", replace_ts=ph); return
         if not shots:
-            _set_render_fail_reason(thread_ts, "컷을 못 만들었어요(샷 리스트가 비어있음).")
+            _set_render_fail_reason(_skey, "컷을 못 만들었어요(샷 리스트가 비어있음).")
             _post_chunks(channel, thread_ts, "컷을 못 만들었어요.", replace_ts=ph); return
         if not skip_confirm and target is None and kind and len(shots) >= _CUT_CONFIRM_THRESHOLD:
             _PENDING_CUT_CONFIRM[thread_ts] = {
@@ -1427,10 +1433,10 @@ def _render_cuts(channel, thread_ts, work, bible, source_text, *,
                 msg += "\n(세이프티 필터 거부는 그 컷의 표현·소재를 순화해서 다시 시도하면 대부분 통과돼요.)"
         else:
             msg = "이미지 생성이 모두 실패했어요. (키/모델/쿼터 확인)"
-        _set_render_fail_reason(thread_ts, msg)
+        _set_render_fail_reason(_skey, msg)
         _post_chunks(channel, thread_ts, msg, replace_ts=ph); return
-    _LAST_RENDER_FAIL_REASON.pop(thread_ts, None)   # 이번엔 성공(부분 성공 포함) — 이전 실패 사유는 폐기
-    _LAST_RENDER[thread_ts] = {
+    _LAST_RENDER_FAIL_REASON.pop(_skey, None)   # 이번엔 성공(부분 성공 포함) — 이전 실패 사유는 폐기
+    _LAST_RENDER[_skey] = {
         "work": work, "bible": bible, "shots": shots, "results": results,
         "target": target, "title": title, "filename": filename, "cols": cols,
         "aspect_ratio": aspect_ratio, "style_suffix": style_suffix, "no_text": no_text,
@@ -5764,22 +5770,25 @@ _AUTOPILOT_SAFETY_SOFTEN_SUFFIX = (
 )
 
 def _autopilot_render_still_batch(channel, thread_ts, work, bible, num, episode,
-                                  batch_source_text, target, batch_index):
+                                  batch_source_text, target, batch_index, state_key=None):
     """한 배치(≤4컷) 렌더 + 기존 컷 단위 세이프티/오류 1회 재시도. 반환: (grid_png, cuts, gave_up)
-    또는 전멸 시 (None, None, [])."""
+    또는 전멸 시 (None, None, []).
+    ★2026-07-20 state_key: 씬 병렬 시 _LAST_RENDER를 씬별로 격리하는 키(안 주면 thread_ts)."""
+    _skey = state_key or thread_ts
     res = _render_cuts_tracked(
         "stills", f"[자동주행] {work} {episode or 0}화 씬{num}", channel, thread_ts, work, bible,
         batch_source_text, target=target, cols=min(target, 2), skip_confirm=True,
         aspect_ratio=STILL_ASPECT, style_suffix=_style_for_work(work), no_text=True,
-        title=f"스틸컷 씬{num}", filename=f"still_{work or 'ep'}_s{num}_b{batch_index}.png")
+        title=f"스틸컷 씬{num}", filename=f"still_{work or 'ep'}_s{num}_b{batch_index}.png",
+        state_key=_skey)
     if not res:
         return None, None, []
     grid_png, cuts = res
 
     gave_up: list[tuple[int, str]] = []
-    # ★2026-07-15: 방금 그 _render_cuts_tracked 호출이 이 스레드에서 마지막으로 쓴 _LAST_RENDER를
-    # 이 시점(다음 배치 렌더 시작 전)에 바로 읽으므로 이 배치의 실패 정보가 맞다(배치 루프 순차 처리).
-    st = _LAST_RENDER.get(thread_ts)
+    # ★2026-07-15: 방금 그 _render_cuts_tracked 호출이 이 씬(state_key)에서 마지막으로 쓴
+    # _LAST_RENDER를 바로 읽으므로 이 배치의 실패 정보가 맞다(배치 루프 순차 처리, 씬별 격리).
+    st = _LAST_RENDER.get(_skey)
     if st and st.get("fail_reasons"):
         shots = list(st["shots"])
         results = list(st["results"])
@@ -5794,10 +5803,11 @@ def _autopilot_render_still_batch(channel, thread_ts, work, bible, num, episode,
             "stills", "", channel, thread_ts, work, bible, st["source_text"],
             target=st["target"], title=st["title"], filename=st["filename"], cols=st["cols"],
             aspect_ratio=st["aspect_ratio"], style_suffix=st["style_suffix"], no_text=st["no_text"],
-            retry_shots=retry_shots, retry_results=results, retry_cost=st["total_cost"])
+            retry_shots=retry_shots, retry_results=results, retry_cost=st["total_cost"],
+            state_key=_skey)
         if retry_res:
             grid_png, cuts = retry_res
-            st2 = _LAST_RENDER.get(thread_ts) or {}
+            st2 = _LAST_RENDER.get(_skey) or {}
             still_failed = st2.get("fail_reasons") or {}
             final_shots = st2.get("shots") or shots
         else:   # 재시도 자체가 전멸(패닉 실패 등)하면 원래 실패분을 그대로 포기 처리
@@ -5839,6 +5849,7 @@ def _autopilot_stills_for_scene(channel, thread_ts, work, bible, num, hdr, body,
     episode = (conti_state.get_episode(thread_ts) or {}).get("episode")
     dm = re.search(r"(\d+)\s*초", hdr)
     scene_seconds = int(dm.group(1)) if dm else None
+    _skey = f"{thread_ts}#s{num}"   # ★2026-07-20 씬 병렬: 렌더 상태를 씬별로 격리
 
     beat_matches = list(_BEAT_TAG_RE.finditer(body))
     if not beat_matches:
@@ -5873,10 +5884,11 @@ def _autopilot_stills_for_scene(channel, thread_ts, work, bible, num, hdr, body,
         batch_end_num = offset + batch_target
         batch_source_text = f"■ 씬{num} · {hdr}\n{batch_body}"
         grid_png, cuts, gave_up = _autopilot_render_still_batch(
-            channel, thread_ts, work, bible, num, episode, batch_source_text, batch_target, bi)
+            channel, thread_ts, work, bible, num, episode, batch_source_text, batch_target, bi,
+            state_key=_skey)
         if not cuts:
             # ★배치 전멸 — 씬 전체를 포기하던 예전 로직을 배치 단위로 축소해 재사용.
-            reason = _LAST_RENDER_FAIL_REASON.get(thread_ts) or "사유 불명(로그 확인 필요)"
+            reason = _LAST_RENDER_FAIL_REASON.get(_skey) or "사유 불명(로그 확인 필요)"
             adjusted_body = None
             if "컷 분해 중 오류" in reason:
                 adjusted_body = (batch_body + "\n\n(★재시도 — 직전 시도에서 JSON 파싱에 실패했어요: 반드시 "
@@ -5891,9 +5903,10 @@ def _autopilot_stills_for_scene(channel, thread_ts, work, bible, num, hdr, body,
             if adjusted_body is not None:
                 retry_source_text = f"■ 씬{num} · {hdr}\n{adjusted_body}"
                 grid_png, cuts, gave_up = _autopilot_render_still_batch(
-                    channel, thread_ts, work, bible, num, episode, retry_source_text, batch_target, bi)
+                    channel, thread_ts, work, bible, num, episode, retry_source_text, batch_target, bi,
+                    state_key=_skey)
             if not cuts:
-                reason2 = _LAST_RENDER_FAIL_REASON.get(thread_ts) or "사유 불명(로그 확인 필요)"
+                reason2 = _LAST_RENDER_FAIL_REASON.get(_skey) or "사유 불명(로그 확인 필요)"
                 if adjusted_body is not None:
                     batch_failures.append(
                         f"씬{num} 배치{bi}(컷{batch_start_num}~{batch_end_num}) — 1차: {reason} / "
@@ -5946,6 +5959,7 @@ def _autopilot_regen_missing_stills(channel, thread_ts, work, bible, num, hdr, b
     if not beat_matches:
         return None, None   # 비트가 없으면 컷↔비트 매핑을 못 하므로 호출부가 전체 재생성으로 폴백
     preamble = body[:beat_matches[0].start()]
+    _skey = f"{thread_ts}#s{num}"   # ★2026-07-20 씬 병렬: 렌더 상태 씬별 격리
     new_cuts: list[dict] = []
     gave_up: list[tuple[int, str]] = []
     for n in sorted(missing_ns):
@@ -5959,9 +5973,9 @@ def _autopilot_regen_missing_stills(channel, thread_ts, work, bible, num, hdr, b
         src = f"■ 씬{num} · {hdr}\n{preamble}{beat_text}"
         _reply(channel, thread_ts, f"🎯 씬{num} 컷{n}만 다시 만드는 중… (지워진 스틸컷)")
         grid_png, cuts, gu = _autopilot_render_still_batch(
-            channel, thread_ts, work, bible, num, episode, src, 1, n)
+            channel, thread_ts, work, bible, num, episode, src, 1, n, state_key=_skey)
         if not cuts:
-            reason = _LAST_RENDER_FAIL_REASON.get(thread_ts) or "사유 불명"
+            reason = _LAST_RENDER_FAIL_REASON.get(_skey) or "사유 불명"
             gave_up.append((n, f"생성 실패(재시도 후에도): {reason}"))
             continue
         c = cuts[0]
@@ -6551,86 +6565,74 @@ def _do_autopilot(channel, thread_ts, rest, skip_stage_picker: bool = False):
                 scene_cuts[num] = (existing_cuts, scene_seconds)
                 _submit_video(num, existing_cuts, scene_seconds)
         else:
-          _reply(channel, thread_ts, "✅ 등록 확인 완료 → 4/6 샷분해·스틸컷 생성 중…"
-                + ("(씬별로 스틸컷이 끝나는 즉시 그 씬 영상화를 백그라운드로 시작하고, 다음 씬 스틸컷을 이어서 진행해요)"
+          _reply(channel, thread_ts, "✅ 등록 확인 완료 → 4/6 샷분해·스틸컷 생성 중… (씬 최대 2개 동시)"
+                + ("(스틸컷이 끝나는 즉시 그 씬 영상화를 백그라운드로 넘겨요)"
                    if end_stage >= 5 else ""))
-          for num, hdr, body in scenes:
-            if thread_ts in _CANCEL:
-                if video_pool is not None:
-                    video_pool.shutdown(wait=False, cancel_futures=True)
-                if _autopilot_cancelled(channel, thread_ts, f"4/6 샷분해·스틸컷(씬{num} 시작 전)"):
-                    return
-            # ★2026-07-15 "단계 안에서의 재개" — 4단계 도중 취소하고 같은 화로 다시 돌리면 이미
-            # 끝난 씬까지 처음부터 다시 만들던 문제. 이 씬이 이미 (기대 컷 수만큼) 저장돼있으면
-            # 재생성 없이 그대로 재사용한다.
-            n_beats = len(_BEAT_TAG_RE.findall(body))
-            expect_n = n_beats if n_beats else STILL_CUTS_DEFAULT
-            dm = re.search(r"(\d+)\s*초", hdr)
-            scene_seconds = int(dm.group(1)) if dm else None
-            existing_cuts = vp_store.load_latest_cuts(work, num, episode=episode) or []
-            existing_ns = {c["n"] for c in existing_cuts}
-            missing_ns = {n for n in range(1, expect_n + 1) if n not in existing_ns}
-            if existing_cuts and not missing_ns:
-                scene_cuts[num] = (existing_cuts, scene_seconds)
-                _submit_video(num, existing_cuts, scene_seconds)
-                _reply(channel, thread_ts, f"⏭️ 씬{num}은 이미 스틸컷이 다 있어 다시 안 만들고 이어가요.")
-                continue
-            # ★2026-07-20 "없는 스틸컷만 체크해서 그것만 재생성" — 일부만 있고 일부만 빠진 씬은
-            # (사용자가 맘에 안 드는 컷만 지운 경우 등) 씬 전체를 다시 만들지 않고 빠진 컷만
-            # 골라 만든다. 비트↔컷 매핑이 되는 경우(_BEAT_TAG_RE)에만 시도하고, 매핑이 안 되거나
-            # (비트 없는 옛 콘티) 아예 하나도 없으면 아래 전체 생성으로 폴백. 새로 만든 컷은
-            # 스틸컷이 바뀌었으니 그 컷의 옛 영상도 다시 만들어야 해 force_regen_ns로 넘긴다;
-            # 그대로 둔 기존 컷은 영상이 없으면 채우고 있으면 재사용한다.
-            if existing_cuts and missing_ns and n_beats:
-                new_cuts, regen_gave_up = _autopilot_regen_missing_stills(
-                    channel, thread_ts, work, bible, num, hdr, body, missing_ns, episode)
-                if new_cuts is not None:
-                    merged = sorted(existing_cuts + new_cuts, key=lambda c: c["n"])
-                    scene_cuts[num] = (merged, scene_seconds)
-                    _submit_video(num, merged, scene_seconds,
-                                  force_regen_ns={c["n"] for c in new_cuts})
-                    pending_review += [f"씬{num} 스틸컷 컷{c} — {reason}" for c, reason in (regen_gave_up or [])]
-                    made = ", ".join(f"컷{c['n']}" for c in new_cuts) or "없음"
-                    _reply(channel, thread_ts,
-                          f"🎯 씬{num} — 빠진 스틸컷만 다시 만들었어요({made}), 나머지 {len(existing_ns)}컷은 그대로 유지.")
-                    continue
-            # ★2026-07-15 "그 씬 전체를 다 만들고 나서야 영상화 시작하지 말고 4컷 배치마다 끝나는
-            # 대로 바로 영상화 넘기게" — 스틸컷 생성을 씬 내부에서 ≤4컷 배치로 쪼개 배치가 끝날
-            # 때마다(검수까지 마친 뒤) on_batch_ready로 그 배치를 곧장 _submit_video에 넘긴다.
-            # 배치 전체 전멸 시의 diagnose→adjust→retry(예전엔 여기 씬 단위로 있던 로직)는 이제
-            # _autopilot_stills_for_scene 내부에서 배치 단위로 수행되므로 여기서는 그 결과
-            # (batch_failures)만 받아 skipped_scenes에 반영한다 — 일부 배치만 실패해도 씬 전체를
-            # 버리지 않고 성공한 배치들의 컷으로 scene_cuts를 채운다.
-            try:
-                cuts, scene_seconds, gave_up, batch_failures = _autopilot_stills_for_scene(
-                    channel, thread_ts, work, bible, num, hdr, body, vision_deadline=vision_deadline,
-                    # ★2026-07-20 스틸컷을 방금 새로 만든 씬이니 옛 영상은 새 스틸컷과 안 맞는다 —
-                    # force_regen=True로 이 씬 영상은 기존 게 있어도 무조건 다시 만든다.
-                    on_batch_ready=lambda batch_cuts, ss, n=num: _submit_video(n, batch_cuts, ss, force_regen=True))
-            except Exception:
-                # ★2026-07-20 "안전필터 걸리면 자동주행이 멈춤" — 씬 하나의 스틸컷 생성이 예상 못 한
-                # 예외로 죽어도 자동주행 전체를 멈추지 말고 그 씬만 건너뛰고 계속(코드 전반의
-                # "실패해도 계속 진행" 원칙과 동일). 안전필터 자체는 배치 단위에서 이미 flag/continue로
-                # 처리되지만, 그 주변에서 나는 예상 밖 예외까지 여기서 최종적으로 삼킨다.
-                log.exception("자동주행 씬%s 스틸컷 생성 예외 — 이 씬 건너뛰고 계속", num)
-                skipped_scenes.append(f"씬{num} — 스틸컷 생성 중 예외(로그 확인)")
-                continue
-            if thread_ts in _CANCEL:
-                if video_pool is not None:
-                    video_pool.shutdown(wait=False, cancel_futures=True)
-                if _autopilot_cancelled(channel, thread_ts, f"4/6 샷분해·스틸컷(씬{num})"):
-                    return
-            skipped_scenes.extend(batch_failures)
-            if not cuts:
-                # 이 씬의 모든 배치가 실패한 경우에만 씬 자체를 완전히 건너뛴다(scene_cuts 미설정,
-                # 영상화도 이미 배치별로 on_batch_ready가 한 번도 안 불렸으니 자동으로 안 일어남).
-                _reply(channel, thread_ts, f"❌ 씬{num} 스틸컷 생성에 실패해 이 씬은 건너뛰어요 — 다음 씬 계속 진행할게요.")
-                continue
-            # ★2026-07-15: 개별 컷 생성 실패(재시도 후에도)와 vision 일관성 재검사 실패(flagged) 둘
-            # 다 _autopilot_stills_for_scene이 배치 단위로 이미 최종 문구까지 포맷해 gave_up 하나로
-            # 합쳐 반환한다(자세한 내용은 그 함수 docstring 참고) — 여기서는 그대로 이어붙이면 된다.
-            pending_review += [f"씬{num} 스틸컷 컷{c} — {reason}" for c, reason in gave_up]
-            scene_cuts[num] = (cuts, scene_seconds)
+          # ★2026-07-20 "씬 장소가 다르면 스틸컷을 병렬로 만들어도 되잖아" — 씬 스틸컷끼리는 데이터
+          # 의존이 없다(각 씬은 자기 콘티+바이블+등록 참조 이미지만 씀 — 이전 씬 결과에 안 기댐).
+          # 그래서 장소 무관 병렬화가 안전하다. 유일한 충돌원이던 렌더 상태 전역(_LAST_RENDER/
+          # _LAST_RENDER_FAIL_REASON)은 위에서 씬별 state_key(f"{thread_ts}#s{num}")로 격리했다.
+          # 사용자 선택대로 최대 2씬 동시(씬당 이미지 4병렬은 그대로 → 최대 동시 이미지 호출 ~8).
+          # scene_cuts[num] 대입·pending_review/skipped_scenes append는 GIL 하에서 안전하고,
+          # 영상화 video_pool(max_workers=1)은 그대로라 영상 생성은 여전히 순차로 유지된다.
+          def _one_scene(num, hdr, body):
+              if thread_ts in _CANCEL:
+                  return
+              n_beats = len(_BEAT_TAG_RE.findall(body))
+              expect_n = n_beats if n_beats else STILL_CUTS_DEFAULT
+              dm = re.search(r"(\d+)\s*초", hdr)
+              scene_seconds = int(dm.group(1)) if dm else None
+              existing_cuts = vp_store.load_latest_cuts(work, num, episode=episode) or []
+              existing_ns = {c["n"] for c in existing_cuts}
+              missing_ns = {n for n in range(1, expect_n + 1) if n not in existing_ns}
+              if existing_cuts and not missing_ns:
+                  scene_cuts[num] = (existing_cuts, scene_seconds)
+                  _submit_video(num, existing_cuts, scene_seconds)
+                  _reply(channel, thread_ts, f"⏭️ 씬{num}은 이미 스틸컷이 다 있어 다시 안 만들고 이어가요.")
+                  return
+              # 일부만 있고 일부만 빠진 씬 → 빠진 컷만 재생성(위 커밋 참고). 새로 만든 컷 영상은
+              # 새 스틸컷 기준으로 다시 만들게 force_regen_ns로 넘긴다.
+              if existing_cuts and missing_ns and n_beats:
+                  new_cuts, regen_gave_up = _autopilot_regen_missing_stills(
+                      channel, thread_ts, work, bible, num, hdr, body, missing_ns, episode)
+                  if new_cuts is not None:
+                      merged = sorted(existing_cuts + new_cuts, key=lambda c: c["n"])
+                      scene_cuts[num] = (merged, scene_seconds)
+                      _submit_video(num, merged, scene_seconds,
+                                    force_regen_ns={c["n"] for c in new_cuts})
+                      pending_review.extend(f"씬{num} 스틸컷 컷{c} — {reason}" for c, reason in (regen_gave_up or []))
+                      made = ", ".join(f"컷{c['n']}" for c in new_cuts) or "없음"
+                      _reply(channel, thread_ts,
+                            f"🎯 씬{num} — 빠진 스틸컷만 다시 만들었어요({made}), 나머지 {len(existing_ns)}컷은 그대로 유지.")
+                      return
+              try:
+                  cuts, ss, gave_up, batch_failures = _autopilot_stills_for_scene(
+                      channel, thread_ts, work, bible, num, hdr, body, vision_deadline=vision_deadline,
+                      on_batch_ready=lambda batch_cuts, s2, n=num: _submit_video(n, batch_cuts, s2, force_regen=True))
+              except Exception:
+                  # 씬 하나의 스틸컷 생성이 예상 못 한 예외로 죽어도 그 씬만 건너뛰고 계속.
+                  log.exception("자동주행 씬%s 스틸컷 생성 예외 — 이 씬 건너뛰고 계속", num)
+                  skipped_scenes.append(f"씬{num} — 스틸컷 생성 중 예외(로그 확인)")
+                  return
+              skipped_scenes.extend(batch_failures)
+              if not cuts:
+                  _reply(channel, thread_ts, f"❌ 씬{num} 스틸컷 생성에 실패해 이 씬은 건너뛰어요 — 다른 씬은 계속 진행해요.")
+                  return
+              pending_review.extend(f"씬{num} 스틸컷 컷{c} — {reason}" for c, reason in gave_up)
+              scene_cuts[num] = (cuts, ss)
+
+          with cf.ThreadPoolExecutor(max_workers=2) as _spool:
+              _sfuts = [_spool.submit(_one_scene, _n, _h, _b) for _n, _h, _b in scenes]
+              for _f in cf.as_completed(_sfuts):
+                  try:
+                      _f.result()
+                  except Exception:
+                      log.exception("자동주행 씬 병렬 처리 워커 예외 — 다른 씬은 계속")
+          if thread_ts in _CANCEL:
+              if video_pool is not None:
+                  video_pool.shutdown(wait=False, cancel_futures=True)
+              if _autopilot_cancelled(channel, thread_ts, "4/6 샷분해·스틸컷"):
+                  return
 
         # ★2026-07-15 "어디 단계에서 끝날지" — 재시도/gap/건너뛴 씬/확인필요 컷을 나열하는 로직은
         # 원래 6단계 끝에서만 한 번 만들어졌던 것을 부분 실행에서도 재사용할 수 있게 뽑아낸다.
