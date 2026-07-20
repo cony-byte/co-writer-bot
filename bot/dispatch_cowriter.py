@@ -2913,6 +2913,8 @@ def _autosync_link(channel: str, thread_ts: str, url: str, explicit: str | None 
                      f"🔄 *{work}* 노션 동기화 완료 — {done}개 반영. 이어서 요청 처리할게요…", replace_ts=ph)
     return work
 
+_SYNC_INFLIGHT: set = set()   # ★2026-07-20 동기화 진행 중인 작품(중복 [동기화] 방지)
+
 def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
     """[동기화] — 노션 링크만 주면: ①MCP 연결 확인 ②처음 보는 페이지면 제목으로 새 작품(시트) 생성.
     링크 대신 `<작품>` + 내용 붙여넣기도 지원. LLM이 스키마로 파싱 → 시트 upsert."""
@@ -3008,6 +3010,23 @@ def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
         _update_note(channel, ph, note)            # 읽는 중 플레이스홀더 재사용
     else:
         ph = _thinking(channel, thread_ts, note)
+    # ★2026-07-20 "동기화가 계속 '…중'에서 멈춘 것 같다" — 실제로는 페이지 전체를 LLM으로
+    # 파싱하는 단일 호출(최대 10분)이라 느릴 뿐인데, 진행 표시가 없어 죽은 것처럼 보였고
+    # 사용자가 [동기화]를 여러 번 눌러 같은 작업이 중복 실행됐다. (1) 같은 작품이 이미
+    # 동기화 중이면 중복 실행을 막고, (2) 20초마다 경과 시간을 갱신해 살아있음을 보여준다.
+    if work in _SYNC_INFLIGHT:
+        _post_chunks(channel, thread_ts,
+                     f"⏳ <{work}> 동기화가 이미 진행 중이에요 — 끝나면 결과가 올라와요. "
+                     "노션 페이지가 크면 1~2분 걸릴 수 있어요(같은 링크를 여러 번 안 눌러도 돼요).",
+                     replace_ts=ph)
+        return
+    _SYNC_INFLIGHT.add(work)
+    _hb_stop = threading.Event()
+    _hb_start = time.monotonic()
+    def _hb():
+        while not _hb_stop.wait(20):
+            _update_note(channel, ph, f"{note} (경과 {int(time.monotonic() - _hb_start)}초)")
+    _hb_t = threading.Thread(target=_hb, daemon=True); _hb_t.start()
     try:
         done, failed, summary = _sync_apply(sheet, work, content)
     except ValueError:   # JSON 파싱 실패
@@ -3031,6 +3050,10 @@ def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
         log.exception("sync failed")
         _post_chunks(channel, thread_ts, "동기화 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", replace_ts=ph)
         return
+    finally:
+        _hb_stop.set()
+        _hb_t.join(timeout=1)
+        _SYNC_INFLIGHT.discard(work)
     if _cancelled(channel, thread_ts, ph):
         return
     if not done:
