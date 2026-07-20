@@ -3049,19 +3049,14 @@ def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
     _hb_t = threading.Thread(target=_hb, daemon=True); _hb_t.start()
     try:
         done, failed, summary = _sync_apply(sheet, work, content)
-    except ValueError:   # JSON 파싱 실패
-        # 인식된 섹션이 0개일 때 뭘 찾았는지(헤딩/블록)까지 보여줘야 사용자가 뭘 고쳐야
-        # 할지 알 수 있음(2026-07-15) — 소제목 후보로 보이는 줄만 추려 함께 안내.
-        found = [ln.strip("# ").strip() for ln in content.split("\n")
-                 if ln.strip().startswith("#") or (ln.strip() and len(ln.strip()) <= 20
-                                                    and ln.strip().endswith((":", "："))
-                                                    )][:5]
-        found = [f for f in found if f]
-        detail = (f" 지금 페이지엔 {', '.join(found)} 같은 블록만 보이고 "
-                  "줄거리/등장인물/회차분배/개요 소제목이 안 보여요." if found
-                  else " 지금 페이지엔 소제목으로 보이는 줄이 하나도 없어요.")
-        msg = ("노션 내용을 구조로 못 읽었어요." + detail
-               + " 예: `## 줄거리` 처럼 소제목을 달아주세요.")
+    except ValueError:   # 두 차례 모두 JSON 파싱 실패
+        # 소제목 형식을 사용자에게 강요하지 않는다. 제목/굵은 문단/토글/일반 문단까지
+        # 이미 폴백으로 읽은 뒤의 실패이므로, 실제 원인은 내용 부재 또는 모델 응답 오류다.
+        preview = [ln.strip("# ").strip() for ln in content.split("\n")
+                   if ln.strip()][:5]
+        detail = f" 읽힌 앞부분: {' / '.join(preview)}" if preview else " 읽힌 텍스트가 비어 있어요."
+        msg = ("노션 페이지는 읽었지만 작품 설정 항목으로 변환하지 못했어요." + detail
+               + " 페이지를 수정할 필요는 없어요. 잠시 후 같은 링크로 다시 시도해 주세요.")
         if _is_dup_last(channel, thread_ts, msg):
             msg = "(바로 위와 같은 이유로) 이번에도 반영된 항목이 없어요."
         _post_chunks(channel, thread_ts, msg, replace_ts=ph)
@@ -3121,13 +3116,51 @@ def _normalize_gu(raw: str) -> str:
     m = re.match(r"\s*(\d+)\s*막(?=\s|[.,!?/·\-–—]|$)", raw or "")
     return f"{m.group(1)}막" if m else (raw or "").strip()
 
+def _normalize_sync_source(content: str) -> str:
+    """헤딩 없는 노션 평문에서 명시적인 섹션 라벨만 안전하게 헤딩으로 승격.
+
+    Notion API 변환 전 단계에서 제목 annotations를 잃었거나 사용자가 `줄거리:` 같은
+    일반 문단으로 섹션을 만든 경우를 위한 폴백이다. 원문 내용은 바꾸지 않는다.
+    """
+    labels = {
+        "진행상태", "로그라인", "키워드", "타겟층", "핵심정서", "금지사항",
+        "강도", "줄거리", "등장인물", "인물", "캐릭터", "회차분배",
+        "회차 분배", "개요", "대본", "상세콘티", "상세 콘티", "콘티",
+    }
+    out = []
+    for line in (content or "").splitlines():
+        stripped = line.strip()
+        clean = stripped.strip("#:： ").strip()
+        if stripped and not stripped.startswith("#") and clean in labels:
+            out.append(f"## {clean}")
+        elif (stripped.endswith(":") or stripped.endswith("：")) and clean in labels:
+            out.append(f"## {clean}")
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
 def _sync_apply(sheet, work: str, content: str) -> tuple[int, int, list]:
     """동기화 소스 텍스트 → LLM 스키마 파싱 → 시트 upsert. 슬랙 무관(백그라운드 재사용).
-    반환 (done, failed, summary). JSON 파싱 실패 시 ValueError."""
+    반환 (done, failed, summary). 1차 JSON 파싱 실패 시 헤딩 없는 문서용 엄격 재시도."""
     from bot.sheet_bible import CHAR_SUBS
-    raw = generator.complete(prompts.SYNC_SYSTEM + content,
+    source = _normalize_sync_source(content)
+    raw = generator.complete(prompts.SYNC_SYSTEM + source,
                              "위 문서를 스키마 JSON으로 변환하라.", timeout=600)
-    data = _json_loads(raw)   # 실패 시 예외 → 호출부가 ValueError로 처리
+    try:
+        data = _json_loads(raw)
+    except (ValueError, TypeError, json.JSONDecodeError):
+        log.warning("sync 1차 JSON 파싱 실패 — 헤딩 없는 문서 모드로 1회 재시도")
+        retry_system = (prompts.SYNC_SYSTEM
+                        + "\n추가 규칙: 이 문서에는 마크다운 소제목이 없을 수 있다. "
+                          "소제목 유무와 무관하게 의미를 읽고, 반드시 유효한 JSON 객체만 출력하라.\n"
+                        + source)
+        raw = generator.complete(
+            retry_system,
+            "설명이나 코드펜스 없이 유효한 JSON 객체 하나만 출력하라.",
+            timeout=600,
+        )
+        data = _json_loads(raw)
     done = failed = 0
     summary: list = []
 
