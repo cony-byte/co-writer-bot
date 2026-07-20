@@ -7,6 +7,6 @@
   "editorType": ["figma"],
   "networkAccess": {
     "allowedDomains": ["none"],
-    "devAllowedDomains": ["localhost:8933"]
+    "devAllowedDomains": ["localhost:8933", "koniui-macmini.local:8933"]
   }
 }

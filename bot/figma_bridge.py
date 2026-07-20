@@ -201,9 +201,12 @@ def start_server() -> None:
     global _server
     if _server is not None or not config.FIGMA_BRIDGE_ENABLED:
         return
-    _server = ThreadingHTTPServer(("127.0.0.1", config.FIGMA_BRIDGE_PORT), _Handler)
+    # ★슬랙/피그마가 봇과 다른 기기에 있는 구성 지원 — 같은 LAN의 다른 기기(피그마 데스크톱 앱)가
+    # 붙을 수 있어야 하므로 로컬호스트가 아니라 모든 인터페이스에 바인딩한다. 인증이 없는 로컬
+    # 큐 브릿지이므로 신뢰되는 사무실 LAN 밖으로 이 포트를 노출하지 않도록 주의해야 한다.
+    _server = ThreadingHTTPServer(("0.0.0.0", config.FIGMA_BRIDGE_PORT), _Handler)
     threading.Thread(target=_server.serve_forever, daemon=True).start()
-    log.info(f"피그마 브릿지 서버 시작: http://127.0.0.1:{config.FIGMA_BRIDGE_PORT} "
+    log.info(f"피그마 브릿지 서버 시작: http://0.0.0.0:{config.FIGMA_BRIDGE_PORT} "
             f"(큐: {config.FIGMA_QUEUE_DIR})")
 
 
