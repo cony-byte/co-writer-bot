@@ -6377,6 +6377,24 @@ def _do_autopilot(channel, thread_ts, rest, skip_stage_picker: bool = False):
               f"📊 규모 추정: {len(scenes)}개 씬, 약 {total_beats}컷 예상 — 이미지+영상 생성이 이어서 "
               "진행돼요(합본 전까지 별도 확인 없음). 중간에 멈추려면 \"취소\"/\"중단\"이라고 답해주세요.")
 
+        # ★2026-07-20 "다시 [자동주행] 하면 그전에 비어있는 스틸컷이랑 영상도 체크해" — 재개일 때
+        # 실제 생성 들어가기 전에 씬별로 이미 뭐가 저장돼있는지 한눈에 보여준다(체크가 되고 있는지
+        # 눈에 안 보인다는 지적 대응). 스틸컷은 load_latest_cuts, 영상은 find_existing_video로
+        # 디스크를 직접 조회 — 여기 "완비"로 뜬 씬은 아래 루프에서 그대로 건너뛴다.
+        if resumed_progress:
+            scan_lines = []
+            for _n, _hdr, _body in scenes:
+                _expect = len(_BEAT_TAG_RE.findall(_body)) or STILL_CUTS_DEFAULT
+                _have_cuts = vp_store.load_latest_cuts(work, _n, episode=episode) or []
+                _s_have = len(_have_cuts)
+                _v_have = sum(1 for _c in _have_cuts
+                              if vp_store.find_existing_video(work, _n, _c.get("n"), episode=episode))
+                _s_mark = "✅" if _s_have >= _expect else ("⚠️" if _s_have else "❌")
+                _v_mark = "✅" if (_s_have and _v_have >= _s_have) else ("⚠️" if _v_have else "❌")
+                scan_lines.append(f"· 씬{_n}: 스틸컷 {_s_mark}{_s_have}/{_expect} · 영상 {_v_mark}{_v_have}/{_s_have or _expect}")
+            _reply(channel, thread_ts,
+                  "🔎 재개 전 점검 — 이미 있는 건 건너뛰고 빠진 것만 채울게요:\n" + "\n".join(scan_lines))
+
         pending_review = []
         skipped_scenes: list[str] = []  # ★2026-07-15: 씬 전체 실패는 pending_review(컷 단위 확인)보다
         # 더 나쁜 상태(완전 누락)라 따로 모아서 최종 요약에서 구분되게 보여준다.
