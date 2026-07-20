@@ -1336,7 +1336,10 @@ def _render_cuts(channel, thread_ts, work, bible, source_text, *,
             refs = [u for _role, u, *_ in ref_entries]
             if prev_png:
                 refs = list(refs) + [oi.png_data_url(prev_png)]
-            prompt = f"{s['prompt']}, {style_suffix}" if style_suffix else s["prompt"]
+            # ★2026-07-20c: style_suffix를 씬 프롬프트 뒤에 붙이면(예전 순서) 스튜디오/카메라
+            # 장비를 묘사하는 장면일 때 그 내용에 화풍 지시가 밀려 실제 사진처럼 나오는 사고가
+            # 있었다 — 화풍 지시를 앞에 둬 우선권을 주고, 장면 내용은 그 뒤에 붙인다.
+            prompt = f"{style_suffix}, {s['prompt']}" if style_suffix else s["prompt"]
             # ★2026-07-15: 참조 역할 분리 지시(사용자 제공 — "인물은 얼굴만, 의상은 옷만"
             # 명시적 선언) — 순서 재배치만으론 부족했던 얼굴 참조 옷차림 오염 문제 보강.
             role_block = oi.reference_priority_block(ref_entries)
@@ -2286,6 +2289,13 @@ STYLE_PRESETS = {
         "semi-realistic illustration style, painterly rendering, cinematic still, "
         "natural relaxed facial expression, not stiff or uncanny, "
         "clearly a stylized illustration, not a photograph, "
+        # ★2026-07-20c: 촬영 스튜디오/카메라/슬레이트처럼 장면 내용 자체가 사진·실사를
+        # 강하게 암시하는 씬에서 이 스타일 문구가 뒤에 붙는 것만으로는 밀려 실제 사진처럼
+        # 나오는 사고(실측 — "컷1만 갑자기 실사화") — 장면 내용이 스튜디오/카메라를
+        # 묘사하더라도 렌더링 자체는 항상 이 일러스트 화풍이어야 한다고 명시적으로 못박는다.
+        "even if the scene itself depicts a photo shoot, film set, cameras, or studio "
+        "lighting equipment, the RENDERING of this image must still be a painterly "
+        "illustration, never an actual photograph or photorealistic render, "
         "not resembling any real celebrity or public figure. "
         f"{_IDEALIZED_FACE_GUIDANCE} "
         f"{_STYLE_COMMON_SUFFIX}"
