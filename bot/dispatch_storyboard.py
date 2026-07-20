@@ -2179,6 +2179,8 @@ def _guess_scene_num(conti, instr):
 
 def _do_images(channel, thread_ts, rest):
     work, bible, tail, msgs = _resolve_work_bible(channel, thread_ts, rest)
+    if not _require_genre(channel, thread_ts, work):
+        return
     tm = re.search(r"\b(\d{1,3})\b", tail)          # [이미지] <작품> N → 목표 컷 수
     target = int(tm.group(1)) if tm else None
     epm = re.search(r"(\d{1,3})\s*[화회]", tail)
@@ -3002,6 +3004,8 @@ def _do_stills(channel, thread_ts, rest, feedback=None):
     그 씬(또는 콘티 전체) source_text 끝에 명시적 수정 지시로 덧붙여 3단계 샷분해 LLM이
     반영하게 한다 — rest/tail 파싱(씬 번호·컷수 등)에는 관여하지 않고 프롬프트 내용에만 영향."""
     work, bible, tail, msgs = _resolve_work_bible(channel, thread_ts, rest)
+    if not _require_genre(channel, thread_ts, work):
+        return
     # "컷1,3"/"1-3컷" 등 특정 컷만 골라 뽑는 지정(2026-07-15) — 있으면 아래 'N컷' 총개수
     # 오버라이드보다 우선한다(둘이 동시에 쓰이는 경우는 없다고 가정).
     cut_filter = _parse_cut_filter(tail)
@@ -5273,21 +5277,12 @@ def _do_episode_status(channel, thread_ts, rest):
 # ★2026-07-20 "작품마다 그림체를 다르게 쓰고 싶다" — [스타일] <작품> <스타일명> 명령/자연어로
 # works.py에 저장된 style_key(STYLE_PRESETS 참고)를 바꾼다. 자유롭게 들어오는 표현을 최대한
 # 폭넓게 인식하되, 애매하면 실패시키고 지원 목록을 안내한다(잘못된 값을 조용히 무시하지 않음).
-_STYLE_KEYWORDS = {
-    # 2d_anim을 먼저 검사해야 한다 — "리얼" 계열과 겹치는 단어가 없어 순서 자체는 안전하지만,
-    # 향후 프리셋이 늘어 겹치는 표현이 생기면 이 순서(구체적인 것 먼저)가 중요해진다.
-    "2d_anim": ("2d 애니메이션", "2d애니메이션", "2d 애니", "2d애니", "애니메이션", "애니메",
-               "애니풍", "카툰", "cartoon", "anime", "2d anim"),
-    "realistic": ("실사", "세미리얼", "반실사", "사진풍", "리얼", "realistic", "reality"),
-}
-STYLE_LABELS = {"realistic": "실사풍(세미리얼 일러스트)", "2d_anim": "2D 애니메이션"}
-
-def _parse_style_key(text: str) -> str | None:
-    t = (text or "").lower()
-    for key, keywords in _STYLE_KEYWORDS.items():
-        if any(kw in t for kw in keywords):
-            return key
-    return None
+# ★2026-07-20b: 라벨/키워드 파싱을 bot/shared/works.py로 옮겼다 — dispatch_cowriter.py의
+# 노션 동기화 등록(_do_sync)도 신규 작품 장르를 노션 본문에서 파싱해야 하는데, cw/sb 두
+# dispatch 모듈은 서로를 임포트하지 않는 구조라(순환 임포트 방지) 공용 shared 모듈에 둬야
+# 양쪽이 같은 vocabulary를 쓸 수 있다. 여기서는 기존 호출부가 안 깨지게 그대로 재노출한다.
+STYLE_LABELS = works.STYLE_LABELS
+_parse_style_key = works.parse_style_key
 
 def _do_style(channel, thread_ts, rest):
     """[스타일] <작품> <스타일명> — 그 작품의 스틸컷/영상/소품·의상 참조 그림체를 바꾼다.
@@ -5310,6 +5305,21 @@ def _do_style(channel, thread_ts, rest):
     _reply(channel, thread_ts,
           f"✅ <{w}> 스타일을 *{STYLE_LABELS[style_key]}*로 설정했어요 — 이제부터 스틸컷·영상·"
           "소품/의상 참조가 전부 이 화풍으로 만들어져요(이미 만든 컷은 그대로 유지).")
+
+def _require_genre(channel, thread_ts, work: str | None) -> bool:
+    """★2026-07-20 "노션에도 필수로 추가" — dispatch_cowriter._do_sync가 노션 링크로 신규
+    등록하면서 페이지 본문에서 장르를 못 찾은 작품만 works.mark_genre_required로 표시해둔다
+    (이미 등록돼 있던 작품은 절대 이 표시가 안 붙으므로, 기존 작품들의 생성은 전혀 영향 없다).
+    스틸컷/이미지/자동주행 진입부에서 생성 직전에 이 게이트를 태워, 장르 미지정 신규 작품은
+    `[스타일]`로 먼저 지정해야만 다음 단계로 진행되게 막는다. True=통과, False=막힘(이미
+    안내 메시지도 보냄)."""
+    if not work or not works.genre_required(work):
+        return True
+    _reply(channel, thread_ts,
+          f"⚠️ <{work}>은 아직 장르(실사화/2D 애니메이션) 지정이 필요해요 — 스틸컷·영상 화풍이 "
+          f"여기 달려있어서 먼저 정해야 진행할 수 있어요. `[스타일] <{work}> 실사화` 또는 "
+          f"`[스타일] <{work}> 2d 애니메이션`으로 알려주세요.")
+    return False
 
 # ★2026-07-20: "그림체를 2d 애니메이션으로 바꿔줘"/"스타일 실사로 해줘" 같은 자연어. 화 번호
 # 처리(_maybe_episode_status 등)와 동일하게, 구조적으로 명확한 트리거 문구가 있을 때만 걸리게
@@ -5923,6 +5933,8 @@ def _do_autopilot(channel, thread_ts, rest, skip_stage_picker: bool = False):
         episode = resumed_progress["episode"]
     else:
         episode = int(epm.group(1))
+    if not _require_genre(channel, thread_ts, work):
+        return
     # ★2026-07-15: 사용자 요청 — "1씬만 하게 해서" 테스트로 짧게 돌려보고 싶다는 요구. 자동주행은
     # 원래 화 전체 씬을 다 처리하는데, 첫 실전 테스트는 시간이 오래 걸리는 영상화가 씬 수에
     # 비례해서 순식간에 30분을 넘길 수 있어(컷당 순차로 수 분) 특정 씬 하나만으로 범위를 좁힐
