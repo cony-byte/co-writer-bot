@@ -2724,8 +2724,13 @@ def _generate_video_for_cut(channel, thread_ts, work, title, cut, num, scene_sec
         f"<<<cut{num}.png>>> is the clean approved start frame and must remain the exact "
         f"identity, costume, location, lighting, and screen-direction anchor.\n"
         if is_grid_cut else "")
-    motion_prompt = (f"{grid_anchor}{fiction_lock}{ref_lock}{camera_lock}{tags} {cut['prompt']}. Scene action: {cut['caption']}. "
-                     f"{style_lock} "
+    # ★2026-07-20d: 사용자 실측 — "영상 그림체가 컷마다 들쭉날쭉" — style_lock이 2026-07-15에
+    # scene_text(최대 1200자)보다는 앞으로 옮겨졌지만, 여전히 cut['prompt']/caption(그 컷 자체
+    # 내용)보다는 뒤였다. 스틸컷 쪽에서 같은 증상(촬영장/카메라 묘사가 스타일 지시를 압도)을
+    # 겪고 style_suffix를 씬 프롬프트보다 앞으로 옮겨 해결한 전례를 그대로 적용 — style_lock을
+    # camera_lock 바로 뒤(컷 내용보다 앞)로 옮긴다.
+    motion_prompt = (f"{grid_anchor}{fiction_lock}{ref_lock}{camera_lock}{style_lock} "
+                     f"{tags} {cut['prompt']}. Scene action: {cut['caption']}. "
                      f"Full scene script (Korean, for context/dialogue/emotion — animate only "
                      f"this cut's action, not other cuts in the scene): {scene_text}. "
                      f"Facial expression must stay subtle and natural — very minor, gradual "
