@@ -80,7 +80,8 @@ _WORK_CMDS = cw.CMD_GEN | cw.CMD_FEEDBACK | cw.CMD_FB_FUN | cw.CMD_FB_LOGIC | cw
 # and dispatch.py is where both bots' vocabularies are already in scope together.
 _ALL_CMD_NAMES = sorted(set(cw._ALL_CMD_NAMES) | sb.CMD_STORYBOARD_ALL | sb.CMD_IMG | sb.CMD_STILL
                         | sb.CMD_FILE | sb.CMD_REF | sb.CMD_CONTI_FINAL | sb.CMD_COMPILE
-                        | sb.CMD_RESET_EPISODE | sb.CMD_AUTOPILOT | sb.CMD_EPISODE_STATUS)
+                        | sb.CMD_RESET_EPISODE | sb.CMD_AUTOPILOT | sb.CMD_EPISODE_STATUS
+                        | sb.CMD_STYLE)
 
 
 # ============================================================================
@@ -191,6 +192,7 @@ _STORYBOARD_MAYBE_CHAIN = (
     (sb._maybe_list_works, False),
     (sb._maybe_thread_status, False),
     (sb._maybe_episode_status, False),
+    (sb._maybe_style_change_request, False),
     (sb._maybe_unconfirm_conti, False),
     (sb._maybe_natural_ref, True),
     (sb._maybe_bare_costume_label_request, True),
@@ -407,6 +409,8 @@ def _dispatch_bracket_command(channel: str, thread_ts: str, query: str, event: d
         sb._do_autopilot(channel, thread_ts, rest_f)
     elif cmd in sb.CMD_EPISODE_STATUS:
         sb._do_episode_status(channel, thread_ts, rest_f)
+    elif cmd in sb.CMD_STYLE:
+        sb._do_style(channel, thread_ts, rest_f)
 
     # 3c. unknown-bracket fallback -- co-writer's richer version (notion-link / known-
     # work-tag / generation-verb rescue / typo suggestion). storyboard's own bracket

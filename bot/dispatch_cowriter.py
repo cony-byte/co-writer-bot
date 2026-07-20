@@ -2853,6 +2853,18 @@ def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
         work = explicit or existing or works.sanitize(title) or "제목없음"
         new_work = existing is None and not explicit
         works.register(work, pid)                       # 신규면 등록, 기존이면 매핑 갱신
+        # ★2026-07-20 "노션에도 필수로 추가" — 이 page_id가 처음 등록되는 것이면(existing is
+        # None, <작품>을 명시했든 안 했든 상관없이 — new_work 플래그와 별개 조건) 노션 본문에서
+        # 장르(실사화/2D 애니메이션)를 찾아본다. 있으면 그대로 반영, 없으면 이미 지정된 게
+        # 아닌 이상 "장르 필수" 표시를 남겨 스틸컷/영상 생성 전에 반드시 `[스타일]`로 지정하게
+        # 만든다(works.genre_required — 이미 등록돼 있던 기존 작품은 이 표시가 절대 안 붙으므로
+        # 기존 작품들의 생성 흐름은 전혀 영향받지 않는다).
+        if existing is None:
+            genre_key = works.parse_style_key(content)
+            if genre_key:
+                works.set_style(work, genre_key)
+            elif not works.get_style(work):
+                works.mark_genre_required(work)
         ph = ph0
     else:
         # 링크 없음 → <작품> 필수 + 붙여넣은 내용/등록된 페이지 사용
@@ -2920,6 +2932,13 @@ def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
     if new_work:
         msg += (f"\n\n📌 작품명은 *<{work}>* 이에요! 이렇게 부르면 돼요 → `[생성] <{work}> 3화`\n"
                 f"이름이 길면 답글로 `[별칭] 짧은이름` 만 치면 짧게도 부를 수 있어요. 노션 수정하면 자동 반영돼요.")
+        # ★2026-07-20: 신규 등록인데 노션 본문에서 장르를 못 찾았으면(works.mark_genre_required)
+        # 스틸컷/영상 생성 전에 반드시 알려줘야 한다 — 나중에 스토리보드 단계에서 막히기 전에
+        # 등록 완료 메시지에서 바로 요청.
+        if works.genre_required(work):
+            msg += (f"\n\n⚠️ *필수*: 이 작품의 장르(실사화/2D 애니메이션)를 노션 본문에서 못 찾았어요 "
+                    f"— 스틸컷·영상 만들기 전에 `[스타일] <{work}> 실사화` 또는 "
+                    f"`[스타일] <{work}> 2d 애니메이션`으로 꼭 지정해주세요.")
     if failed:
         msg += f"\n⚠️ {failed}개는 네트워크 문제로 실패 — 다시 `[동기화]` 하면 그 부분만 채워집니다."
     _post_chunks(channel, thread_ts, msg, replace_ts=ph)

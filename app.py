@@ -17,6 +17,7 @@ from bot import generator          # co-writer 쪽 LLM 백엔드 (Claude Agent S
 from bot import sb_generator        # storyboard 쪽 LLM 백엔드 (OpenRouter) — 절대 하나로 합치지 않음
 from bot import dispatch
 from bot import dispatch_cowriter as cw
+from bot import figma_bridge
 from bot.shared.slack_io import app, log
 
 from slack_bolt.adapter.socket_mode import SocketModeHandler
@@ -45,5 +46,8 @@ if __name__ == "__main__":
     # 재시작 복구: co-writer의 inflight 재실행 + storyboard의 job_ledger pending_jobs 재생/안내.
     # (bot/dispatch.py의 start_background_jobs() 참고 — 두 봇의 원래 __main__에 있던 걸 하나로 묶음)
     dispatch.start_background_jobs()
+
+    # ★2026-07-20: 안전필터에 걸린 스틸컷을 피그마로 넘기는 기능 — 꺼져있으면(기본값) no-op.
+    figma_bridge.start_server()
 
     SocketModeHandler(app, config.SLACK_APP_TOKEN).start()

@@ -132,3 +132,74 @@ def add_aliases(work: str, aliases: list) -> str | None:
     d[w] = entry
     _save(d)
     return w
+
+
+# ★2026-07-20: 작품 장르(실사화/2D 애니메이션) — 스틸컷/영상뿐 아니라 co-writer의 노션
+# 동기화 등록 흐름(dispatch_cowriter._do_sync)에서도 참조해야 해서(순환 임포트 방지 —
+# dispatch_cowriter.py/dispatch_storyboard.py는 서로 안 부르고 둘 다 이 shared 모듈만 부름)
+# vocabulary·라벨을 여기 shared/works.py에 둔다. dispatch_storyboard.py는 이 값을 그대로
+# 재노출(alias)해서 기존 호출부를 안 건드린다.
+STYLE_LABELS = {"realistic": "실사풍(세미리얼 일러스트)", "2d_anim": "2D 애니메이션"}
+
+_STYLE_KEYWORDS = {
+    # 2d_anim을 먼저 검사해야 한다 — "리얼" 계열과 겹치는 단어가 없어 순서 자체는 안전하지만,
+    # 향후 프리셋이 늘어 겹치는 표현이 생기면 이 순서(구체적인 것 먼저)가 중요해진다.
+    "2d_anim": ("2d 애니메이션", "2d애니메이션", "2d 애니", "2d애니", "애니메이션", "애니메",
+               "애니풍", "카툰", "cartoon", "anime", "2d anim"),
+    "realistic": ("실사", "세미리얼", "반실사", "사진풍", "리얼", "realistic", "reality"),
+}
+
+
+def parse_style_key(text: str) -> str | None:
+    """자유 텍스트(슬랙 명령이든 노션 페이지 본문이든)에서 장르 키워드를 찾는다."""
+    t = (text or "").lower()
+    for key, keywords in _STYLE_KEYWORDS.items():
+        if any(kw in t for kw in keywords):
+            return key
+    return None
+
+
+def get_style(work: str) -> str | None:
+    """★2026-07-20: 작품마다 스틸컷/영상 그림체(예: realistic/2d_anim)를 다르게 쓰고 싶다는
+    요청 — 등록된 style_key를 반환(없으면 None → 호출자가 기본 스타일을 쓴다)."""
+    w = resolve(work) or work
+    d = _load()
+    return (d.get(w) or {}).get("style")
+
+
+def set_style(work: str, style_key: str) -> str | None:
+    """작품에 그림체를 등록/변경. 반환: 정식 작품명(작품을 못 찾으면 None). 이 작품이
+    genre_required로 표시돼 있었으면(신규 등록 때 장르를 못 찾아 필수로 걸어둔 상태)
+    실제로 지정됐으니 그 표시를 해제한다."""
+    w = resolve(work)
+    if not w:
+        return None
+    d = _load()
+    entry = d.get(w) or {"page": page_of(w) or "", "aliases": []}
+    entry["style"] = style_key
+    entry.pop("genre_required", None)
+    d[w] = entry
+    _save(d)
+    return w
+
+
+def mark_genre_required(work: str) -> None:
+    """★2026-07-20 "노션에도 필수로 추가" — 노션 링크로 신규 등록되는 작품인데 페이지
+    본문에서 장르를 못 찾았을 때만 dispatch_cowriter._do_sync가 호출한다. 이미 등록된
+    작품(이 기능이 생기기 전부터 있던 작품 포함)은 이 함수가 호출되지 않으므로 기존 작품의
+    스틸컷/영상 생성은 전혀 영향받지 않는다 — "새로 등록되는데 장르를 못 찾은 경우"에만
+    좁혀 강제하기 위한 장치."""
+    w = resolve(work) or work
+    d = _load()
+    entry = d.get(w) or {"page": page_of(w) or "", "aliases": []}
+    entry["genre_required"] = True
+    d[w] = entry
+    _save(d)
+
+
+def genre_required(work: str) -> bool:
+    """스틸컷/영상/자동주행 진입부가 생성 전에 확인 — True면 아직 장르 미지정으로 막아야
+    한다(set_style이 호출되는 순간 자동으로 해제됨)."""
+    w = resolve(work) or work
+    d = _load()
+    return bool((d.get(w) or {}).get("genre_required"))

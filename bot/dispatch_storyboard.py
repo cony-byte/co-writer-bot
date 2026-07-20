@@ -10,6 +10,7 @@ import time
 import unicodedata
 import urllib.request
 import uuid
+from pathlib import Path
 from bot import config
 # NOTE (merge-time fix, not part of the mechanical extraction): co-writer-bot and
 # storyboard-bot each have their OWN bot/generator.py and bot/prompts.py with the SAME
@@ -40,6 +41,7 @@ from bot import video_index
 from bot import edit_plan
 from bot import episode_compile
 from bot import openrouter_music as music
+from bot import figma_bridge
 from bot.shared import job_ledger
 from bot import still_state
 from bot import pending_element_state
@@ -94,6 +96,10 @@ CMD_AUTOPILOT = {"자동주행", "자율주행", "autopilot"}
 # 알려준다. 읽기 전용(생성/삭제/job_ledger 아무것도 건드리지 않음) — CMD_RESET_EPISODE와
 # 이름 결이 비슷하지만 파괴적 동작이 없어 danger 버튼 확인 절차가 필요 없다.
 CMD_EPISODE_STATUS = {"진행상황", "미완성확인", "남은작업", "status"}
+
+# ★2026-07-20 "작품마다 그림체를 다르게 쓰고 싶다" — [스타일] <작품> <스타일명> 명령으로
+# works.py에 등록된 style_key(STYLE_PRESETS 참고)를 바꾼다.
+CMD_STYLE = {"스타일", "그림체", "장르", "style", "genre"}
 
 _REF_SAVE_EXTS = (".png", ".jpg", ".jpeg", ".webp")     # openrouter_image._REF_EXTS와 동일해야 함
 
@@ -1714,7 +1720,7 @@ def _generate_element_candidate(work: str, name: str, etype: str, context: str,
         context_sentence = f"Context: {context[:300]}. " if context else ""
         # ★2026-07-15: costume 분기와 동일한 스타일 불일치(포토리얼 vs STILL_STYLE의 세미리얼
         # 일러스트) — prop도 최종 스틸컷과 맞춰 그린다.
-        prompt = (f"Semi-realistic painterly illustration reference of the object '{name}' alone on "
+        prompt = (f"{_element_ref_style_phrase(work)} reference of the object '{name}' alone on "
                   f"a plain neutral background, stylized illustration rendering, not a photograph. "
                   f"{mood_instr}{context_sentence}".strip())
     elif etype == "costume":
@@ -1748,11 +1754,11 @@ def _generate_element_candidate(work: str, name: str, etype: str, context: str,
             "no eye-catching or attention-grabbing details. "
             if not (context or "").strip() else ""
         )
-        prompt = (f"Semi-realistic painterly illustration reference of a clothing outfit called "
+        prompt = (f"{_element_ref_style_phrase(work)} reference of a clothing outfit called "
                   f"'{name}', shown as a flat lay or on an invisible mannequin (no visible face or "
                   "head), on a plain solid white background (no other colors, textures, or props "
                   "in the background), studio product-shot lighting. Stylized illustration rendering "
-                  "matching a semi-realistic cinematic drama look — clearly an illustration, not a "
+                  "matching this drama's cinematic look — clearly an illustration, not a "
                   "photograph. "
                   f"{no_context_instr}"
                   f"{mood_instr}"
@@ -2173,6 +2179,8 @@ def _guess_scene_num(conti, instr):
 
 def _do_images(channel, thread_ts, rest):
     work, bible, tail, msgs = _resolve_work_bible(channel, thread_ts, rest)
+    if not _require_genre(channel, thread_ts, work):
+        return
     tm = re.search(r"\b(\d{1,3})\b", tail)          # [이미지] <작품> N → 목표 컷 수
     target = int(tm.group(1)) if tm else None
     epm = re.search(r"(\d{1,3})\s*[화회]", tail)
@@ -2188,33 +2196,105 @@ def _do_images(channel, thread_ts, rest):
     # [이미지] 그리드 경로는 모델 기본값에 맡겨져 매번 다른 화풍(사진/애니메 등)으로 나왔다.
     _render_cuts_tracked("images", rest, channel, thread_ts, work, bible, conti, target=target,
                         title="스토리보드 그리드", filename=f"storyboard_{work or 'ep'}.png",
-                        style_suffix=STILL_STYLE)
+                        style_suffix=_style_for_work(work))
 
 STILL_CUTS_DEFAULT = 4    # 스틸컷은 기본 4컷·2x2 그리드 고정(스크린샷 레퍼런스와 동일)
 
 STILL_ASPECT = "9:16"     # 스틸컷은 세로 9:16 고정
 
-STILL_STYLE = ("semi-realistic illustration style, painterly rendering, cinematic still, "
-               "natural relaxed facial expression, not stiff or uncanny, "
-               "clearly a stylized illustration, not a photograph, "
-               "not resembling any real celebrity or public figure. "
-               f"{_IDEALIZED_FACE_GUIDANCE} "
-               # ★2026-07-14, "씬끼리 장소랑 옷 일관성이 안 맞음" 피드백 — 씬(그룹) 경계에서는
-               # prev_png 체이닝이 리셋돼서(다른 씬 사진이 섞이면 안 되니까) 참조 이미지만으로
-               # 옷차림·장소를 유지해야 하는데, 텍스트 프롬프트에 명시적 지시가 없으면 모델이
-               # 매번 옷·배경 디테일을 임의로 새로 그려버렸다. 참조 이미지에 있는 옷차림·헤어·
-               # 장소를 그대로 따르게 명시 지시를 추가.
-               "Character clothing, hairstyle, and styling must exactly match the reference "
-               "image(s) provided — do not invent different outfits or hairstyles. If a place "
-               "reference image is provided, match that location's environment, colors, and "
-               "objects closely rather than reimagining a new-looking space. "
-               # ★2026-07-15: 실측 사고 — 대사가 있는 컷에서 그 대사가 화면 안에 자막/캡션
-               # 글자로 렌더링됨(그리드의 no_text는 그리드 자체의 캡션바 장식만 끄는 옵션이라
-               # 이 문제와 무관). 이미지 자체에 텍스트를 넣지 말라는 지시가 어디에도 없었어서
-               # 명시적으로 금지한다.
-               "No text, letters, captions, subtitles, speech bubbles, or written words should "
-               "appear anywhere in the image — render a pure illustration with no on-screen "
-               "text of any kind.")
+# ★2026-07-20: 씬(그룹)·옷·텍스트 관련 공통 규칙 — 렌더링 화풍(realistic/2d_anim 등)과
+# 무관하게 모든 스타일 프리셋이 공유해야 하는 지시라 렌더링 화풍 서술과 분리해뒀다.
+_STYLE_COMMON_SUFFIX = (
+    # ★2026-07-14, "씬끼리 장소랑 옷 일관성이 안 맞음" 피드백 — 씬(그룹) 경계에서는
+    # prev_png 체이닝이 리셋돼서(다른 씬 사진이 섞이면 안 되니까) 참조 이미지만으로
+    # 옷차림·장소를 유지해야 하는데, 텍스트 프롬프트에 명시적 지시가 없으면 모델이
+    # 매번 옷·배경 디테일을 임의로 새로 그려버렸다. 참조 이미지에 있는 옷차림·헤어·
+    # 장소를 그대로 따르게 명시 지시를 추가.
+    "Character clothing, hairstyle, and styling must exactly match the reference "
+    "image(s) provided — do not invent different outfits or hairstyles. If a place "
+    "reference image is provided, match that location's environment, colors, and "
+    "objects closely rather than reimagining a new-looking space. "
+    # ★2026-07-15: 실측 사고 — 대사가 있는 컷에서 그 대사가 화면 안에 자막/캡션
+    # 글자로 렌더링됨(그리드의 no_text는 그리드 자체의 캡션바 장식만 끄는 옵션이라
+    # 이 문제와 무관). 이미지 자체에 텍스트를 넣지 말라는 지시가 어디에도 없었어서
+    # 명시적으로 금지한다.
+    "No text, letters, captions, subtitles, speech bubbles, or written words should "
+    "appear anywhere in the image — render a pure illustration with no on-screen "
+    "text of any kind."
+)
+
+# ★2026-07-20 "작품마다 그림체를 다르게 쓰고 싶다" — 실사풍(기존 기본값)/2D 애니메이션 중
+# 작품별로 고르게 한다. works.get_style(work)에 저장된 style_key로 STYLE_PRESETS를 찾고,
+# 없거나(=미지정) 모르는 값이면 항상 "realistic"(기존 STILL_STYLE과 완전히 동일한 문구,
+# 하위호환)로 폴백한다.
+STYLE_PRESETS = {
+    "realistic": (
+        "semi-realistic illustration style, painterly rendering, cinematic still, "
+        "natural relaxed facial expression, not stiff or uncanny, "
+        "clearly a stylized illustration, not a photograph, "
+        "not resembling any real celebrity or public figure. "
+        f"{_IDEALIZED_FACE_GUIDANCE} "
+        f"{_STYLE_COMMON_SUFFIX}"
+    ),
+    "2d_anim": (
+        "clean 2D animation illustration style, Japanese-anime-inspired flat cel shading, "
+        "bold clean linework/outlines, vibrant flat color fills, simplified anime-style "
+        "facial features, clearly a hand-drawn/vector 2D cartoon, not photorealistic, not "
+        "painterly, no realistic skin texture, no photographic or 3D-rendered lighting, "
+        "not resembling any real celebrity or public figure. "
+        f"{_STYLE_COMMON_SUFFIX}"
+    ),
+}
+
+DEFAULT_STYLE_KEY = "realistic"
+
+
+def _style_for_work(work: str | None) -> str:
+    """그 작품에 등록된 스타일(works.get_style)을 찾아 STYLE_PRESETS 문구로 변환. 작품이
+    없거나 스타일 미지정·모르는 키면 기본값(realistic)으로 폴백 — 항상 문자열을 반환한다."""
+    key = (work and works.get_style(work)) or DEFAULT_STYLE_KEY
+    return STYLE_PRESETS.get(key, STYLE_PRESETS[DEFAULT_STYLE_KEY])
+
+
+STILL_STYLE = STYLE_PRESETS[DEFAULT_STYLE_KEY]   # 하위호환 — 옛 호출부가 참조해도 기존 기본값 그대로
+
+# ★2026-07-20: 인물이 아닌 요소(소품/의상) 참조샷 프롬프트가 "Semi-realistic painterly
+# illustration"을 하드코딩하고 있었다 — 2d_anim 작품은 이 참조샷만 다른 화풍으로 나와 실제
+# 스틸컷과 어긋나므로(2026-07-15에 costume이 딱 이 문제로 한 번 고쳐진 전례가 있다), 요소
+# 참조샷에도 작품별 화풍이 반영되게 짧은 문구를 스타일별로 분리해뒀다.
+_ELEMENT_REF_STYLE_PHRASE = {
+    "realistic": "Semi-realistic painterly illustration",
+    "2d_anim": "Clean 2D flat cel-shaded anime/cartoon illustration",
+}
+
+
+def _element_ref_style_phrase(work: str | None) -> str:
+    key = (work and works.get_style(work)) or DEFAULT_STYLE_KEY
+    return _ELEMENT_REF_STYLE_PHRASE.get(key, _ELEMENT_REF_STYLE_PHRASE[DEFAULT_STYLE_KEY])
+
+# ★2026-07-20: 영상화 style_lock(_generate_video_for_cut)의 강조 단정문 — STYLE_PRESETS와
+# 짝을 맞춘 스타일별 버전. "제로 포토리얼/제로 3D" 같은 부정 나열이 스타일마다 달라야
+# 하므로 별도 dict로 둔다(realistic 문구는 기존 그대로, 하위호환).
+_VIDEO_STYLE_LOCK_EMPHASIS = {
+    "realistic": (
+        "The entire video must match this exact semi-realistic painterly illustration art "
+        "style, color palette, and rendering technique of the input reference image from the "
+        "first frame to the last — zero photorealistic rendering, zero live-action video look, "
+        "zero 3D-rendered or CGI look, zero realistic skin pores/texture or realistic film "
+        "lighting not present in the reference image. Every frame must show visible painterly "
+        "brushwork, soft painterly color gradients, and clean illustrated line quality, "
+        "consistent with a hand-painted illustration, not a filmed photograph."
+    ),
+    "2d_anim": (
+        "The entire video must match this exact clean 2D anime/cartoon illustration art style, "
+        "flat cel-shaded color fills, and bold clean linework of the input reference image from "
+        "the first frame to the last — zero photorealistic rendering, zero live-action video "
+        "look, zero 3D-rendered or CGI look, zero painterly brushwork or soft photographic "
+        "gradients, zero realistic skin texture or film lighting. Every frame must keep flat "
+        "cel-shaded coloring and bold clean 2D outlines, consistent with a hand-drawn/vector 2D "
+        "animation frame, not a painting and not a photograph."
+    ),
+}
 
 _PENDING_STILL: dict[str, dict] = {}   # 버튼 메시지 ts -> {work, scene_num, title, rest, grid_png}
 
@@ -2232,6 +2312,11 @@ def _still_buttons_blocks():
              "style": "primary", "action_id": "still_confirm"},
             {"type": "button", "text": {"type": "plain_text", "text": "🔄 재생성"},
              "style": "danger", "action_id": "still_regen"},
+            # ★2026-07-20 "안전필터 안 걸린 스틸컷도 그냥 피그마로 보내고 싶다" — 실패 시에만
+            # 붙던 버튼(_figma_send_blocks)과 별개로, 정상 생성된 스틸컷 배치에도 항상 붙여서
+            # 실패 여부와 무관하게 아무 컷이나 손보고 싶을 때 쓸 수 있게 한다.
+            {"type": "button", "text": {"type": "plain_text", "text": "🎨 피그마로 보내기"},
+             "action_id": "figma_send_stillbatch"},
         ],
     }]
 
@@ -2452,16 +2537,13 @@ def _generate_video_for_cut(channel, thread_ts, work, title, cut, num, scene_sec
     # 구체적으로 원치 않는 결과물을 나열하는 명시적 금지 목록(가이드의 "zero 3D, zero CGI"와
     # 같은 구체성), (3) STILL_STYLE의 기존 어휘(semi-realistic painterly illustration)에
     # 부합하는 구체적 렌더링 질감 키워드(붓터치·페인터리 그라데이션·일러스트 라인) 명시.
-    style_lock = (
-        f"{STILL_STYLE} The entire video must match this exact semi-realistic painterly "
-        f"illustration art style, color palette, and rendering technique of the input "
-        f"reference image from the first frame to the last — zero photorealistic rendering, "
-        f"zero live-action video look, zero 3D-rendered or CGI look, zero realistic skin "
-        f"pores/texture or realistic film lighting not present in the reference image. "
-        f"Every frame must show visible painterly brushwork, soft painterly color gradients, "
-        f"and clean illustrated line quality, consistent with a hand-painted illustration, "
-        f"not a filmed photograph."
-    )
+    # ★2026-07-20: 이 강조문 자체도 "semi-realistic painterly"를 못박고 있어서, 2D 애니메이션
+    # 스타일 작품에 그대로 쓰면 오히려 스틸컷 스타일과 모순되는 지시가 된다 — 스타일별로 이
+    # 강조 문구도 나눠서 그 작품이 실제로 쓰는 화풍과 일치하는 단정문을 넣는다.
+    style_lock_emphasis = _VIDEO_STYLE_LOCK_EMPHASIS.get(
+        (work and works.get_style(work)) or DEFAULT_STYLE_KEY,
+        _VIDEO_STYLE_LOCK_EMPHASIS[DEFAULT_STYLE_KEY])
+    style_lock = f"{_style_for_work(work)} {style_lock_emphasis}"
     # ★2026-07-15: 사용자 리포트 — 영상이 참조 스틸컷과 아예 다르게 나옴(머리색·옷·배경 전부
     # 다른 인물/장면으로 생성됨). 코드가 실제 컷 PNG를 input_references로 정확히 넘기는 건
     # 확인했지만(shot_refs·cut["png"] 매칭 로직 정상), 그 사실을 프롬프트 텍스트가 뒷받침 안
@@ -2562,13 +2644,92 @@ def _generate_video_for_cut(channel, thread_ts, work, title, cut, num, scene_sec
         if fail_reason_out is not None:
             fail_reason_out["reason"] = reason
             fail_reason_out["detail"] = str(e)
-        app.client.chat_postMessage(channel=channel, thread_ts=thread_ts,
-                                    text=f"⚠️ 영상화에 실패했어요({reason}). 잠시 후 다시 시도해주세요.")
+        # ★2026-07-20 "안전필터 걸리면 스틸컷을 사용자가 직접 손보고 싶다" — 안전필터로 실패한
+        # 경우에 한해, 원인이 된 스틸컷(seed_png)을 피그마로 보낼 수 있는 버튼을 붙인다. 다른
+        # 실패 사유(네트워크 오류 등)는 스틸컷 문제가 아니므로 버튼을 안 붙인다.
+        seed_png = cut.get("png")
+        blocks = _figma_send_blocks() if ("안전필터" in reason and seed_png) else None
+        resp = app.client.chat_postMessage(
+            channel=channel, thread_ts=thread_ts,
+            text=f"⚠️ 영상화에 실패했어요({reason}). 잠시 후 다시 시도해주세요.",
+            blocks=blocks)
+        if blocks:
+            scene_m = re.search(r"씬(\d+)", title)
+            _PENDING_FIGMA_SEND[resp["ts"]] = {
+                "png": seed_png, "work": work,
+                "scene_num": int(scene_m.group(1)) if scene_m else None,
+                "cut_num": num, "reason": reason,
+                "channel": channel, "thread_ts": thread_ts,
+            }
         return None
     finally:
         job_ledger.finish_job(jid)
 
 _PENDING_VIDEO_CONFIRM: dict[str, dict] = {}   # 버튼 메시지 ts -> {work,title,cut,num,scene_seconds,local_path}
+
+_PENDING_FIGMA_SEND: dict[str, dict] = {}   # 버튼 메시지 ts -> {png,work,scene_num,cut_num,reason} — ★2026-07-20
+
+def _figma_send_blocks():
+    return [{
+        "type": "actions",
+        "elements": [{"type": "button", "text": {"type": "plain_text", "text": "🎨 피그마로 보내기"},
+                     "action_id": "figma_send_still"}],
+    }]
+
+@app.action("figma_send_still")
+def _act_figma_send_still(ack, body):
+    """★2026-07-20 안전필터로 실패한 컷의 원인 스틸컷을 피그마 큐에 올린다 — 실제로 피그마
+    캔버스에 얹는 건 그쪽에 설치된 동반 플러그인(figma-plugin/co-writer-bridge/)이
+    figma_bridge의 로컬 HTTP 서버를 폴링해서 한다(REST API로는 파일에 못 씀, 모듈 docstring
+    참고). 그래서 이 핸들러는 큐에 넣는 것까지만 하고, 실제로 캔버스에 올라왔는지는
+    플러그인이 열려 있어야 확인된다."""
+    ack()
+    ch, tts = _action_ctx(body)
+    msg_ts = body["message"]["ts"]
+    pending = _PENDING_FIGMA_SEND.pop(msg_ts, None)
+    if not pending:
+        _reply(ch, tts, "이 스틸컷 정보가 만료됐어요 — 다시 영상화를 시도한 뒤 눌러주세요.")
+        return
+    if not config.FIGMA_BRIDGE_ENABLED:
+        _disable_buttons(body, "⚠️ 피그마 브릿지가 꺼져있어요 — 봇 설정에서 SB_FIGMA_BRIDGE_ENABLED를 켜야 해요.")
+        return
+    try:
+        # ★2026-07-20 still_path=pending["png"] — 되돌리기 폴러(_on_figma_returned)가 나중에
+        # 이 경로를 편집본으로 그대로 덮어써야, 다음에 이 컷을 다시 영상화할 때(기존 재생성
+        # 흐름 그대로) 자동으로 손본 이미지를 쓰게 된다. channel/thread_ts는 되돌아왔을 때
+        # 어느 스레드에 알릴지 위해 필요.
+        figma_bridge.enqueue(pending["png"], {
+            "work": pending.get("work"), "scene_num": pending.get("scene_num"),
+            "cut_num": pending.get("cut_num"), "reason": pending.get("reason"),
+            "still_path": pending["png"], "channel": pending.get("channel"),
+            "thread_ts": pending.get("thread_ts"),
+        })
+        _disable_buttons(body, "🎨 피그마 대기열에 올렸어요 — 피그마에서 플러그인을 실행하면 캔버스에 자동으로 올라와요. "
+                              "손본 뒤 플러그인에서 「봇으로 보내기」를 누르면 여기로 자동 반영돼요.")
+    except Exception:
+        log.exception("피그마 큐 등록 실패")
+        _disable_buttons(body, "⚠️ 피그마로 보내기 실패 — 다시 시도해주세요.")
+
+def _on_figma_returned(item: dict) -> None:
+    """★2026-07-20 되돌리기 경로 — figma_bridge.start_return_poller의 콜백. 피그마에서 손본
+    스틸컷이 돌아오면 그 컷이 실제로 읽는 원본 파일(still_path)을 편집본으로 덮어써서,
+    다음에 이 컷을 다시 영상화할 때(기존 "이 컷 영상 만들어줘"/재생성 흐름 그대로, 새 코드
+    경로 불필요) 자동으로 손본 이미지를 쓰게 만든다."""
+    still_path = item.get("still_path")
+    image_bytes = item.get("image_bytes")
+    if not still_path or not image_bytes:
+        log.warning(f"피그마에서 되돌아온 항목에 still_path/이미지가 없어 건너뜀: {item.get('id')}")
+        return
+    Path(still_path).write_bytes(image_bytes)
+    ch, tts = item.get("channel"), item.get("thread_ts")
+    if ch and tts:
+        scene_num, cut_num = item.get("scene_num"), item.get("cut_num")
+        label = (f"씬{scene_num} " if scene_num else "") + (f"컷{cut_num}" if cut_num else "")
+        _reply(ch, tts, f"✅ 피그마에서 손본 스틸컷을 반영했어요({label.strip() or '해당 컷'}) — "
+                       "이제 이 컷을 다시 영상화해보세요.")
+
+if config.FIGMA_BRIDGE_ENABLED:
+    figma_bridge.start_return_poller(_on_figma_returned)
 
 def _video_confirm_blocks():
     return [{
@@ -2791,14 +2952,28 @@ def _split_regen_cut_override(q: str, rest: str) -> tuple[str, str]:
         rest = re.sub(r"\s+", " ", rest).strip()
         rest = f"{rest} {cfm.group(0)}".strip()
         feedback_text = (q[:cfm.start()] + q[cfm.end():]).strip()
-    sm = _SCENE_NUM_RE.search(q)
-    if sm:
-        scene_num = next(g for g in sm.groups() if g)
-        rest = _SCENE_NUM_RE.sub("", rest)
+    # ★2026-07-20: 여기서 _SCENE_NUM_RE(단일 숫자 캡처)만 쓰면 "씬2,3,4"처럼 콤마로 여러 씬을
+    # 지정해도 첫 번째 숫자만 살아남고 ",3,4"는 rest에서 "씬"과 분리된 채 버려져 _parse_scene_filter가
+    # 다시 못 붙인다 — 다중 씬 배치 요청이 이 경로(_maybe_generate_request 등)를 거치면 씬2로만
+    # 좁혀지던 실사용자 버그. _SCENE_FILTER_RE(콤마·하이픈 리스트 전체 캡처, [합본]과 동일 문법)를
+    # 먼저 시도해 리스트 전체를 보존하고, 안 걸리면("2번째 씬" 등 단일 표기) 기존 _SCENE_NUM_RE로 폴백한다.
+    fm = _SCENE_FILTER_RE.search(q)
+    if fm:
+        scene_spec = fm.group(1)
+        rest = _SCENE_FILTER_RE.sub("", rest)
         rest = re.sub(r"\s+", " ", rest).strip()
-        rest = f"{rest} 씬{scene_num}".strip()
-        feedback_text = _SCENE_NUM_RE.sub("", feedback_text)
+        rest = f"{rest} 씬{scene_spec}".strip()
+        feedback_text = _SCENE_FILTER_RE.sub("", feedback_text)
         feedback_text = re.sub(r"\s+", " ", feedback_text).strip()
+    else:
+        sm = _SCENE_NUM_RE.search(q)
+        if sm:
+            scene_num = next(g for g in sm.groups() if g)
+            rest = _SCENE_NUM_RE.sub("", rest)
+            rest = re.sub(r"\s+", " ", rest).strip()
+            rest = f"{rest} 씬{scene_num}".strip()
+            feedback_text = _SCENE_NUM_RE.sub("", feedback_text)
+            feedback_text = re.sub(r"\s+", " ", feedback_text).strip()
     return rest, feedback_text
 
 def _maybe_stillcut_regen_ask_reply(channel, thread_ts, query) -> bool:
@@ -2861,6 +3036,8 @@ def _do_stills(channel, thread_ts, rest, feedback=None):
     그 씬(또는 콘티 전체) source_text 끝에 명시적 수정 지시로 덧붙여 3단계 샷분해 LLM이
     반영하게 한다 — rest/tail 파싱(씬 번호·컷수 등)에는 관여하지 않고 프롬프트 내용에만 영향."""
     work, bible, tail, msgs = _resolve_work_bible(channel, thread_ts, rest)
+    if not _require_genre(channel, thread_ts, work):
+        return
     # "컷1,3"/"1-3컷" 등 특정 컷만 골라 뽑는 지정(2026-07-15) — 있으면 아래 'N컷' 총개수
     # 오버라이드보다 우선한다(둘이 동시에 쓰이는 경우는 없다고 가정).
     cut_filter = _parse_cut_filter(tail)
@@ -2909,13 +3086,13 @@ def _do_stills(channel, thread_ts, rest, feedback=None):
             t = STILL_CUTS_DEFAULT   # 그리드 열수 계산용 추정치일 뿐, target 자체는 None으로 넘김
             res = _render_cuts_tracked("stills", rest, channel, thread_ts, work, bible, conti + fb_note,
                                        target=None, cols=min(t, 2), auto_cut_judgment=True,
-                                       aspect_ratio=STILL_ASPECT, style_suffix=STILL_STYLE, no_text=True,
+                                       aspect_ratio=STILL_ASPECT, style_suffix=_style_for_work(work), no_text=True,
                                        title=auto_title, filename=f"still_{work or 'ep'}.png")
         else:
             t = target or STILL_CUTS_DEFAULT
             res = _render_cuts_tracked("stills", rest, channel, thread_ts, work, bible, conti + fb_note,
                                        target=t, cols=min(t, 2),
-                                       aspect_ratio=STILL_ASPECT, style_suffix=STILL_STYLE, no_text=True,
+                                       aspect_ratio=STILL_ASPECT, style_suffix=_style_for_work(work), no_text=True,
                                        title=auto_title, filename=f"still_{work or 'ep'}.png")
         grid_png, cuts = res if res else (None, None)
         if grid_png:
@@ -3074,7 +3251,7 @@ def _do_stills_render_one(channel, thread_ts, rest, work, bible, scenes, num,
                                        f"■ 씬{num} · {hdr}\n{body}{fb_note}", target=n_beats,
                                        cols=min(len(batch_filter), 2), cut_filter=batch_filter,
                                        auto_cut_judgment=False, aspect_ratio=STILL_ASPECT,
-                                       style_suffix=STILL_STYLE, no_text=True,
+                                       style_suffix=_style_for_work(work), no_text=True,
                                        title=f"스틸컷 씬{num} (컷{b_start}-{b_end}/{n_beats})",
                                        filename=f"still_{work or 'ep'}_s{num}_b{b_start}-{b_end}.png")
             grid_png, cuts = res if res else (None, None)
@@ -3105,7 +3282,7 @@ def _do_stills_render_one(channel, thread_ts, rest, work, bible, scenes, num,
     res = _render_cuts_tracked("stills", rest, channel, thread_ts, work, bible,
                                f"■ 씬{num} · {hdr}\n{body}{fb_note}", target=shot_target,
                                cols=min(t, 2), cut_filter=cut_filter, auto_cut_judgment=auto_cut,
-                               aspect_ratio=STILL_ASPECT, style_suffix=STILL_STYLE, no_text=True,
+                               aspect_ratio=STILL_ASPECT, style_suffix=_style_for_work(work), no_text=True,
                                title=f"스틸컷 씬{num}{cut_label}", filename=f"still_{work or 'ep'}_s{num}.png")
     grid_png, cuts = res if res else (None, None)
     if grid_png:
@@ -3647,6 +3824,11 @@ def _maybe_generate_request(channel, thread_ts, query) -> bool:
     ★단, 화 번호("3화")를 명시했으면 새 스레드라도 통과시킨다(2026-07-14) — 이미 상세 콘티가
     로컬/노션에 저장된 화인데도 "이 스레드엔 콘티가 없다"고 오판해 1단계부터 새로 돌리던
     문제(실무자 지적) — _do_stills/_do_images가 이제 그 화의 저장된 콘티를 스스로 찾아 쓴다.
+    ★2026-07-16: 화 번호와 똑같은 이유로 씬 번호("씬3")도 통과시킨다(실사용자 사고 —
+    "씬3 스틸컷 컷5,13,14 만들어줘"가 화 번호가 없다는 이유만으로 이 게이트를 못 넘고, 훨씬
+    느슨한 catch-all(_do_storyboard_auto_chain, "씬 설계부터 새로 시작")로 새서 대본 씬설계를
+    처음부터 다시 돌려버림). 씬 번호를 콕 집어 말한 것 자체가 "이미 있는 콘티의 특정 씬을
+    가리키는 요청"이라는 강한 신호이므로 화 번호와 동일하게 취급한다.
     ★2026-07-15: 이 경로로 오는 자유 서술형 재생성 지시(각도/구도/자세 등)가 feedback 없이
     _do_stills로 넘어가 조용히 버려지던 실사용자 버그 — _split_regen_cut_override로
     컷 지정과 서술 지시를 분리해 feedback으로 넘긴다."""
@@ -3657,7 +3839,8 @@ def _maybe_generate_request(channel, thread_ts, query) -> bool:
         return False
     _tracked_ctx = conti_state.get_episode(thread_ts) or {}
     if (sb_stage(_thread_messages(channel, thread_ts), work=_tracked_ctx.get("work"), episode=_tracked_ctx.get("episode")) < 2
-            and not re.search(r"\d+\s*[화회]", q)):
+            and not re.search(r"\d+\s*[화회]", q)
+            and not re.search(r"씬\s*\d+", q)):
         return False
     if want_still:
         rest, feedback_text = _split_regen_cut_override(q, q)
@@ -3685,12 +3868,21 @@ _LIST_WORKS_RE = re.compile(r"작품\s*목록|등록된?\s*작품\s*(뭐|보여|
 _THREAD_STATUS_RE = re.compile(r"몇\s*단계|무슨\s*작품|이\s*스레드.*(작품|단계)|지금\s*(단계|상태)")
 
 def _maybe_list_works(channel, thread_ts, query) -> bool:
-    """(C6, 2026-07-13) "작품 목록 보여줘" — 등록된 작품 이름을 나열."""
+    """(C6, 2026-07-13) "작품 목록 보여줘" — 등록된 작품 이름을 나열.
+    ★2026-07-20: 작품마다 장르(실사화/2D 애니메이션)가 등록될 수 있어서(works.get_style),
+    작품 정보의 일부로 목록에 같이 보여준다 — 미지정이면 기본값(실사풍)이 괄호 없이 표시."""
     if not _LIST_WORKS_RE.search(query or ""):
         return False
     names = sorted(works.all_works().keys())
-    _reply(channel, thread_ts,
-           ("등록된 작품: " + ", ".join(f"<{n}>" for n in names)) if names else "등록된 작품이 없어요.")
+    if not names:
+        _reply(channel, thread_ts, "등록된 작품이 없어요.")
+        return True
+    lines = []
+    for n in names:
+        style_key = works.get_style(n)
+        genre_note = f" ({STYLE_LABELS[style_key]})" if style_key else ""
+        lines.append(f"<{n}>{genre_note}")
+    _reply(channel, thread_ts, "등록된 작품: " + ", ".join(lines))
     return True
 
 def _maybe_thread_status(channel, thread_ts, query) -> bool:
@@ -3710,6 +3902,12 @@ def _maybe_thread_status(channel, thread_ts, query) -> bool:
     parts.append(f"단계: {stage_label}")
     if rec.get("human_final"):
         parts.append("콘티 확정됨")
+    # ★2026-07-20: 이 스레드가 추적 중인 작품의 장르(실사화/2D 애니메이션)도 같이 보여준다 —
+    # 미지정이면 기본값(실사풍)이므로 굳이 표시하지 않는다(명시적으로 설정된 것만 표시).
+    if work:
+        style_key = works.get_style(work)
+        if style_key:
+            parts.append(f"장르: {STYLE_LABELS[style_key]}")
     _reply(channel, thread_ts, " · ".join(parts))
     return True
 
@@ -3869,6 +4067,27 @@ def _maybe_video_from_last_still(channel, thread_ts, query) -> bool:
         _reply(channel, thread_ts, f"🎬 컷{lo}~{hi} ({len(picked)}개) 영상 순차 생성 시작… (컷마다 완료되는 대로 하나씩 올라와요)")
         _generate_videos_for_cuts(channel, thread_ts, work, title, picked, None)
         return True
+    # ★2026-07-16: "컷3,5,8,9,12,14 영상 만들어줘" — 콤마로 여러 컷을 지정했는데 여기 로직이
+    # 몰라서 아래 단일 컷 정규식(_VIDEO_CUT_NUM_CUT_FIRST_RE)이 맨 앞 숫자("3")만 집어먹고
+    # 나머지(5,8,9,12,14)를 조용히 버리던 실사용 버그 — _do_stills(스틸컷)가 이미 쓰는
+    # _parse_cut_filter("컷5,13,14"/"컷1,3-5" 형식, _do_compile의 씬 필터와 같은 유틸)를
+    # 여기서도 재사용해 콤마·하이픈 혼합 리스트를 전부 인식한다. 물결(~) 범위(_match_video_cut_range,
+    # "2~12")는 이미 위에서 따로 처리되므로 이 체크는 그 다음, 단일 컷 정규식보다 먼저 온다
+    # (콤마 리스트가 단일 숫자 패턴에 절대 먼저 안 먹히게).
+    cut_filter = _parse_cut_filter(q)
+    if cut_filter and len(cut_filter) > 1:
+        picked = [c for c in cuts if c["n"] in cut_filter]
+        missing = sorted(cut_filter - {c["n"] for c in picked})
+        if not picked:
+            avail = ", ".join(str(c["n"]) for c in cuts)
+            _reply(channel, thread_ts, f"컷{','.join(map(str, sorted(cut_filter)))} 중 이 씬에 있는 컷이 없어요. 있는 컷: {avail}")
+            return True
+        if missing:
+            _reply(channel, thread_ts, f"⚠️ 컷{','.join(map(str, missing))}은 이 씬에 없어서 건너뛰어요.")
+        label = ",".join(str(n) for n in sorted(c["n"] for c in picked))
+        _reply(channel, thread_ts, f"🎬 컷{label} ({len(picked)}개) 영상 순차 생성 시작… (컷마다 완료되는 대로 하나씩 올라와요)")
+        _generate_videos_for_cuts(channel, thread_ts, work, title, picked, None)
+        return True
     # 2026-07-16: "컷 3개 만들어줘"(개수 요청)의 "3"이 컷 번호로 오인돼 "컷3을 못
     # 찾았어요"로 잘못 새던 버그 - 매치된 숫자 바로 뒤가 "개"(개/개를/개만 등 개수
     # 접미사)면 특정 컷 번호가 아니라 개수 표현이므로 매치를 취소하고, 아래로 떨어져
@@ -3997,6 +4216,43 @@ def _act_still_confirm(ack, body):
         _post_video_button(ch, tts, p)
     else:
         _disable_buttons(body, "⚠️ 저장에 실패했어요.")
+
+@app.action("figma_send_stillbatch")
+def _act_figma_send_stillbatch(ack, body):
+    """★2026-07-20 "안전필터 안 걸린 스틸컷도 그냥 피그마로 보내고 싶다" — still_confirm/
+    still_regen과 달리 _PENDING_STILL을 pop하지 않고 peek만 한다(확정/재생성 버튼이 아직
+    쓸 수 있어야 하므로 — 순서 무관하게 여러 번 눌러도 되게). 개별 컷 PNG(cuts)가 있으면
+    컷마다 하나씩 큐에 올리고(어느 컷을 손볼지는 피그마에서 고르면 됨), 옛 콘티 폴백처럼
+    개별 컷이 없으면 그리드 전체를 하나로 올린다."""
+    ack()
+    ch, tts = _action_ctx(body)
+    msg_ts = body["message"]["ts"]
+    p = _PENDING_STILL.get(msg_ts)
+    if not p:
+        _reply(ch, tts, "이 스틸컷 정보가 만료됐어요 — 다시 생성한 뒤 눌러주세요.")
+        return
+    if not config.FIGMA_BRIDGE_ENABLED:
+        _reply(ch, tts, "⚠️ 피그마 브릿지가 꺼져있어요 — 봇 설정에서 SB_FIGMA_BRIDGE_ENABLED를 켜야 해요.")
+        return
+    cuts = [c for c in (p.get("cuts") or []) if c.get("png")]
+    try:
+        if cuts:
+            for c in cuts:
+                figma_bridge.enqueue(c["png"], {
+                    "work": p.get("work"), "scene_num": p.get("scene_num"), "cut_num": c.get("n"),
+                    "reason": "사용자 요청", "still_path": c["png"], "channel": ch, "thread_ts": tts,
+                })
+            _reply(ch, tts, f"🎨 컷 {len(cuts)}개를 피그마 대기열에 올렸어요 — 플러그인을 실행하면 "
+                           "캔버스에 자동으로 올라와요. 손본 뒤 「봇으로 보내기」를 누르면 여기로 반영돼요.")
+        else:
+            figma_bridge.enqueue(p["grid_png"], {
+                "work": p.get("work"), "scene_num": p.get("scene_num"), "cut_num": None,
+                "reason": "사용자 요청", "still_path": p["grid_png"], "channel": ch, "thread_ts": tts,
+            })
+            _reply(ch, tts, "🎨 그리드 이미지를 피그마 대기열에 올렸어요 — 플러그인을 실행하면 캔버스에 자동으로 올라와요.")
+    except Exception:
+        log.exception("피그마 큐 등록 실패(스틸컷 배치)")
+        _reply(ch, tts, "⚠️ 피그마로 보내기 실패 — 다시 시도해주세요.")
 
 @app.action("still_regen")
 def _act_still_regen(ack, body):
@@ -4367,12 +4623,22 @@ def _run_compile(channel, thread_ts, work, episode_title, scenes, videos_by_scen
         # 세그먼트를 하나씩 이어붙일 때마다 부르는 progress_cb로 같은 ph 메시지를 갱신한다.
         def _compile_progress(done, total):
             _update_note(channel, ph, f"{note} ({done}/{total} 컷 처리)")
-        path = episode_compile.compile_episode(work, episode_title, plan, mood_prompt=mood_prompt,
-                                               progress_cb=_compile_progress)
+        path, bgm_path = episode_compile.compile_episode(work, episode_title, plan, mood_prompt=mood_prompt,
+                                                         progress_cb=_compile_progress)
         _update_note(channel, ph, "✅ 합본 완성 (아래 파일 — 확정해야 최종본으로 남아요)", clear=True)
         app.client.files_upload_v2(channel=channel, thread_ts=thread_ts, file=path,
                                    filename=f"{episode_title}_합본.mp4",
                                    initial_comment=f"✅ 합본 완성 — {len(plan)}컷, 음성 없음(나레이션 타이밍 수정 중)\n`{path}`")
+        # ★2026-07-20 "합본이 아직 안정되지 않았으니 배경음악을 합본에 바로 넣지 말고 따로
+        # 다운 링크만" — episode_compile이 이제 배경음악을 합본 mp4에 섞지 않고 완전히 별도
+        # mp3로 만들어 반환한다. 합본과 분리된 파일로만 올려서, 나레이션/편집 수정이 끝난
+        # 뒤에 사용자가 직접 입힐지 말지 정하게 한다.
+        if bgm_path:
+            app.client.files_upload_v2(
+                channel=channel, thread_ts=thread_ts, file=bgm_path,
+                filename=f"{episode_title}_배경음악.mp3",
+                initial_comment="🎵 배경음악(별도 파일 — 합본 영상에는 안 섞었어요). 나레이션/편집이 "
+                                "안정되면 확인 후 직접 입혀주세요.")
         _post_compile_confirm_buttons(channel, thread_ts, work, episode_title, path, scenes, videos_by_scene)
     except Exception as e:
         log.exception("합본 생성 실패")
@@ -5040,6 +5306,67 @@ def _do_episode_status(channel, thread_ts, rest):
            f"\n합본: {compile_part}")
     _reply(channel, thread_ts, text)
 
+# ★2026-07-20 "작품마다 그림체를 다르게 쓰고 싶다" — [스타일] <작품> <스타일명> 명령/자연어로
+# works.py에 저장된 style_key(STYLE_PRESETS 참고)를 바꾼다. 자유롭게 들어오는 표현을 최대한
+# 폭넓게 인식하되, 애매하면 실패시키고 지원 목록을 안내한다(잘못된 값을 조용히 무시하지 않음).
+# ★2026-07-20b: 라벨/키워드 파싱을 bot/shared/works.py로 옮겼다 — dispatch_cowriter.py의
+# 노션 동기화 등록(_do_sync)도 신규 작품 장르를 노션 본문에서 파싱해야 하는데, cw/sb 두
+# dispatch 모듈은 서로를 임포트하지 않는 구조라(순환 임포트 방지) 공용 shared 모듈에 둬야
+# 양쪽이 같은 vocabulary를 쓸 수 있다. 여기서는 기존 호출부가 안 깨지게 그대로 재노출한다.
+STYLE_LABELS = works.STYLE_LABELS
+_parse_style_key = works.parse_style_key
+
+def _do_style(channel, thread_ts, rest):
+    """[스타일] <작품> <스타일명> — 그 작품의 스틸컷/영상/소품·의상 참조 그림체를 바꾼다.
+    예) `[스타일] <코니> 2d 애니메이션`, `[스타일] <코니> 실사`."""
+    work, bible, tail, msgs = _resolve_work_bible(channel, thread_ts, rest)
+    if not work:
+        _reply(channel, thread_ts, _WORK_NOT_FOUND_MSG)
+        return
+    style_key = _parse_style_key(tail)
+    if not style_key:
+        options = ", ".join(f"`{label}`" for label in STYLE_LABELS.values())
+        _reply(channel, thread_ts,
+              f"어떤 스타일인지 못 알아들었어요 — 예: `[스타일] <{work}> 2d 애니메이션`. "
+              f"지원하는 스타일: {options}")
+        return
+    w = works.set_style(work, style_key)
+    if not w:
+        _reply(channel, thread_ts, f"'{work}' 작품을 못 찾았어요 — 먼저 노션 링크로 등록해주세요.")
+        return
+    _reply(channel, thread_ts,
+          f"✅ <{w}> 스타일을 *{STYLE_LABELS[style_key]}*로 설정했어요 — 이제부터 스틸컷·영상·"
+          "소품/의상 참조가 전부 이 화풍으로 만들어져요(이미 만든 컷은 그대로 유지).")
+
+def _require_genre(channel, thread_ts, work: str | None) -> bool:
+    """★2026-07-20 "노션에도 필수로 추가" — dispatch_cowriter._do_sync가 노션 링크로 신규
+    등록하면서 페이지 본문에서 장르를 못 찾은 작품만 works.mark_genre_required로 표시해둔다
+    (이미 등록돼 있던 작품은 절대 이 표시가 안 붙으므로, 기존 작품들의 생성은 전혀 영향 없다).
+    스틸컷/이미지/자동주행 진입부에서 생성 직전에 이 게이트를 태워, 장르 미지정 신규 작품은
+    `[스타일]`로 먼저 지정해야만 다음 단계로 진행되게 막는다. True=통과, False=막힘(이미
+    안내 메시지도 보냄)."""
+    if not work or not works.genre_required(work):
+        return True
+    _reply(channel, thread_ts,
+          f"⚠️ <{work}>은 아직 장르(실사화/2D 애니메이션) 지정이 필요해요 — 스틸컷·영상 화풍이 "
+          f"여기 달려있어서 먼저 정해야 진행할 수 있어요. `[스타일] <{work}> 실사화` 또는 "
+          f"`[스타일] <{work}> 2d 애니메이션`으로 알려주세요.")
+    return False
+
+# ★2026-07-20: "그림체를 2d 애니메이션으로 바꿔줘"/"스타일 실사로 해줘" 같은 자연어. 화 번호
+# 처리(_maybe_episode_status 등)와 동일하게, 구조적으로 명확한 트리거 문구가 있을 때만 걸리게
+# 좁혀서 "스타일"이라는 단어가 들어간 다른 잡담과 오충돌하지 않게 한다.
+_STYLE_CHANGE_RE = re.compile(r"(스타일|그림체|장르).{0,15}(바꿔|바꾸고|변경|설정|로\s*(해|가)|하기로)")
+
+def _maybe_style_change_request(channel, thread_ts, query) -> bool:
+    q = (query or "").strip()
+    if not q or not _STYLE_CHANGE_RE.search(q):
+        return False
+    if not _parse_style_key(q):
+        return False   # "스타일 바꾸고 싶어" 같은 막연한 말은 통과시켜 일반 대화로 처리
+    _do_style(channel, thread_ts, q)
+    return True
+
 def _auto_register_element(work: str, name: str, etype: str, png: bytes) -> None:
     """AI로 만든 엘리먼트 후보를 확인 버튼 없이 바로 등록 — _act_element_gen_confirm과 동일한
     저장 로직(fixed-images 우선, 없으면 data/refs)이되 Slack 버튼 클릭 대신 자동주행이 바로 호출."""
@@ -5182,7 +5509,7 @@ def _autopilot_regen_shot_png(work, cut: dict, reason: str | None = None) -> byt
     ref_entries = oi.shot_ref_entries(work, shot)
     refs = [u for _role, u, *_ in ref_entries]
     reason_note = f", (참조와 안 맞는 부분 수정: {reason})" if reason else ""
-    prompt = f"{shot.get('prompt') or ''}, {STILL_STYLE}{reason_note}"
+    prompt = f"{shot.get('prompt') or ''}, {_style_for_work(work)}{reason_note}"
     role_block = oi.reference_priority_block(ref_entries)
     if role_block:
         prompt = f"{prompt}\n\n{role_block}"
@@ -5199,6 +5526,7 @@ def _autopilot_vision_budget_left(deadline: float | None) -> bool:
     return deadline is None or time.monotonic() < deadline
 
 _AUTOPILOT_CONSISTENCY_MAX_RETRIES = 2   # ★2026-07-16 "일단 2번 재시도까지로 올려" — 기존 1회에서 상향
+_AUTOPILOT_SAFETY_FILTER_MAX_RETRIES = 3   # ★2026-07-20 "안전필터 걸리면 그 구간 스틸컷만 다시 생성하는 루프 3회로" — 기존 1회에서 상향
 
 def _autopilot_check_stills(work, cuts: list[dict], deadline: float | None = None) -> list[tuple[int, str]]:
     """스틸컷 후검사 — 컷마다 실제 shot_refs() 참조와 비교해 'no'면 focus_char 격리로 최대
@@ -5277,7 +5605,7 @@ def _autopilot_render_still_batch(channel, thread_ts, work, bible, num, episode,
     res = _render_cuts_tracked(
         "stills", f"[자동주행] {work} {episode or 0}화 씬{num}", channel, thread_ts, work, bible,
         batch_source_text, target=target, cols=min(target, 2), skip_confirm=True,
-        aspect_ratio=STILL_ASPECT, style_suffix=STILL_STYLE, no_text=True,
+        aspect_ratio=STILL_ASPECT, style_suffix=_style_for_work(work), no_text=True,
         title=f"스틸컷 씬{num}", filename=f"still_{work or 'ep'}_s{num}_b{batch_index}.png")
     if not res:
         return None, None, []
@@ -5482,25 +5810,32 @@ def _autopilot_videos_for_scene(channel, thread_ts, work, title, cuts, scene_sec
             # 모션 프롬프트 텍스트가 아니라 입력 이미지(=그 컷의 확정 스틸컷) 자체가 "실사 인물
             # 사진처럼 보인다"고 판단해서 걸린다. 그래서 스틸컷 그림체를 더 뚜렷하게 일러스트/
             # 페인터리 쪽으로 밀어 재생성한 뒤(_autopilot_regen_shot_png — 일관성 재검사 실패
-            # 때와 같은 함수, reason 문구만 이 상황에 맞게) 영상화를 1회만 재시도한다. 프롬프트
+            # 때와 같은 함수, reason 문구만 이 상황에 맞게) 영상화를 재시도한다. 프롬프트
             # 텍스트 문제(세이프티 필터 거부 등)와 원인이 달라서 그냥 재시도해도 똑같이 걸릴 뿐 —
             # 반드시 참조 이미지 자체를 바꿔야 의미가 있다.
-            if fail_out.get("reason") == "입력 이미지가 실존 인물처럼 보인다는 안전필터에 걸림":
+            # ★2026-07-20 "안전필터 걸리면 그 구간 스틸컷만 다시 생성하는 루프 3회로" — 기존엔
+            # 스틸컷 재생성→영상화 재시도가 딱 1회뿐이라, 그 1번의 재생성으로도 여전히 실사
+            # 인물처럼 보이면 그대로 포기했다. 일관성 재검사 재시도(위 _AUTOPILOT_CONSISTENCY_
+            # MAX_RETRIES)와 동일한 방식으로 _AUTOPILOT_SAFETY_FILTER_MAX_RETRIES(3)회까지 반복한다.
+            for _ in range(_AUTOPILOT_SAFETY_FILTER_MAX_RETRIES):
+                if fail_out.get("reason") != "입력 이미지가 실존 인물처럼 보인다는 안전필터에 걸림":
+                    break
                 new_png = _autopilot_regen_shot_png(
                     work, c, "실제 인물 사진처럼 보이지 않게, 명확한 일러스트/페인터리 그림체로 "
                              "(사실적 피부 질감·실사 조명 최소화)")
-                if new_png:
-                    c["png"] = new_png
-                    retry_cost_out, retry_fail_out = {}, {}
-                    retry_path = _generate_video_for_cut(
-                        channel, thread_ts, work, title, c, c["n"], cut_seconds,
-                        post_confirm_buttons=False, post_result=False,
-                        cost_out=retry_cost_out, fail_reason_out=retry_fail_out)
-                    if retry_path:
-                        local_path = retry_path
-                        cost_out = retry_cost_out
-                    else:
-                        fail_out = retry_fail_out or fail_out
+                if not new_png:
+                    break
+                c["png"] = new_png
+                retry_cost_out, retry_fail_out = {}, {}
+                retry_path = _generate_video_for_cut(
+                    channel, thread_ts, work, title, c, c["n"], cut_seconds,
+                    post_confirm_buttons=False, post_result=False,
+                    cost_out=retry_cost_out, fail_reason_out=retry_fail_out)
+                if retry_path:
+                    local_path = retry_path
+                    cost_out = retry_cost_out
+                    break
+                fail_out = retry_fail_out or fail_out
             if not local_path:
                 flagged.append((c["n"], fail_out.get("reason") or "영상 생성 실패"))
                 continue
@@ -5538,14 +5873,65 @@ def _autopilot_cancelled(channel, thread_ts, where: str) -> bool:
     _reply(channel, thread_ts, f"🛑 자동주행을 취소했어요 — {where}까지 진행된 상태에서 멈췄어요.")
     return True
 
-def _do_autopilot(channel, thread_ts, rest):
+_PENDING_AUTOPILOT_STAGE: dict[str, dict] = {}   # thread_ts -> {"rest": rest} — ★2026-07-20 단계 선택 드롭다운 대기
+
+_AUTOPILOT_STAGE_LABELS = {
+    1: "1단계 · 씬 설계", 2: "2단계 · 상세 콘티", 3: "3단계 · 등록 확인",
+    4: "4단계 · 샷분해·스틸컷", 5: "5단계 · 영상화", 6: "6단계 · 합본",
+}
+
+def _autopilot_stage_picker_blocks():
+    """★2026-07-20 "4단계부터/5단계부터 텍스트 입력은 사용성이 떨어지니 드롭다운으로" —
+    기존엔 `[자동주행] <작품> <화> 4단계부터`처럼 정확한 문구를 외워 쳐야 특정 단계부터
+    시작할 수 있었다. 전체 실행(기존 기본 동작)은 버튼 한 번으로, 특정 단계부터 시작은
+    드롭다운 선택으로 바꿔 문구를 몰라도 되게 한다."""
+    options = [{"text": {"type": "plain_text", "text": label}, "value": str(n)}
+              for n, label in _AUTOPILOT_STAGE_LABELS.items()]
+    return [{
+        "type": "actions",
+        "elements": [
+            {"type": "button", "text": {"type": "plain_text", "text": "🚀 처음부터(전체 1~6단계)"},
+             "style": "primary", "action_id": "autopilot_full_run"},
+            {"type": "static_select",
+             "placeholder": {"type": "plain_text", "text": "특정 단계부터 시작"},
+             "options": options, "action_id": "autopilot_stage_pick"},
+        ],
+    }]
+
+@app.action("autopilot_full_run")
+def _act_autopilot_full_run(ack, body):
+    ack()
+    ch, tts = _action_ctx(body)
+    pending = _PENDING_AUTOPILOT_STAGE.pop(tts, None)
+    if not pending:
+        _reply(ch, tts, "이 선택은 만료됐어요 — `[자동주행] <작품> <화번호>`를 다시 입력해주세요.")
+        return
+    _disable_buttons(body, "✅ 처음부터(1~6단계) 전체 실행할게요…")
+    _do_autopilot(ch, tts, pending["rest"], skip_stage_picker=True)
+
+@app.action("autopilot_stage_pick")
+def _act_autopilot_stage_pick(ack, body):
+    ack()
+    ch, tts = _action_ctx(body)
+    stage = body["actions"][0]["selected_option"]["value"]
+    pending = _PENDING_AUTOPILOT_STAGE.pop(tts, None)
+    if not pending:
+        _reply(ch, tts, "이 선택은 만료됐어요 — `[자동주행] <작품> <화번호>`를 다시 입력해주세요.")
+        return
+    label = _AUTOPILOT_STAGE_LABELS.get(int(stage), f"{stage}단계")
+    _disable_buttons(body, f"✅ {label}부터 시작할게요…")
+    _do_autopilot(ch, tts, f"{pending['rest']} {stage}단계부터", skip_stage_picker=True)
+
+def _do_autopilot(channel, thread_ts, rest, skip_stage_picker: bool = False):
     """[자동주행] <작품> <화번호> — 등록확인→씬설계→상세콘티→샷분해/스틸컷→영상화→합본을
     한 번에 이어서 돌린다. 사람 확인은 마지막 합본(_do_compile, draft+확정 버튼) 단계에서만 받는다.
     ★2026-07-15 "실패하면 왠만해서는 중단하지 말고 실패 이유를 찾고 쭉 진행하게 해야한다" —
     씬 설계/상세 콘티는 없으면 이후 아무것도 진행할 수 없어(진짜 복구불가) 1회 자동 재시도 후에도
     실패하면 그때만 멈추고, 등록확인 gap·씬 단위 스틸컷 전멸·컷 단위 일관성 검사 실패는 전부
     "기록하고 계속 진행"으로 처리해 다른 씬/컷까지 덩달아 막히지 않게 한다. 최종 요약에서 재시도
-    복구/gap/건너뛴 씬/확인 필요 컷을 모두 구분해서 보고한다."""
+    복구/gap/건너뛴 씬/확인 필요 컷을 모두 구분해서 보고한다.
+    skip_stage_picker: ★2026-07-20 위 두 액션 핸들러가 드롭다운/버튼 선택 후 재호출할 때만
+    True — 이번 호출은 이미 사용자가 범위를 골랐으니 아래 드롭다운 게이트를 다시 태우지 않는다."""
     if not config.AUTOPILOT_ENABLED:
         _reply(channel, thread_ts,
               "자동주행 기능은 아직 꺼져있어요(`SB_AUTOPILOT_ENABLED=true`로 켜야 동작해요).")
@@ -5579,6 +5965,8 @@ def _do_autopilot(channel, thread_ts, rest):
         episode = resumed_progress["episode"]
     else:
         episode = int(epm.group(1))
+    if not _require_genre(channel, thread_ts, work):
+        return
     # ★2026-07-15: 사용자 요청 — "1씬만 하게 해서" 테스트로 짧게 돌려보고 싶다는 요구. 자동주행은
     # 원래 화 전체 씬을 다 처리하는데, 첫 실전 테스트는 시간이 오래 걸리는 영상화가 씬 수에
     # 비례해서 순식간에 30분을 넘길 수 있어(컷당 순차로 수 분) 특정 씬 하나만으로 범위를 좁힐
@@ -5605,6 +5993,18 @@ def _do_autopilot(channel, thread_ts, rest):
         r"|(\d)\s*단계\s*부터"                            # "2단계부터" (끝=6)
         r"|(\d)\s*단계\s*까지",                           # "4단계까지" (시작=1)
         tail)
+    # ★2026-07-20: 단계 지정도 없고(=텍스트로 "N단계부터"를 안 씀) 이전 진행 이어받기도 아니면
+    # (=완전히 새로운 실행) 어디부터 시작할지 드롭다운으로 물어보고 여기서 멈춘다 — 위 두 액션
+    # 핸들러가 사용자가 고른 선택을 반영해 skip_stage_picker=True로 이 함수를 다시 부른다.
+    # resumed_progress가 있으면(맨몸 "[자동주행]" 재개) 사람이 매번 고를 필요 없이 자동으로
+    # 이어가는 기존 동작을 그대로 유지한다.
+    if not stage_range_m and not resumed_progress and not skip_stage_picker:
+        _PENDING_AUTOPILOT_STAGE[thread_ts] = {"rest": rest}
+        app.client.chat_postMessage(
+            channel=channel, thread_ts=thread_ts,
+            text=f"<{work}> {episode}화 자동주행 — 어느 단계부터 시작할까요?",
+            blocks=_autopilot_stage_picker_blocks())
+        return
     start_stage, end_stage = 1, 6
     if stage_range_m:
         g = stage_range_m.groups()

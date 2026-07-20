@@ -1,0 +1,11 @@
+{
+  "name": "co-writer 스틸컷 브릿지",
+  "id": "co-writer-figma-bridge",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "networkAccess": {
+    "allowedDomains": ["http://127.0.0.1:8933", "http://localhost:8933"]
+  }
+}
