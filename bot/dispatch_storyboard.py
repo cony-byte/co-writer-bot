@@ -775,14 +775,29 @@ def sb_do_storyboard(channel, thread_ts, rest, stage=1):
     joined = "\n".join(m["content"] for m in msgs)
     if not work:
         work = _work_from_thread(joined, thread_ts)
+    work_registered = False
     if work:
-        work = works.resolve(work) or work          # '코니' → 정식 작품명(별칭 해석)
+        resolved = works.resolve(work)              # '코니' → 정식 작품명(별칭 해석), 미등록이면 None
+        work = resolved or work
+        work_registered = bool(resolved)
         sh = _sheet()
         if sh:
             try:
                 bible = sh.get(work)
             except Exception:
                 log.exception("bible load failed")
+    # ★2026-07-20 "<저연프> 1화 상세 콘티 다시 짜줄래"가 "대본을 못 찾았어요(방향 설명 같아요)"로
+    # 안내되던 문제 — 실제 원인은 저연프가 아직 [동기화] 안 된 미등록 작품이라 대본·콘티가
+    # 아예 없던 것. 작품명을 줬는데 그게 미등록(resolve 실패 + 바이블 없음 + 노션 페이지 없음)
+    # 이면, 오해 소지 있는 "대본 못 찾음" 대신 "먼저 연동하세요"를 명확히 안내한다. 단 실제
+    # 대본을 그대로 붙여넣은 경우(_LOOKS_LIKE_PASTED_SCRIPT_RE)는 미등록이라도 즉석 실행 허용.
+    if (work and not work_registered and not bible and not works.page_of(work)
+            and not _LOOKS_LIKE_PASTED_SCRIPT_RE.search(q)):
+        _reply(channel, thread_ts,
+               f"<{work}>은 아직 연동 안 된 작품 같아요 — co-writer 봇에서 `[동기화] <노션링크>`로 "
+               "먼저 등록해주세요. 그다음 `[스토리보드] <작품> N화`로 이어가면 돼요 "
+               "(대본·콘티가 노션/시트에 있어야 상세 콘티를 만들 수 있어요).")
+        return
     epm = re.search(r"(\d+)\s*[화회]", q) or re.search(r"(\d+)\s*[화회]", joined)  # '화'/'회' 둘 다 인정
     target = int(epm.group(1)) if epm else sb_progress_episode(bible, ["대본", "개요"])
     ctm = re.search(r"(\d+)\s*컷", q)                       # 'N컷' → 목표 컷 수(수정지시 숫자와 구분)
