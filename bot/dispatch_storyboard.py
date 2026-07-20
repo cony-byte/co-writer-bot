@@ -6601,11 +6601,20 @@ def _do_autopilot(channel, thread_ts, rest, skip_stage_picker: bool = False):
             # _autopilot_stills_for_scene 내부에서 배치 단위로 수행되므로 여기서는 그 결과
             # (batch_failures)만 받아 skipped_scenes에 반영한다 — 일부 배치만 실패해도 씬 전체를
             # 버리지 않고 성공한 배치들의 컷으로 scene_cuts를 채운다.
-            cuts, scene_seconds, gave_up, batch_failures = _autopilot_stills_for_scene(
-                channel, thread_ts, work, bible, num, hdr, body, vision_deadline=vision_deadline,
-                # ★2026-07-20 스틸컷을 방금 새로 만든 씬이니 옛 영상은 새 스틸컷과 안 맞는다 —
-                # force_regen=True로 이 씬 영상은 기존 게 있어도 무조건 다시 만든다.
-                on_batch_ready=lambda batch_cuts, ss, n=num: _submit_video(n, batch_cuts, ss, force_regen=True))
+            try:
+                cuts, scene_seconds, gave_up, batch_failures = _autopilot_stills_for_scene(
+                    channel, thread_ts, work, bible, num, hdr, body, vision_deadline=vision_deadline,
+                    # ★2026-07-20 스틸컷을 방금 새로 만든 씬이니 옛 영상은 새 스틸컷과 안 맞는다 —
+                    # force_regen=True로 이 씬 영상은 기존 게 있어도 무조건 다시 만든다.
+                    on_batch_ready=lambda batch_cuts, ss, n=num: _submit_video(n, batch_cuts, ss, force_regen=True))
+            except Exception:
+                # ★2026-07-20 "안전필터 걸리면 자동주행이 멈춤" — 씬 하나의 스틸컷 생성이 예상 못 한
+                # 예외로 죽어도 자동주행 전체를 멈추지 말고 그 씬만 건너뛰고 계속(코드 전반의
+                # "실패해도 계속 진행" 원칙과 동일). 안전필터 자체는 배치 단위에서 이미 flag/continue로
+                # 처리되지만, 그 주변에서 나는 예상 밖 예외까지 여기서 최종적으로 삼킨다.
+                log.exception("자동주행 씬%s 스틸컷 생성 예외 — 이 씬 건너뛰고 계속", num)
+                skipped_scenes.append(f"씬{num} — 스틸컷 생성 중 예외(로그 확인)")
+                continue
             if thread_ts in _CANCEL:
                 if video_pool is not None:
                     video_pool.shutdown(wait=False, cancel_futures=True)
@@ -6663,8 +6672,16 @@ def _do_autopilot(channel, thread_ts, rest, skip_stage_picker: bool = False):
             _reply(channel, thread_ts, "✅ 모든 씬 스틸컷 처리 완료 → 남은 영상화 마무리 중…")
             video_pool.shutdown(wait=True)
             for fut in video_futures:
-                for num, c, reason in (fut.result() or []):
-                    pending_review.append(f"씬{num} 영상 컷{c} — {' '.join(reason.split())[:100]}")
+                # ★2026-07-20 백그라운드 영상화 작업이 예외로 죽었으면 fut.result()가 그 예외를
+                # 다시 던진다 — 여기서 안 잡으면 자동주행 전체가 통째로 멈춘다("안전필터 걸리면
+                # 자동주행이 멈춤" 실사용 리포트의 유력 원인). 결과 수집 실패는 그 씬만 확인 필요로
+                # 남기고 계속 진행한다.
+                try:
+                    for num, c, reason in (fut.result() or []):
+                        pending_review.append(f"씬{num} 영상 컷{c} — {' '.join(reason.split())[:100]}")
+                except Exception:
+                    log.exception("자동주행 영상화 백그라운드 작업 예외 — 결과만 건너뛰고 계속")
+                    pending_review.append("영상화 백그라운드 작업 하나가 예외로 실패(로그 확인) — 다른 컷은 계속 진행됨")
 
         _mark_progress(5)
         if end_stage == 5:
