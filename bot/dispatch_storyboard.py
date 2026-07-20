@@ -735,6 +735,14 @@ def _act_autopilot_stop(ack, body):
     _disable_buttons(body, "🛑 중단 요청했어요…" if got else
                      "🛑 중단 요청했어요 (이미지 생성 중이면 진행 중인 컷까지만 끝내고 멈춰요).")
 
+# ★2026-07-20: "붙여넣은 대본인지" 최소 검증 — 대사 인용부호가 있거나(따옴표 안 2글자 이상),
+# 여러 줄로 구성돼 있거나(3줄 이상, 대본 특유의 줄바꿈 형식), 명시적 각본 마커(씬N/S#/각본/
+# 시나리오)가 있어야 "대본처럼 생겼다"고 인정한다. 그냥 길기만 한 방향 설명 요청문(예: "세계관
+# 및 1화 사건 흐름까지 잡아서 생성해줘")은 대사도 여러 줄도 없어서 여기 안 걸린다.
+_LOOKS_LIKE_PASTED_SCRIPT_RE = re.compile(
+    r"[\"“'‘「].{2,}[\"”'’」]|(?:\n[^\n]*){2,}\n|씬\s*\d|S#\s*\d|각본|시나리오"
+)
+
 # renamed from _do_storyboard (name collision with the other bot's function of the same name, different behavior)
 def sb_do_storyboard(channel, thread_ts, rest, stage=1):
     q = rest.strip()
@@ -778,16 +786,29 @@ def sb_do_storyboard(channel, thread_ts, rest, stage=1):
     if stage == 1:
         draft = script
         if not draft:
-            if len(q) >= 20:            # 붙여넣기/첨부한 대본 (<작품> 유무 무관)
+            # ★2026-07-20 실사용 사고 — "노션에 아무 정보도 없는데 씬 설계를 하고 있다" —
+            # 대본이 없으면(script가 비었으면) 길이만 20자 넘으면 그 메시지 자체를 "붙여넣은
+            # 대본"으로 오인해서 씬 설계에 그대로 태웠다. "라이트한 쪽으로 가고 싶어. 무겁지
+            # 않게 디벨롭해서 세계관 및 1화 사건 흐름까지 잡아서 생성해줘." 같은, 대본이 아니라
+            # 기획 방향을 설명하는 요청문(20자 넘는 건 흔함)까지 "대본"으로 잘못 인식해 등장인물
+            # 이름까지 통째로 지어낸 씬 설계를 만들어버렸다 — 대본 유무와 무관하게 항상 자유
+            # 요청문이 들어올 수 있는 이 길만 최소한의 "이거 진짜 대본처럼 생겼나" 검증 없이
+            # 그대로 믿었던 게 근본 원인. 실제 대본(대사 인용부호나 여러 줄 구성)처럼 보일 때만
+            # "붙여넣은 대본"으로 인정하고, 아니면 대본 없음 안내로 보낸다.
+            if len(q) >= 20 and _LOOKS_LIKE_PASTED_SCRIPT_RE.search(q):
                 draft = q
             else:
                 prior = [m["content"] for m in msgs if m["role"] == "assistant"
                          and "[1단계]" not in m["content"] and "[2단계]" not in m["content"]]
-                draft = prior[-1] if prior else ""
+                prior_candidate = prior[-1] if prior else ""
+                draft = prior_candidate if _LOOKS_LIKE_PASTED_SCRIPT_RE.search(prior_candidate) else ""
         if not draft and not prior_plan:
             _reply(channel, thread_ts,
-                   "대본을 못 찾았어요:\n• `[스토리보드] <작품> 3화` (시트 대본 자동)\n"
-                   "• 또는 `[스토리보드] <작품>` 뒤에 대본을 붙여넣기")
+                   "대본을 못 찾았어요 — 이 요청은 실제 대본이 아니라 방향 설명처럼 보여요. "
+                   "먼저 대본/개요부터 만들어주세요:\n"
+                   "• `[생성] <작품> N화 대본`처럼 co-writer로 대본을 먼저 쓰거나\n"
+                   "• `[스토리보드] <작품> 3화` (시트에 저장된 대본 자동 사용)\n"
+                   "• 또는 `[스토리보드] <작품>` 뒤에 완성된 대본을 직접 붙여넣기")
             return
         base_note = (f"{target}화 대본으로 " if script else "") + "씬 설계 중이에요…" + (f" (목표 {cut_target}컷)" if cut_target else "")
         ph = _thinking(channel, thread_ts, base_note, stop_button=True)
