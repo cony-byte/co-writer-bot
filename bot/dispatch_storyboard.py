@@ -2234,6 +2234,11 @@ def _still_buttons_blocks():
              "style": "primary", "action_id": "still_confirm"},
             {"type": "button", "text": {"type": "plain_text", "text": "🔄 재생성"},
              "style": "danger", "action_id": "still_regen"},
+            # ★2026-07-20 "안전필터 안 걸린 스틸컷도 그냥 피그마로 보내고 싶다" — 실패 시에만
+            # 붙던 버튼(_figma_send_blocks)과 별개로, 정상 생성된 스틸컷 배치에도 항상 붙여서
+            # 실패 여부와 무관하게 아무 컷이나 손보고 싶을 때 쓸 수 있게 한다.
+            {"type": "button", "text": {"type": "plain_text", "text": "🎨 피그마로 보내기"},
+             "action_id": "figma_send_stillbatch"},
         ],
     }]
 
@@ -4087,6 +4092,43 @@ def _act_still_confirm(ack, body):
         _post_video_button(ch, tts, p)
     else:
         _disable_buttons(body, "⚠️ 저장에 실패했어요.")
+
+@app.action("figma_send_stillbatch")
+def _act_figma_send_stillbatch(ack, body):
+    """★2026-07-20 "안전필터 안 걸린 스틸컷도 그냥 피그마로 보내고 싶다" — still_confirm/
+    still_regen과 달리 _PENDING_STILL을 pop하지 않고 peek만 한다(확정/재생성 버튼이 아직
+    쓸 수 있어야 하므로 — 순서 무관하게 여러 번 눌러도 되게). 개별 컷 PNG(cuts)가 있으면
+    컷마다 하나씩 큐에 올리고(어느 컷을 손볼지는 피그마에서 고르면 됨), 옛 콘티 폴백처럼
+    개별 컷이 없으면 그리드 전체를 하나로 올린다."""
+    ack()
+    ch, tts = _action_ctx(body)
+    msg_ts = body["message"]["ts"]
+    p = _PENDING_STILL.get(msg_ts)
+    if not p:
+        _reply(ch, tts, "이 스틸컷 정보가 만료됐어요 — 다시 생성한 뒤 눌러주세요.")
+        return
+    if not config.FIGMA_BRIDGE_ENABLED:
+        _reply(ch, tts, "⚠️ 피그마 브릿지가 꺼져있어요 — 봇 설정에서 SB_FIGMA_BRIDGE_ENABLED를 켜야 해요.")
+        return
+    cuts = [c for c in (p.get("cuts") or []) if c.get("png")]
+    try:
+        if cuts:
+            for c in cuts:
+                figma_bridge.enqueue(c["png"], {
+                    "work": p.get("work"), "scene_num": p.get("scene_num"), "cut_num": c.get("n"),
+                    "reason": "사용자 요청", "still_path": c["png"], "channel": ch, "thread_ts": tts,
+                })
+            _reply(ch, tts, f"🎨 컷 {len(cuts)}개를 피그마 대기열에 올렸어요 — 플러그인을 실행하면 "
+                           "캔버스에 자동으로 올라와요. 손본 뒤 「봇으로 보내기」를 누르면 여기로 반영돼요.")
+        else:
+            figma_bridge.enqueue(p["grid_png"], {
+                "work": p.get("work"), "scene_num": p.get("scene_num"), "cut_num": None,
+                "reason": "사용자 요청", "still_path": p["grid_png"], "channel": ch, "thread_ts": tts,
+            })
+            _reply(ch, tts, "🎨 그리드 이미지를 피그마 대기열에 올렸어요 — 플러그인을 실행하면 캔버스에 자동으로 올라와요.")
+    except Exception:
+        log.exception("피그마 큐 등록 실패(스틸컷 배치)")
+        _reply(ch, tts, "⚠️ 피그마로 보내기 실패 — 다시 시도해주세요.")
 
 @app.action("still_regen")
 def _act_still_regen(ack, body):
