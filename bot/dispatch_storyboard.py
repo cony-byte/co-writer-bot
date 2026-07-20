@@ -99,7 +99,7 @@ CMD_EPISODE_STATUS = {"진행상황", "미완성확인", "남은작업", "status
 
 # ★2026-07-20 "작품마다 그림체를 다르게 쓰고 싶다" — [스타일] <작품> <스타일명> 명령으로
 # works.py에 등록된 style_key(STYLE_PRESETS 참고)를 바꾼다.
-CMD_STYLE = {"스타일", "그림체", "style"}
+CMD_STYLE = {"스타일", "그림체", "장르", "style", "genre"}
 
 _REF_SAVE_EXTS = (".png", ".jpg", ".jpeg", ".webp")     # openrouter_image._REF_EXTS와 동일해야 함
 
@@ -3832,12 +3832,21 @@ _LIST_WORKS_RE = re.compile(r"작품\s*목록|등록된?\s*작품\s*(뭐|보여|
 _THREAD_STATUS_RE = re.compile(r"몇\s*단계|무슨\s*작품|이\s*스레드.*(작품|단계)|지금\s*(단계|상태)")
 
 def _maybe_list_works(channel, thread_ts, query) -> bool:
-    """(C6, 2026-07-13) "작품 목록 보여줘" — 등록된 작품 이름을 나열."""
+    """(C6, 2026-07-13) "작품 목록 보여줘" — 등록된 작품 이름을 나열.
+    ★2026-07-20: 작품마다 장르(실사화/2D 애니메이션)가 등록될 수 있어서(works.get_style),
+    작품 정보의 일부로 목록에 같이 보여준다 — 미지정이면 기본값(실사풍)이 괄호 없이 표시."""
     if not _LIST_WORKS_RE.search(query or ""):
         return False
     names = sorted(works.all_works().keys())
-    _reply(channel, thread_ts,
-           ("등록된 작품: " + ", ".join(f"<{n}>" for n in names)) if names else "등록된 작품이 없어요.")
+    if not names:
+        _reply(channel, thread_ts, "등록된 작품이 없어요.")
+        return True
+    lines = []
+    for n in names:
+        style_key = works.get_style(n)
+        genre_note = f" ({STYLE_LABELS[style_key]})" if style_key else ""
+        lines.append(f"<{n}>{genre_note}")
+    _reply(channel, thread_ts, "등록된 작품: " + ", ".join(lines))
     return True
 
 def _maybe_thread_status(channel, thread_ts, query) -> bool:
@@ -3857,6 +3866,12 @@ def _maybe_thread_status(channel, thread_ts, query) -> bool:
     parts.append(f"단계: {stage_label}")
     if rec.get("human_final"):
         parts.append("콘티 확정됨")
+    # ★2026-07-20: 이 스레드가 추적 중인 작품의 장르(실사화/2D 애니메이션)도 같이 보여준다 —
+    # 미지정이면 기본값(실사풍)이므로 굳이 표시하지 않는다(명시적으로 설정된 것만 표시).
+    if work:
+        style_key = works.get_style(work)
+        if style_key:
+            parts.append(f"장르: {STYLE_LABELS[style_key]}")
     _reply(channel, thread_ts, " · ".join(parts))
     return True
 
@@ -5299,7 +5314,7 @@ def _do_style(channel, thread_ts, rest):
 # ★2026-07-20: "그림체를 2d 애니메이션으로 바꿔줘"/"스타일 실사로 해줘" 같은 자연어. 화 번호
 # 처리(_maybe_episode_status 등)와 동일하게, 구조적으로 명확한 트리거 문구가 있을 때만 걸리게
 # 좁혀서 "스타일"이라는 단어가 들어간 다른 잡담과 오충돌하지 않게 한다.
-_STYLE_CHANGE_RE = re.compile(r"(스타일|그림체).{0,15}(바꿔|바꾸고|변경|설정|로\s*(해|가)|하기로)")
+_STYLE_CHANGE_RE = re.compile(r"(스타일|그림체|장르).{0,15}(바꿔|바꾸고|변경|설정|로\s*(해|가)|하기로)")
 
 def _maybe_style_change_request(channel, thread_ts, query) -> bool:
     q = (query or "").strip()
