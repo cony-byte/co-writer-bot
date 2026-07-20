@@ -9,7 +9,7 @@ import json
 INTENT_SPECS: dict[str, dict] = {
     "answer_question": {
         "label": "질문에 답변",
-        "desc": "작업 지시가 아니라 상태/이유/방법을 묻는 질문. 답변 문장을 만들지 말고 question_type만 분류한다. question_type은 registered_elements_status|element_reflection_status|next_step|capability|storyboard_image_explanation|stillcut_explanation|generation_explanation|pipeline_status|general 중 하나다. 스토리보드 이미지/그리드와 스틸컷을 반드시 구분한다. 절대 파이프라인을 실행하지 않는다.",
+        "desc": "작업 지시가 아니라 상태/이유/방법을 묻는 질문. 답변 문장을 만들지 말고 question_type만 분류한다. question_type은 registered_elements_status|episode_required_elements|element_reflection_status|next_step|capability|storyboard_image_explanation|stillcut_explanation|generation_explanation|pipeline_status|general 중 하나다. 스토리보드 이미지/그리드와 스틸컷을 반드시 구분한다. 절대 파이프라인을 실행하지 않는다.",
     },
     "smalltalk": {"label": "잡담/감탄", "desc": "인사, 리액션, 감탄사. 짧게 호응만."},
     "confirm_previous": {
@@ -67,14 +67,14 @@ INTENT_SPECS: dict[str, dict] = {
 RULES = r"""
 ## 분류 규칙
 
-R1. 질문 ≠ 지시. 정보를 묻는 문장은 answer_question이며 파이프라인을 실행하지 않는다. answer_question에서는 reply_text를 만들지 말고 question_type만 분류한다. 특정 등록물이 실제 반영됐는지 묻는 “교복 이미지도 반영했어?”류는 element_reflection_status이며, elements에 확인 대상을 넣는다. “스토리보드 이미지/그리드/전체 이미지” 결과 질문은 storyboard_image_explanation, “스틸컷/특정 컷/씬N 컷N 이미지” 결과 질문은 stillcut_explanation이다.
+R1. 질문 ≠ 지시. 정보를 묻는 문장은 answer_question이며 파이프라인을 실행하지 않는다. answer_question에서는 reply_text를 만들지 말고 question_type만 분류한다. 특정 등록물이 실제 반영됐는지 묻는 “교복 이미지도 반영했어?”류는 element_reflection_status이며, elements에 확인 대상을 넣는다. “1화에 등록할 인물 누구누구 있지?”처럼 특정 화에 필요한 인물/참조 대상을 묻는 질문은 episode_required_elements로 분류하고 episode를 반드시 채운다. 이는 현재 등록 목록만 묻는 registered_elements_status와 다르다. “스토리보드 이미지/그리드/전체 이미지” 결과 질문은 storyboard_image_explanation, “스틸컷/특정 컷/씬N 컷N 이미지” 결과 질문은 stillcut_explanation이다.
 R2. 화 번호는 메시지에 명시된 ‘N화’ 또는 tracked_episode로만 채운다. 타겟층 숫자는 화 번호가 아니다. 메시지에 화 번호가 없더라도 현재 스레드가 특정 화를 추적 중이고 사용자가 “이미 있는 대본/상세 콘티를 확인해 스토리보드 다시”라고 하면 tracked_episode를 사용해 바로 진행한다.
 R3. 봇 자신의 출력은 입력이 아니다. 평가/변환 원문은 role=작가 메시지에서만 찾는다.
-R4. 첨부 이미지의 역할을 동사로 구분한다. 첨부 + “등록/이거야/각각/순서대로”는 element_register, 첨부 + “교체/바꿔”는 element_edit, 첨부 + “동일하게/참고해서/재생성/새로 만들어”는 첨부를 시각 참조로 쓰는 element_generate다. ‘이미지’라는 단어만으로 스토리보드 이미지로 보내지 않는다.
+R4. 첨부 이미지의 역할을 동사로 구분한다. 첨부 + “등록/등록해줘/이거야/각각/순서대로”는 무조건 element_register이며, 최근 봇 메시지에 대본·콘티·화 번호가 있어도 현재 등록 요청보다 우선할 수 없다. 종류가 생략된 사람 이름 + 인물 사진(예: “김신우 등록해줘”)은 인물 등록으로 본다. 첨부 + “교체/바꿔”는 element_edit, 첨부 + “동일하게/참고해서/재생성/새로 만들어”는 첨부를 시각 참조로 쓰는 element_generate다. ‘이미지’라는 단어만으로 스토리보드 이미지로 보내지 않는다.
 R5. elements.name은 조사·접속사를 제거한 고유명만 유지한다. 쉼표·줄바꿈 나열과 첨부 순서를 image_index 0부터 정확히 연결한다. 괄호 설명(예: 여자 교복(엑스트라용))은 이름의 일부이므로 보존한다.
 R6. 상세 콘티 전체 생성은 detail_conti, 완성된 상세 콘티의 씬/컷 구도·표정·동작 수정은 conti_rewrite, 직전 대본/개요 수정·확장은 script_revise다. conti_rewrite에서는 “말고/빼고/큰 움직임 없이” 같은 부정·연출 조건을 원문 그대로 instruction에 보존한다.
 R7. 취소는 명시적일 때만 cancel_job이다.
-R8. <꺾쇠> 안 텍스트를 무조건 작품명으로 보지 않는다. registered_works의 정식명 또는 별칭과 일치할 때만 work다. 일치하지 않으면 인물/장소/의상/소품 이름 후보다. 예: registered_works에 ‘하루’가 없고 tracked_work가 ‘겨울 하루’일 때 “<하루> 의상”은 work='겨울 하루', element name='하루 의상'이다.
+R8. <꺾쇠> 또는 [대괄호] 안 텍스트를 무조건 작품명으로 보지 않는다. registered_works의 정식명 또는 별칭과 일치할 때만 work다. 현재 문장에 등록 작품이 <저연프> 또는 [저연프]로 명시되면 바로 위 스레드 작품보다 우선한다. 단 [피드백], [이미지], [생성] 같은 정식 브래킷 명령은 작품명이 아니다. 일치하지 않으면 인물/장소/의상/소품 이름 후보다. 예: registered_works에 ‘하루’가 없고 tracked_work가 ‘겨울 하루’일 때 “<하루> 의상”은 work='겨울 하루', element name='하루 의상'이다.
 R9. 사용자가 안내된 브래킷 명령 형식을 따르면 그 의도를 최우선 존중한다.
 R10. 여러 요청이면 첫 intent를 선택하되 나머지를 instruction 또는 steps에 보존한다.
 R11. 정보 부족이나 규칙 충돌이면 confidence를 낮추고 구체적으로 확인한다. 다만 tracked_work/tracked_episode와 첨부 순서로 충분히 특정되면 되묻지 않는다.
@@ -376,6 +376,21 @@ FEW_SHOTS: list[tuple[str, dict]] = [
 ]
 
 
+FEW_SHOTS.append((
+    "1화에 등록할 인물 누구누구 있지?",
+    {"intent": "answer_question", "question_type": "episode_required_elements", "episode": 1, "confidence": 0.94},
+))
+
+FEW_SHOTS.append((
+    "김신우 등록해줘",  # + 인물 이미지 1장
+    {
+        "intent": "element_register",
+        "elements": [{"kind": "인물", "name": "김신우", "image_index": 0}],
+        "confidence": 0.98,
+    },
+))
+
+
 def build_system_prompt(ctx: dict) -> str:
     intents_doc = "\n".join(
         f"- {name}: {spec['desc'] or spec['label']}"
@@ -392,7 +407,7 @@ def build_system_prompt(ctx: dict) -> str:
 "episodes": [정수]|null, "scene": 정수|null, "cuts": [정수]|null,
 "elements": [{{"kind":"인물|장소|의상|소품","name":"…","image_index":정수}}]|null,
 "instruction": "핸들러에 전달할 지시 원문(불필요한 요약 금지)|null",
-"question_type": "registered_elements_status|element_reflection_status|next_step|capability|storyboard_image_explanation|stillcut_explanation|generation_explanation|pipeline_status|general|null",
+"question_type": "registered_elements_status|episode_required_elements|element_reflection_status|next_step|capability|storyboard_image_explanation|stillcut_explanation|generation_explanation|pipeline_status|general|null",
 "reply_text": "clarify/smalltalk일 때만 사용자에게 보낼 문장|null",
 "assumptions": ["추론으로 채운 슬롯 설명 한 줄"…]|null,
 "steps": [부분 스키마]|null,

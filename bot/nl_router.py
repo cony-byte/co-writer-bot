@@ -264,6 +264,17 @@ def _apply_safety_normalization(r: Route, query_text: str, ctx: dict) -> Route:
     if r.intent == "answer_question":
         r.reply_text = None
 
+        # “1화에 등록할 인물 누구누구 있지?”는 현재 등록 목록 조회가 아니라
+        # 해당 화 대본/상세 콘티에서 필요한 인물을 찾는 질문이다. 모델이
+        # registered_elements_status로 보낸 경우에도 결정적으로 바로잡는다.
+        required_match = re.search(
+            r"(\d+)\s*화.{0,20}(?:등록할|필요한|나올|등장할).{0,15}(?:인물|캐릭터|사람)",
+            text,
+        )
+        if required_match and re.search(r"누구|뭐뭐|목록|알려", text):
+            r.question_type = "episode_required_elements"
+            r.episode = int(required_match.group(1))
+
     # 현재 메시지에 등록 작품명이 명시돼 있으면 스레드의 이전 작품보다 우선한다.
     # <저연프>와 [저연프]를 모두 지원하되 [피드백]/[이미지] 등 명령은 제외한다.
     explicit_work = _explicit_work_token(text, ctx)
@@ -293,6 +304,63 @@ def _apply_safety_normalization(r: Route, query_text: str, ctx: dict) -> Route:
     attached = int(ctx.get("attached_image_count") or 0)
     generate_from_ref = bool(re.search(r"동일하게|참고해서|참조해서|재생성|새로\s*만들", text))
     register_words = bool(re.search(r"등록|각각|순서대로|(?:이야|입니다)[.!]?$", text))
+
+    # 이미지가 첨부됐고 현재 메시지에 등록 의사가 명시되면, 최근 봇 출력의
+    # 대본/콘티/화 번호와 무관하게 참조 등록이 항상 우선한다.
+    # 예: “김신우 등록해줘” + 인물 사진 1장 → element_register(인물 김신우).
+    explicit_register = bool(
+        attached
+        and not generate_from_ref
+        and re.search(r"(?:등록(?:해|해줘|해주세요|할게|이야)?|참조로\s*(?:써|등록)|고정값으로)", text)
+    )
+    if explicit_register:
+        r.intent = "element_register"
+        r.episode = None
+        r.episodes = None
+        r.scene = None
+        r.cuts = None
+        r.steps = None
+        r.needs_clarification = False
+
+        # LLM이 이미 올바른 구조를 뽑았다면 그대로 사용하고, 비어 있을 때만
+        # 현재 사용자 문장에서 이름과 종류를 결정적으로 복구한다.
+        if not r.elements:
+            cleaned = re.sub(r"<@[^>]+>|@[\w.-]+", " ", text)
+            cleaned = re.sub(r"<[^<>]+>|\[[^\[\]]+\]", " ", cleaned)
+            cleaned = re.sub(
+                r"(?:이|그)?\s*(?:이미지|사진|첨부(?:파일)?|참조(?:\s*이미지)?|고정값)",
+                " ",
+                cleaned,
+            )
+            cleaned = re.sub(
+                r"(?:로|으로)?\s*(?:등록(?:해|해줘|해주세요|할게)?|참조로\s*(?:써|등록)|고정값으로)\s*[.!?]*$",
+                "",
+                cleaned,
+            ).strip(" ,./")
+
+            kind = "인물"
+            if re.search(r"의상|옷|교복|유니폼|복장", cleaned):
+                kind = "의상"
+            elif re.search(r"장소|배경|교실|방|거실|복도|학교|회사|집", cleaned):
+                kind = "장소"
+            elif re.search(r"소품|가방|휴대폰|핸드폰|차량|자동차", cleaned):
+                kind = "소품"
+
+            # 종류 표시는 이름에서 제거하되, “여자 교복(엑스트라용)”처럼
+            # 실제 명칭에 포함된 단어는 보존한다. 단순 “인물 김신우”만 정리한다.
+            if kind == "인물":
+                cleaned = re.sub(r"^(?:인물|캐릭터|사람)\s+", "", cleaned).strip()
+
+            names = [
+                part.strip()
+                for part in re.split(r"\s*,\s*|\s+및\s+|\s+그리고\s+", cleaned)
+                if part.strip()
+            ]
+            if names:
+                r.elements = [
+                    {"kind": kind, "name": name, "image_index": idx}
+                    for idx, name in enumerate(names[:attached])
+                ]
 
     # 첨부 이미지를 시각 참조로 새 이미지를 만들어달라는 요청은 등록이 아니다.
     if attached and r.intent == "element_register" and generate_from_ref:
@@ -508,6 +576,94 @@ def _echo_assumptions(channel: str, thread_ts: str, r: Route) -> None:
 
 
 
+
+def _episode_required_people(work: str, episode: int) -> tuple[list[str], list[str], str | None]:
+    """해당 화의 대본/상세 콘티에서 등장인물을 찾고 등록 여부와 비교한다.
+
+    반환: (등장인물 전체, 아직 미등록 인물, 오류 안내). LLM에게 이름을 만들게 하지 않고
+    바이블의 인물명과 대본/콘티의 `등장:` 선언을 코드로만 대조한다.
+    """
+    from . import dispatch_storyboard as sb
+    from . import openrouter_image as oi
+    from . import reference
+
+    bible = None
+    try:
+        sheet = reference.sheet()
+        if sheet:
+            bible = sheet.get(work)
+    except Exception:
+        log.exception("episode_required_people: bible load failed work=%s", work)
+
+    script = ""
+    script_error = None
+    try:
+        script, script_error = sb._script_for(work, episode, bible)
+    except Exception:
+        log.exception("episode_required_people: script load failed work=%s ep=%s", work, episode)
+
+    conti = ""
+    try:
+        conti, _source = sb._fetch_external_conti(work, episode)
+        conti = conti or ""
+    except Exception:
+        log.exception("episode_required_people: conti load failed work=%s ep=%s", work, episode)
+
+    source_text = "\n".join(x for x in (script, conti) if x).strip()
+    if not source_text:
+        if script_error:
+            return [], [], f"{episode}화 대본을 읽는 중 오류가 났어요: {script_error}"
+        return [], [], f"<{work}> {episode}화 대본이나 상세 콘티를 찾지 못했어요."
+
+    people: list[str] = []
+
+    # 가장 신뢰할 수 있는 후보는 바이블에 등록된 인물명이다. 해당 화 원문에 실제 등장한
+    # 이름만 골라내므로 전체 작품 인물을 무작정 나열하지 않는다.
+    characters = (bible or {}).get("characters") or {}
+    if isinstance(characters, dict):
+        for name in characters:
+            clean = str(name).strip()
+            if clean and clean in source_text:
+                people.append(clean)
+
+    # 상세 콘티의 `등장:` 선언은 바이블에 아직 반영되지 않은 인물도 포함할 수 있다.
+    for line in source_text.splitlines():
+        m = re.match(r"^\s*등장\s*:\s*(.+)$", line)
+        if not m:
+            continue
+        raw = m.group(1)
+        for chunk in re.split(r"\s*[·,/]\s*", raw):
+            name = re.sub(r"\s*\(.*$", "", chunk).strip()
+            name = re.sub(r"\s*(?:및|와|과)$", "", name).strip()
+            if name and len(name) <= 30 and name not in ("없음", "엑스트라"):
+                people.append(name)
+
+    people = list(dict.fromkeys(people))
+    if not people:
+        return [], [], f"<{work}> {episode}화 자료는 읽었지만 등장인물 이름을 구조적으로 찾지 못했어요."
+
+    registered: list[str] = []
+    try:
+        for el in oi.load_elements(work):
+            kind = str(el.get("type") or "")
+            if kind in ("person", "인물"):
+                name = str(el.get("name") or "").strip()
+                if name:
+                    registered.append(name)
+    except Exception:
+        log.exception("episode_required_people: element load failed work=%s", work)
+
+    def _is_registered(name: str) -> bool:
+        compact = re.sub(r"\s+", "", name)
+        for actual in registered:
+            normalized = re.sub(r"\s+", "", actual)
+            if compact == normalized or compact in normalized or normalized in compact:
+                return True
+        return False
+
+    missing = [name for name in people if not _is_registered(name)]
+    return people, missing, None
+
 def _answer_question(
     channel: str,
     thread_ts: str,
@@ -573,6 +729,28 @@ def _answer_question(
             _reply(channel, thread_ts, f"<{work}>에서 {', '.join(dict.fromkeys(matches))}은 확인됐지만, {', '.join(missing)}은 등록 상태를 찾지 못했어요.")
         else:
             _reply(channel, thread_ts, f"아직 <{work}>에서 {', '.join(missing)} 참조가 등록된 상태로 확인되지 않아요.")
+        return
+
+    if qtype == "episode_required_elements":
+        if not work:
+            _reply(channel, thread_ts, "어느 작품의 화인지 확인할 수 없어요. 작품명을 함께 알려주세요.")
+            return
+        if episode is None:
+            _reply(channel, thread_ts, "몇 화에 필요한 인물인지 화 번호를 알려주세요.")
+            return
+        people, missing, error = _episode_required_people(work, episode)
+        if error:
+            _reply(channel, thread_ts, error)
+            return
+        registered = [name for name in people if name not in missing]
+        lines = [f"<{work}> {episode}화에 등장하는 인물은 {', '.join(people)}예요."]
+        if missing:
+            lines.append("아직 인물 참조 등록이 필요한 대상: " + ", ".join(missing))
+        else:
+            lines.append("등장인물의 인물 참조가 모두 등록되어 있어요.")
+        if registered:
+            lines.append("이미 등록된 대상: " + ", ".join(registered))
+        _reply(channel, thread_ts, "\n".join(lines))
         return
 
     if qtype == "registered_elements_status":
