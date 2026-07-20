@@ -6,6 +6,7 @@
   "ui": "ui.html",
   "editorType": ["figma"],
   "networkAccess": {
-    "allowedDomains": ["*"]
+    "allowedDomains": ["*"],
+    "reasoning": "봇 서버(같은 사무실 LAN, 포트 8933)에서 스틸컷 이미지를 가져오고 손본 이미지를 되돌려 보내기 위해 로컬/LAN 네트워크 접근이 필요함. 봇이 다른 머신에 있을 수 있어 도메인을 미리 고정할 수 없음."
   }
 }
