@@ -386,6 +386,15 @@ def _handle_dispatch(event: dict) -> None:
         if fn(channel, thread_ts, query):
             return
 
+    # 첨부 이미지를 기준으로 재생성하는 요청은 LLM보다 먼저 결정적으로 처리한다.
+    # 라우터 호출이 실패해도 co-writer 자유응답으로 빠져 "이미지 기능 미지원"이라고
+    # 잘못 답할 수 없게 하는 안전 경로다.
+    nl_router.recover_event_files(channel, thread_ts, event)
+    if sb._maybe_element_ref_generate_request(channel, thread_ts, query, event):
+        return
+    if nl_router.preflight_missing_attachment(channel, thread_ts, query, event):
+        return
+
     # ★ LLM 라우터 — 실패/예외 시 기존 step 4~7 체인으로 폴백
     try:
         r = nl_router.route(channel, thread_ts, query, event)

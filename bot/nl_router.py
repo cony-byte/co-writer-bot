@@ -168,12 +168,19 @@ def _event_files(channel: str, thread_ts: str, event: dict) -> list[dict]:
     root_ts = str(event.get("thread_ts") or thread_ts or message_ts)
     if not (channel and message_ts and root_ts):
         return []
+    # 1) 스레드 메시지 재조회. app_mention 이벤트에서 files가 빠져도 실제 원문에는
+    # 남아 있는 경우가 가장 흔하다.
     try:
         resp = app.client.conversations_replies(
             channel=channel, ts=root_ts, limit=config.THREAD_HISTORY_LIMIT
         )
         for message in resp.get("messages", []):
-            if str(message.get("ts") or "") != message_ts:
+            same_ts = str(message.get("ts") or "") == message_ts
+            same_client_id = bool(
+                event.get("client_msg_id")
+                and message.get("client_msg_id") == event.get("client_msg_id")
+            )
+            if not (same_ts or same_client_id):
                 continue
             recovered = list(message.get("files") or [])
             if recovered:
@@ -181,8 +188,65 @@ def _event_files(channel: str, thread_ts: str, event: dict) -> list[dict]:
                 log.info("nl_router: Slack 원본 메시지에서 첨부 %d개 복구", len(recovered))
             return recovered
     except Exception as exc:
-        log.warning("nl_router 첨부 파일 재조회 실패: %s", exc)
+        log.warning("nl_router conversations.replies 첨부 재조회 실패: %s", exc)
+
+    # 2) 일부 채널/이벤트 조합에서는 replies 결과에 현재 메시지가 안 잡힌다.
+    # 같은 ts 주변의 채널 원문을 한 번 더 조회한다.
+    try:
+        resp = app.client.conversations_history(
+            channel=channel, latest=message_ts, inclusive=True, limit=5
+        )
+        for message in resp.get("messages", []):
+            same_ts = str(message.get("ts") or "") == message_ts
+            same_client_id = bool(
+                event.get("client_msg_id")
+                and message.get("client_msg_id") == event.get("client_msg_id")
+            )
+            if not (same_ts or same_client_id):
+                continue
+            recovered = list(message.get("files") or [])
+            if recovered:
+                event["files"] = recovered
+                log.info("nl_router: Slack 채널 원문에서 첨부 %d개 복구", len(recovered))
+            return recovered
+    except Exception as exc:
+        log.warning("nl_router conversations.history 첨부 재조회 실패: %s", exc)
     return []
+
+
+def _looks_like_reference_image_request(text: str) -> bool:
+    """첨부 이미지를 기준으로 새 이미지를 만들려는 명시적 요청인지 판별."""
+    q = text or ""
+    has_ref = bool(re.search(
+        r"(?:이|그|첨부한?)\s*(?:이미지|사진)|(?:이미지|사진)\s*(?:와|과|처럼|기준|참고)",
+        q,
+    ))
+    has_gen = bool(re.search(r"동일하게|똑같이|참고해서|참조해서|기준으로|재생성|다시\s*(?:생성|만들)|새로\s*만들", q))
+    return has_ref and has_gen
+
+
+def preflight_missing_attachment(channel: str, thread_ts: str, query_text: str, event: dict) -> bool:
+    """이미지 참조 요청인데 파일 복구까지 실패한 경우 안전 문구로 여기서 소비한다.
+
+    이 가드는 LLM 호출보다 먼저 실행되어 라우터 실패/legacy 폴백 시에도
+    "이미지 기능을 지원하지 않는다"는 잘못된 자유응답이 나갈 수 없게 한다.
+    """
+    if not _looks_like_reference_image_request(query_text):
+        return False
+    if _event_files(channel, thread_ts, event):
+        return False
+    _reply(
+        channel,
+        thread_ts,
+        "첨부 이미지를 불러오지 못했어요. 같은 이미지와 문구를 한 번만 "
+        "다시 보내주세요. 확인되는 즉시 요청하신 이미지 작업을 진행할게요.",
+    )
+    return True
+
+
+def recover_event_files(channel: str, thread_ts: str, event: dict) -> list[dict]:
+    """기존 핸들러가 쓰도록 복구된 파일을 event에 채우고 반환."""
+    return _event_files(channel, thread_ts, event)
 
 
 def _element_name(element: dict) -> str:
@@ -1147,7 +1211,12 @@ def execute(
                    f"ℹ️ {kind}부터 등록했어요 — {', '.join(kinds[1:])}는 이미지와 함께 따로 보내주세요.")
         return
     if intent == "element_generate":
-        if not sb._maybe_element_gen_request(channel, thread_ts, body or _q(event.get("text")), event):
+        query = body or _q(event.get("text"))
+        # 첨부 참조 재생성은 일반 생성 핸들러보다 먼저 처리한다. 일반 핸들러는
+        # 첨부가 있으면 등록 경로와 충돌하지 않도록 False를 반환하기 때문이다.
+        if sb._maybe_element_ref_generate_request(channel, thread_ts, query, event):
+            return
+        if not sb._maybe_element_gen_request(channel, thread_ts, query, event):
             legacy_fallback(event)
         return
 

@@ -1,5 +1,6 @@
 """dispatch_storyboard.py -- storyboard-only command handlers + all _maybe_* natural-language triggers, mechanically extracted verbatim from storyboard-bot/app.py via ast line-span slicing. See extraction report for the rename/collision map and gap report."""
 import concurrent.futures as cf
+import base64
 import itertools
 import json
 import logging
@@ -3741,6 +3742,126 @@ def _explicit_type_from_prefix(q: str):
         if kw in pre:
             return _REF_TYPE_KW[kw], name
     return None, None
+
+def _parse_reference_element_target(query: str) -> tuple[str | None, int | None, str, str]:
+    """첨부 참조 재생성 문장에서 (작품, 화, 이름, 타입)을 추출한다."""
+    q = (query or "").strip()
+    work = None
+    # 꺾쇠/대괄호 작품명 모두 지원. 대괄호 명령어는 제외한다.
+    m = re.search(r"<\s*([^>]+?)\s*>|\[\s*([^\]]+?)\s*\]", q)
+    if m:
+        token = (m.group(1) or m.group(2) or "").strip()
+        if token and token not in {"생성", "이미지", "스토리보드", "피드백", "의상", "인물", "장소", "소품"}:
+            work = token
+            q = (q[:m.start()] + " " + q[m.end():]).strip()
+    epm = re.search(r"(\d{1,3})\s*화", q)
+    episode = int(epm.group(1)) if epm else None
+    q = re.sub(r"\d{1,3}\s*화(?:에|에서|의)?\s*(?:나올|등장할|쓸|사용할)?", " ", q)
+    q = re.sub(r"(?:이|그|첨부한?)\s*(?:이미지|사진)(?:와|과|처럼|을|를|에|로|으로)?", " ", q)
+    q = re.sub(r"(?:동일하게|똑같이|참고해서|참조해서|기준으로|재생성해줘|재생성해주세요|재생성|다시\s*(?:생성|만들어줘)|새로\s*만들어줘)", " ", q)
+    q = re.sub(r"(?:해줘|해주세요|해|줘)[.!?]*$", " ", q)
+    q = re.sub(r"\s+", " ", q).strip(" ,./")
+
+    etype = "person"
+    if re.search(r"의상|옷|상의|하의|교복|유니폼|복장|코스튬", q):
+        etype = "costume"
+    elif re.search(r"장소|배경|교실|방|거실|복도|학교|회사|집", q):
+        etype = "place"
+    elif re.search(r"소품|가방|휴대폰|핸드폰|차량|자동차", q):
+        etype = "prop"
+
+    # 조사와 설명 꼬리를 걷어내되 사용자가 지정한 대상명은 최대한 보존한다.
+    name = re.sub(r"^(?:인물|캐릭터|장소|배경|소품|의상)\s+", "", q).strip()
+    name = re.sub(r"(?:은|는|을|를|이|가)$", "", name).strip()
+    if not name:
+        name = "참조 이미지 기반 의상" if etype == "costume" else "참조 이미지 기반 요소"
+    return work, episode, name, etype
+
+
+def _reference_generation_prompt(name: str, etype: str, query: str) -> str:
+    label = _ELEMENT_TYPE_LABEL.get(etype, etype)
+    if etype == "costume":
+        return (
+            f"Create a clean production-ready costume reference image for '{name}'. "
+            "Match the attached reference image's clothing design exactly: same colors, fabric, silhouette, "
+            "collar, sleeves, layers, patterns and visible details. Show the garment clearly as a neutral "
+            "fashion reference sheet on a plain background, without copying the person's face or identity. "
+            "No text, no logos unless present in the reference, no unrelated accessories. "
+            f"User request: {query}"
+        )
+    return (
+        f"Create a clean production-ready {label} reference image for '{name}'. "
+        "Preserve the attached reference image's defining visual characteristics as closely as possible. "
+        "Plain background, clear subject, no text, no collage. "
+        f"User request: {query}"
+    )
+
+
+def _maybe_element_ref_generate_request(channel, thread_ts, query, event) -> bool:
+    """첨부 이미지를 시각 참조로 새 엘리먼트 후보를 생성한다.
+
+    일반 _maybe_element_gen_request는 첨부가 있으면 등록 경로와 충돌하지 않도록 일부러
+    False를 반환한다. 따라서 '이 이미지와 동일하게 재생성'은 이 전용 경로에서 처리한다.
+    """
+    q = query or ""
+    has_ref = bool(re.search(
+        r"(?:이|그|첨부한?)\s*(?:이미지|사진)|(?:이미지|사진)\s*(?:와|과|처럼|기준|참고)", q
+    ))
+    has_generate = bool(re.search(
+        r"동일하게|똑같이|참고해서|참조해서|기준으로|재생성|다시\s*(?:생성|만들)|새로\s*만들", q
+    ))
+    if not (has_ref and has_generate):
+        return False
+    imgs = _image_files(event)
+    if not imgs:
+        return False
+
+    work, episode, name, etype = _parse_reference_element_target(q)
+    if not work:
+        joined = "\n".join(m["content"] for m in _thread_messages(channel, thread_ts))
+        work = _work_from_thread(joined, thread_ts)
+    if not work:
+        _reply(channel, thread_ts, _WORK_NOT_FOUND_MSG)
+        return True
+    work = works.resolve(work) or work
+    if episode is not None:
+        conti_state.set_episode(thread_ts, work, episode)
+
+    data_url = "data:image/png;base64," + base64.b64encode(imgs[0][2]).decode("ascii")
+    prompt = _reference_generation_prompt(name, etype, q)
+    _reply(channel, thread_ts, f"🎨 <{work}> {name}을 첨부 이미지 기준으로 재생성할게요…")
+    try:
+        png, cost = oi.generate(prompt, refs=[data_url], aspect_ratio="1:1", quality="low")
+    except Exception:
+        log.exception("첨부 참조 엘리먼트 생성 실패")
+        _reply(channel, thread_ts, "⚠️ 첨부 이미지는 확인했지만 이미지 생성에 실패했어요. 잠시 후 같은 요청으로 다시 시도해주세요.")
+        return True
+
+    label = _ELEMENT_TYPE_LABEL.get(etype, etype)
+    cap = f"🎨 {label} 후보 — {name}" + (f" · ~${cost:.3f}" if cost else "")
+    app.client.files_upload_v2(
+        channel=channel, thread_ts=thread_ts, file=png,
+        filename=f"{name}_candidate.png", title=cap, initial_comment=cap,
+    )
+    text = "이 이미지로 등록할까요?"
+    resp = app.client.chat_postMessage(
+        channel=channel, thread_ts=thread_ts, text=text,
+        blocks=_with_text_block(text, [{
+            "type": "actions",
+            "elements": [
+                {"type": "button", "text": {"type": "plain_text", "text": "✅ 이걸로 등록"},
+                 "style": "primary", "action_id": "element_gen_confirm"},
+                {"type": "button", "text": {"type": "plain_text", "text": "🔄 다시 생성"},
+                 "action_id": "element_gen_regen"},
+            ],
+        }]),
+    )
+    pending_element_state.set(
+        resp["ts"], work=work, name=name, etype=etype,
+        context=f"첨부 이미지 기준 재생성: {q}", png=png,
+    )
+    return True
+
 
 def _maybe_element_gen_request(channel, thread_ts, query, event) -> bool:
     """이미지 첨부 없이 "선우의 이미지를 생성해줘"처럼 순수 자연어로 온 AI 생성 요청.
