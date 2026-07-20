@@ -3062,6 +3062,19 @@ def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
         return
     head = f"🆕 새 작품 *{work}* 등록 + " if new_work else f"✅ *{work}* "
     msg = f"{head}{src} 동기화 — {done}개 반영.\n· " + "\n· ".join(summary)
+    # ★2026-07-20 대본·상세콘티는 시트에 저장하지 않고(원문 보존) 노션에서 그때그때 직접
+    # 읽지만, 페이지에서 감지된 건 요약에 알려준다(사용자 요청 — "안 불러오는 것 같다"는 오해 방지).
+    try:
+        _sc = notion_sync.parse_episode_scripts(content or "")
+        if _sc:
+            _eps = ", ".join(sorted(_sc.keys(), key=lambda s: int(re.sub(r"\D", "", s) or 0)))
+            msg += f"\n· 대본 {_eps} 감지됨 (노션에서 직접 사용 — 저장 안 함)"
+    except Exception:
+        pass
+    _conti_eps = sorted({int(a or b or 0) for a, b in
+                         re.findall(r"(\d+)\s*화[^\n]{0,8}콘티|콘티[^\n]{0,8}(\d+)\s*화", content or "")} - {0})
+    if _conti_eps:
+        msg += "\n· 상세콘티 " + ", ".join(f"{e}화" for e in _conti_eps) + " 감지됨 (노션에서 직접 사용)"
     if new_work:
         msg += (f"\n\n📌 작품명은 *<{work}>* 이에요! 이렇게 부르면 돼요 → `[생성] <{work}> 3화`\n"
                 f"이름이 길면 답글로 `[별칭] 짧은이름` 만 치면 짧게도 부를 수 있어요. 노션 수정하면 자동 반영돼요.")
