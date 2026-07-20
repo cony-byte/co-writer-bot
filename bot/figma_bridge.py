@@ -148,14 +148,19 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         # 피그마 플러그인 iframe(UI)이 로컬 파일/피그마 도메인에서 fetch하므로 CORS 허용.
         self.send_header("Access-Control-Allow-Origin", "*")
+        # ★https://www.figma.com(공개 origin)에서 사설망(이 서버)으로의 요청은 크로미움
+        # Private Network Access 정책 대상이라 이 헤더 없인 preflight에서 조용히 막힌다
+        # (플러그인이 계속 "연결하는 중…"에 멈춰있던 원인).
+        self.send_header("Access-Control-Allow-Private-Network", "true")
         self.end_headers()
         self.wfile.write(body)
 
-    def do_OPTIONS(self):   # CORS preflight
+    def do_OPTIONS(self):   # CORS + Private Network Access preflight
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Private-Network", "true")
         self.end_headers()
 
     def do_GET(self):
