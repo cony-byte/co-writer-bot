@@ -62,6 +62,7 @@ import time
 from bot import config
 from bot import dispatch_cowriter as cw
 from bot import dispatch_storyboard as sb
+from bot import nl_router
 from bot.shared import works
 from bot.shared.files import _files_text
 from bot.shared.slack_io import app, log, _reply, _thread_messages, _clean, BOT_USER_ID
@@ -276,6 +277,42 @@ _STORYBOARD_MAYBE_CHAIN = (
     (sb._maybe_stillcut_regen_feedback, False),
     (sb._maybe_generate_request, False),
 )
+
+
+def _run_bracket_text(channel, thread_ts, text, event):
+    m = cw.CMD_RE.match(text)
+    if not m:
+        log.error("합성 브래킷 파싱 실패: %r", text)
+        return
+    _dispatch_bracket_command(
+        channel, thread_ts, text, event, m,
+        in_thread=bool(event.get("thread_ts")),
+    )
+
+
+def _legacy_freeform_chain(channel, thread_ts, query, event, in_thread):
+    # pending-state 카드 응답 (레코드 게이트라 안전 — LLM 안 태움)
+    for fn in (sb._maybe_ref_edit_reply, sb._maybe_scene_pick_reply,
+               sb._maybe_stillcut_regen_ask_reply, sb._maybe_element_regen_ask_reply,
+               sb._maybe_planregen_ask_reply):
+        if fn(channel, thread_ts, query):
+            return
+
+    # ★ LLM 라우터 — 실패 시 legacy 폴백
+    try:
+        r = nl_router.route(channel, thread_ts, query, event)
+        if r is not None:
+            nl_router.execute(
+                channel, thread_ts, event, r,
+                dispatch_bracket=_run_bracket_text,
+                legacy_fallback=lambda ev: _legacy_freeform_chain(
+                    channel, thread_ts, query, ev, in_thread),
+            )
+            return
+    except Exception:
+        log.exception("nl_router 실행 예외 → legacy 폴백")
+
+    _legacy_freeform_chain(channel, thread_ts, query, event, in_thread)
 
 
 def _handle_dispatch(event: dict) -> None:
@@ -747,6 +784,7 @@ def _handle(event: dict) -> None:
         _handle_dispatch(event)
     finally:
         _inflight_done(key)
+        nl_router.drain_pending(event.get("thread_ts") or event["ts"], _handle)
 
 
 # ============================================================================
