@@ -97,6 +97,11 @@ _FIELD_EDIT_PENDING: dict[str, dict] = {}   # thread_ts → {work,field,triple,f
 
 _FIELD_DRAFT_CACHE: dict[str, dict] = {}    # 단일 필드(줄거리 등) 자연어 수정 초안 캐시(버튼 value용)
 
+# ★2026-07-20 "개요 재생성 누르니깐 의견 안 물어보고 그냥 재생성함" — 🔄 재생성 클릭 후
+# "어떻게 다시 만들까요?"를 묻고 다음 답글(수정 방향)을 대기하는 상태. thread_ts →
+# {work, top, mid, level, ts}. 답글이 '그냥/그대로'류면 그대로 다시, 아니면 그 방향 반영.
+_DRAFT_REGEN_PENDING: dict[str, dict] = {}
+
 _DRAFT_CACHE_PATH = config.BASE_DIR / "data" / "draft_caches.json"
 
 def _save_draft_caches() -> None:
@@ -105,6 +110,7 @@ def _save_draft_caches() -> None:
         _DRAFT_CACHE_PATH.write_text(json.dumps({
             "char_draft": _CHAR_DRAFT_CACHE, "field_draft": _FIELD_DRAFT_CACHE,
             "char_pending": _CHAR_EDIT_PENDING, "field_pending": _FIELD_EDIT_PENDING,
+            "draft_regen_pending": _DRAFT_REGEN_PENDING,
         }, ensure_ascii=False), encoding="utf-8")
     except Exception:
         log.exception("draft cache save failed")
@@ -118,6 +124,7 @@ def _load_draft_caches() -> None:
     _FIELD_DRAFT_CACHE.update(d.get("field_draft") or {})
     _CHAR_EDIT_PENDING.update(d.get("char_pending") or {})
     _FIELD_EDIT_PENDING.update(d.get("field_pending") or {})
+    _DRAFT_REGEN_PENDING.update(d.get("draft_regen_pending") or {})
 
 CMD_REFRESH = {"새로고침", "refresh"}
 
@@ -2004,6 +2011,23 @@ def _do_revise(channel: str, thread_ts: str, feedback: str) -> None:
     # (30분 — 사용자가 버튼 누르고 답장 준비하는 데 걸릴 법한 시간보다 넉넉히 크게 잡음) 조용히
     # 버리고 일반 메시지 처리로 넘어간다.
     _PENDING_EDIT_TTL_SEC = 30 * 60
+    # ★2026-07-20 🔄 재생성 클릭 후 "어떻게 다시 만들까요?"에 대한 답글 처리.
+    rpend = _DRAFT_REGEN_PENDING.pop(thread_ts, None)
+    if rpend and (time.time() - rpend.get("ts", 0)) > _PENDING_EDIT_TTL_SEC:
+        rpend = None
+        _save_draft_caches()
+    if rpend:
+        _save_draft_caches()
+        _w, _top, _mid, _lv = rpend["work"], rpend["top"], rpend.get("mid"), rpend.get("level")
+        path = f"<{_w}> {_top}" + (f" / {_mid}" if _mid else "") + (f" 강도 {_lv}" if _lv else "")
+        # '그냥/그대로/응'류면 예전처럼 같은 걸 그대로 다시 뽑고, 아니면 이 답글을 수정 방향으로
+        # 반영한다. _do_generate는 첫 줄을 경로로, 이후 줄을 '넣고 싶은 포인트/지시'로 쓰므로
+        # 방향을 둘째 줄로 넘긴다(경로 파싱을 안 깨뜨림).
+        if re.fullmatch(r"\s*(그냥|그대로|그대로\s*다시|똑같이|응|네|ok|okay|yes)\s*[.!~]*", feedback, re.I):
+            _do_generate(channel, thread_ts, path)
+        else:
+            _do_generate(channel, thread_ts, f"{path}\n{feedback}")
+        return
     pend = _CHAR_EDIT_PENDING.pop(thread_ts, None)
     if pend and (time.time() - pend.get("ts", 0)) > _PENDING_EDIT_TTL_SEC:
         pend = None
@@ -3457,22 +3481,25 @@ def on_draft_level_select(ack, body):
 @app.action("draft_regen")
 def on_draft_regen(ack, body):
     ack()
-    # 버튼 클릭으로 트리거되는 재생성은 message 이벤트의 inflight 추적 바깥이라, 재생성
-    # 도중 auto-pull이 봇을 재시작해도 안 걸렸음(2026-07-15, 4번) — jobs.json에 직접 기록.
-    job = None
+    # ★2026-07-20 "재생성 누르니깐 의견 안 물어보고 그냥 재생성함" — 예전엔 곧바로 _do_generate로
+    # 같은 걸 다시 뽑았다. 이제 "어떻게 다시 만들까요?"를 먼저 묻고, 다음 답글(수정 방향)을
+    # 받아서 반영한다. 그냥 똑같이 다시 뽑고 싶으면 답글로 '그냥'이라고 하면 된다.
     try:
         ch, th, mts, work, top, mid, level = _draft_action_ctx(body)
-        path = f"<{work}> {top}" + (f" / {mid}" if mid else "") + (f" 강도 {level}" if level else "")
+        _DRAFT_REGEN_PENDING[th] = {"work": work, "top": top, "mid": mid,
+                                    "level": level, "ts": time.time()}
+        _save_draft_caches()
         try:
-            app.client.chat_update(channel=ch, ts=mts, text="🔄 재생성할게요…", blocks=[])
+            app.client.chat_update(channel=ch, ts=mts, text="🔄 재생성 — 어떤 방향으로 고칠지 알려주세요.", blocks=[])
         except Exception:
             pass
-        job = job_ledger.start_job("draft_regen", ch, th, path)
-        _do_generate(ch, th, path)             # 같은 작품/종류/회차 다시 생성(새 초안+버튼)
+        ep_l = f"{mid} " if mid else ""
+        _reply(ch, th,
+               f"🔄 <{work}> {ep_l}{top} 어떻게 다시 만들까요? 고칠 방향을 이 스레드에 답글로 적어주세요.\n"
+               "예: `엔딩 훅을 더 세게` / `인물 관계를 더 부각` / `사건을 하나 줄여서 간결하게`\n"
+               "_그냥 똑같이 다시 뽑으려면 `그냥`이라고 답해주세요._")
     except Exception:
         log.exception("draft_regen 실패")
-    finally:
-        job_ledger.finish_job(job)
 
 def _revise_action_ctx(body: dict):
     """revise 버튼 payload → (channel, thread_ts, message_ts, work, kind, episode)."""
