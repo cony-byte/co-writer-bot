@@ -109,10 +109,26 @@ def _looks_like_bad_work(work: str) -> bool:
 
 
 def register(work: str, page_id: str, aliases: list | None = None) -> None:
-    """작품 등록/갱신 (페이지 매핑 + 선택 별칭)."""
+    """작품 등록/갱신 (페이지 매핑 + 선택 별칭).
+
+    ★2026-07-20e: 같은 page_id가 이미 다른 정식명으로 등록돼 있는데 work가 그 정식명도
+    별칭도 아니면(예: "저연프"로 불렀는데 실제로는 "저는 연프 출연진이 아닌데요 !"라는
+    정식명으로 이미 등록된 페이지), 예전엔 무조건 d[work]에 새로 써서 같은 페이지를
+    가리키는 정식 작품이 두 개로 쪼개졌다 — refs/fixed-images 폴더까지 작품명마다
+    따로 생겨 등록한 참조가 전부 분산되는 실측 사고("김신우 등 7명 등록했는데 폴더가
+    둘로 쪼개짐"). page_id가 이미 다른 이름으로 등록돼 있으면 그 기존 정식명 엔트리에
+    work를 별칭으로만 추가하고, 새 최상위 엔트리는 만들지 않는다."""
     if _looks_like_bad_work(work):
         return
     d = _load()
+    existing = work_by_page(page_id)
+    if existing and existing != work:
+        entry = d.get(existing) or {"page": page_id, "aliases": []}
+        entry["page"] = page_id
+        entry["aliases"] = sorted(set((entry.get("aliases") or []) + [work] + list(aliases or [])))
+        d[existing] = entry
+        _save(d)
+        return
     entry = d.get(work) or {"page": "", "aliases": []}
     entry["page"] = page_id
     if aliases:

@@ -3178,6 +3178,7 @@ def _sync_apply(sheet, work: str, content: str) -> tuple[int, int, list]:
         summary.append(f"개요 {len(outs)}화")
     # 대본은 시트로 안 옮긴다 — SYNC_SYSTEM이 애초에 안 뽑지만, 혹시 모델이 넣어도 방어적으로 무시.
     # 대본은 노션에서 매번 직접 읽는다(bot/sheet_bible.py의 _notion_scripts) — 2026-07-13 결정.
+    # (대본/상세콘티 감지 표시는 _do_sync가 완료 메시지에 별도로 붙인다 — 아래 참고.)
 
     sheet.invalidate(work)
     return done, failed, summary
