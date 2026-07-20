@@ -6439,12 +6439,19 @@ def _do_autopilot(channel, thread_ts, rest, skip_stage_picker: bool = False):
             for _n, _hdr, _body in scenes:
                 _expect = len(_BEAT_TAG_RE.findall(_body)) or STILL_CUTS_DEFAULT
                 _have_cuts = vp_store.load_latest_cuts(work, _n, episode=episode) or []
-                _s_have = len(_have_cuts)
+                # ★2026-07-20 개수(>=)가 아니라 "컷 번호 1..expect 중 뭐가 빠졌나"로 판정한다 —
+                # 개수만 보면 여분 컷이 있을 때 특정 번호가 지워져도 개수는 맞아 지운 걸 못 잡았다
+                # ("스틸컷 지웠는데 체크를 못하더라"). load_latest_cuts는 cut{n}.png가 실제로
+                # 있는 것만 돌려주므로, 지운 번호는 have_ns에서 빠져 missing으로 잡힌다.
+                _have_ns = {_c.get("n") for _c in _have_cuts}
+                _missing_s = [n for n in range(1, _expect + 1) if n not in _have_ns]
+                _s_have = len([n for n in _have_ns if 1 <= (n or 0) <= _expect])
                 _v_have = sum(1 for _c in _have_cuts
                               if vp_store.find_existing_video(work, _n, _c.get("n"), episode=episode))
-                _s_mark = "✅" if _s_have >= _expect else ("⚠️" if _s_have else "❌")
+                _s_mark = "✅" if (_have_cuts and not _missing_s) else ("⚠️" if _have_cuts else "❌")
                 _v_mark = "✅" if (_s_have and _v_have >= _s_have) else ("⚠️" if _v_have else "❌")
-                scan_lines.append(f"· 씬{_n}: 스틸컷 {_s_mark}{_s_have}/{_expect} · 영상 {_v_mark}{_v_have}/{_s_have or _expect}")
+                _miss_note = f" (빠짐: {', '.join(f'컷{m}' for m in _missing_s)})" if _missing_s else ""
+                scan_lines.append(f"· 씬{_n}: 스틸컷 {_s_mark}{_s_have}/{_expect}{_miss_note} · 영상 {_v_mark}{_v_have}/{_s_have or _expect}")
             _reply(channel, thread_ts,
                   "🔎 재개 전 점검 — 이미 있는 건 건너뛰고 빠진 것만 채울게요:\n" + "\n".join(scan_lines))
 
