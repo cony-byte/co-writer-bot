@@ -5,24 +5,43 @@
 <style>
   body { font: 12px -apple-system, sans-serif; padding: 12px; color: #333; }
   #status { margin-bottom: 8px; }
+  label { display: block; font-size: 11px; color: #666; margin-bottom: 3px; }
+  #serverInput {
+    width: 100%; box-sizing: border-box; padding: 6px; margin-bottom: 8px;
+    border: 1px solid #ccc; border-radius: 4px; font: 12px monospace;
+  }
   button {
     width: 100%; padding: 8px; margin-bottom: 10px; border: none; border-radius: 6px;
     background: #18a0fb; color: white; font-weight: 600; cursor: pointer;
   }
   button:hover { background: #0d8ee0; }
-  #log { font-size: 11px; color: #666; white-space: pre-wrap; max-height: 200px; overflow-y: auto; }
+  #log { font-size: 11px; color: #666; white-space: pre-wrap; max-height: 180px; overflow-y: auto; }
 </style>
 </head>
 <body>
+  <label for="serverInput">봇 서버 주소 (봇이 다른 머신에 있으면 그 머신의 IP:포트)</label>
+  <input id="serverInput" placeholder="예: 192.168.0.12:8933">
   <div id="status">봇 브릿지에 연결하는 중…</div>
   <button id="sendBackBtn">↩️ 선택한 이미지 봇으로 보내기</button>
   <div id="log"></div>
   <script>
-    // co-writer-bot이 로컬에 띄운 브릿지 서버(bot/figma_bridge.py)를 몇 초마다 폴링해서
-    // 대기 중인 스틸컷이 있으면 code.js(플러그인 메인 스레드)로 넘긴다. fetch는 이 UI
-    // iframe(브라우저 컨텍스트)에서만 안정적으로 되므로 여기서 처리하고, 실제 캔버스
-    // 삽입/내보내기는 postMessage로 code.js에 위임한다.
-    const BASE = "http://127.0.0.1:8933";
+    // co-writer-bot이 띄운 브릿지 서버(bot/figma_bridge.py)를 몇 초마다 폴링해서 대기 중인
+    // 스틸컷이 있으면 code.js(플러그인 메인 스레드)로 넘긴다. fetch는 이 UI iframe(브라우저
+    // 컨텍스트)에서만 안정적으로 되므로 여기서 처리하고, 실제 캔버스 삽입/내보내기는
+    // postMessage로 code.js에 위임한다.
+    // ★2026-07-20 "봇이랑 피그마랑 다른 머신에 있다" — 주소를 하드코딩하지 않고 입력창 +
+    // localStorage(이 플러그인 iframe에 한정된 저장소라 다른 사이트와 안 섞임)로 기억한다.
+    const DEFAULT_SERVER = "127.0.0.1:8933";
+    const serverInput = document.getElementById("serverInput");
+    serverInput.value = localStorage.getItem("coWriterFigmaServer") || DEFAULT_SERVER;
+    serverInput.onchange = () => {
+      localStorage.setItem("coWriterFigmaServer", serverInput.value.trim());
+    };
+    function base() {
+      const v = (serverInput.value || DEFAULT_SERVER).trim().replace(/\/$/, "");
+      return v.startsWith("http") ? v : `http://${v}`;
+    }
+
     const logEl = document.getElementById("log");
     const statusEl = document.getElementById("status");
     function log(msg) {
@@ -30,18 +49,20 @@
     }
 
     async function poll() {
+      const BASE = base();
       try {
         const res = await fetch(`${BASE}/pending`);
         const data = await res.json();
         const items = data.items || [];
         statusEl.textContent = items.length
           ? `대기 중인 스틸컷 ${items.length}개 — 캔버스에 올리는 중…`
-          : "대기 중인 스틸컷 없음 (봇에서 '🎨 피그마로 보내기'를 누르면 여기 나타나요)";
+          : `대기 중인 스틸컷 없음 (${BASE}에 연결됨 — 봇에서 '🎨 피그마로 보내기'를 누르면 여기 나타나요)`;
         for (const item of items) {
           parent.postMessage({ pluginMessage: { type: "insert", item } }, "*");
         }
       } catch (e) {
-        statusEl.textContent = `봇 브릿지에 연결 못함(${BASE}) — 봇이 켜져 있고 같은 머신인지 확인해주세요.`;
+        statusEl.textContent = `봇 브릿지(${BASE})에 연결 못함 — 위 주소가 맞는지, 봇이 켜져있는지, `
+                              + `같은 네트워크인지 확인해주세요.`;
       }
     }
 
@@ -52,6 +73,7 @@
     window.onmessage = async (event) => {
       const msg = event.data.pluginMessage;
       if (!msg) return;
+      const BASE = base();
       if (msg.type === "inserted") {
         await fetch(`${BASE}/ack/${msg.id}`, { method: "POST" });
         log(`씬${msg.scene_num ?? "?"} 컷${msg.cut_num ?? "?"} 캔버스에 삽입 완료`);

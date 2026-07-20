@@ -180,6 +180,11 @@ OPENROUTER_MUSIC_VOLUME_DB = float(os.environ.get("OPENROUTER_MUSIC_VOLUME_DB", 
 # 네트워크에서 이 포트에 접근 가능)이어야 동작한다.
 FIGMA_BRIDGE_ENABLED = os.environ.get("SB_FIGMA_BRIDGE_ENABLED", "false").lower() == "true"
 FIGMA_BRIDGE_PORT = int(os.environ.get("SB_FIGMA_BRIDGE_PORT", "8933"))
+# ★2026-07-20 "봇이랑 피그마랑 아예 다른 머신에 있다" — 127.0.0.1(루프백)로만 바인딩하면
+# 같은 머신에서만 접근 가능해 다른 머신의 피그마 플러그인이 아예 연결할 수 없다. 기본값을
+# 0.0.0.0(모든 네트워크 인터페이스)으로 바꿔 LAN의 다른 머신에서도 접근 가능하게 한다 —
+# 신뢰 가능한 사내망 전제(인증 없음, 외부에 노출하면 안 됨).
+FIGMA_BRIDGE_HOST = os.environ.get("SB_FIGMA_BRIDGE_HOST", "0.0.0.0")
 FIGMA_QUEUE_DIR = os.environ.get("SB_FIGMA_QUEUE_DIR") or str(Path.home() / ".co-writer-figma-queue")
 
 # ── 이미지 백엔드 선택 ──
