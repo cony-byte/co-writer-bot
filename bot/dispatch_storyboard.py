@@ -377,6 +377,22 @@ def _script_for(work, episode, bible):
                 log.exception("notion 대본 로드 실패")
     return "", None
 
+def _notion_has_script(work, episode) -> bool:
+    """work/episode의 대본이 노션 페이지에 '대본 N화' 섹션으로 이미 있는지 직접 확인.
+    ★2026-07-20 수동 스토리보드에서 상세 콘티 전에 대본을 노션에 미러링할지 판단하는 데 씀
+    (_script_for는 시트를 먼저 보고 반환해서 '노션에 있나'를 따로 알려주지 않기 때문에 별도 확인)."""
+    if not (config.NOTION_TOKEN and work and episode):
+        return False
+    pid = works.page_of(work)
+    if not pid:
+        return False
+    try:
+        full = (notion_sync.page_text(pid) or "").strip()
+        return bool(_notion_episode_script(full, episode).strip())
+    except Exception:
+        log.exception("노션 대본 존재 확인 실패 — work=%s ep=%s", work, episode)
+        return False
+
 def _conti_exists_in_notion(work, episode) -> bool:
     """work/episode의 상세 콘티(2단계)가 실제로 노션에 존재하는지 직접 확인.
     ★2026-07-16, 사용자 지시: 스레드 마커/conti_state 캐시를 신뢰하지 말고 2단계 완료 여부는
@@ -835,6 +851,20 @@ def sb_do_storyboard(channel, thread_ts, rest, stage=1):
         if work and target:
             conti_state.set_episode(thread_ts, work, target)   # 화 번호 바뀜 감지용으로 1단계 완료 시점부터 기록
     else:  # stage 2 — 상세 콘티
+        # ★2026-07-20 "노션에 그 화 대본이 없으면, 있는 대본(시트/스레드)을 노션에 저장한 뒤
+        # 상세 콘티로 넘어가" — 상세 콘티는 대본이 원본(source of truth)인데, 대본이 시트에만
+        # 있고 노션엔 없으면 나중에 노션만 보는 사람은 근거를 못 본다. 상세 콘티 만들기 직전에
+        # 그 화 대본이 노션에 없으면 지금 갖고 있는 대본을 노션 '대본 N화' 섹션으로 미러링한다.
+        # (대본이 아예 없으면 만들지 않는다 — 대본 생성은 자동주행 0단계/co-writer의 몫.)
+        if (script and work and target and config.NOTION_TOKEN
+                and works.page_of(work) and not _notion_has_script(work, target)):
+            try:
+                from bot import dispatch_cowriter as cw
+                if cw._push_section_to_notion(work, "대본", f"{target}화", script):
+                    _reply(channel, thread_ts,
+                          f"🗂️ <{work}> {target}화 대본이 노션에 없어서 지금 저장해뒀어요 — 이 대본 기준으로 상세 콘티를 만들게요.")
+            except Exception:
+                log.exception("상세 콘티 전 대본 노션 미러링 실패(계속 진행)")
         # ★2026-07-16 "상세 콘티 1씬만 다시 만들고 싶어"가 씬 단위 수정 대신 전체 재생성으로
         # 샜던 버그 — _thread_conti만 쓰면 이 스레드에 콘티 "본문"이 직접 안 붙어있을 때(요즘
         # 기본: 노션에 저장 후 짧은 안내만 남김) prior_conti가 항상 빈 문자열이 되고, 그러면
