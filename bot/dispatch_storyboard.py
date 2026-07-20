@@ -5419,6 +5419,50 @@ def _maybe_style_change_request(channel, thread_ts, query) -> bool:
     _do_style(channel, thread_ts, q)
     return True
 
+# ★2026-07-20 "노션으로 옮기지 말고 여기로 1화 콘티 적어줘. 간략하게 요약해서." — "콘티"라는
+# 단어는 storyboard의 강한 트리거라 지금까지는 무조건 상세 콘티(2단계) '재생성'으로 튀었다.
+# 근데 이미 만들어둔 콘티/대본이 있는 상태에서 "요약해서"/"간략히" 같은 말이 같이 오면, 사용자
+# 의도는 "다시 만들어라"가 아니라 "있는 걸 짧게 요약해서 여기 보여달라"다(2026-07-20 사용자
+# 확답: "이미 있는 상세 콘티/대본을 짧게 요약해서 보여줌, 새로 생성 안 함"). _STORYBOARD_MAYBE_
+# CHAIN에서 다른 콘티 재생성 트리거들보다 앞자리에 둬서, 재생성 경로로 새기 전에 먼저 가로챈다.
+_BRIEF_SUMMARY_MENTION_RE = re.compile(r"콘티|대본")
+_BRIEF_SUMMARY_ASK_RE = re.compile(r"요약|간략|짧게|간단")
+
+def _maybe_brief_conti_summary_request(channel, thread_ts, query) -> bool:
+    """읽기 전용 — 콘티/대본을 다시 만들거나 노션에 저장하지 않고, 이미 있는 내용만 짧게
+    요약해 스레드에 보여준다. 요약할 원본이 아예 없으면(진짜 처음부터 만들어야 하는 상황)
+    False를 반환해 기존 흐름(대본 없음 안내 등)에 그대로 맡긴다."""
+    q = (query or "").strip()
+    if not q or not (_BRIEF_SUMMARY_MENTION_RE.search(q) and _BRIEF_SUMMARY_ASK_RE.search(q)):
+        return False
+    work, bible, tail, msgs = _resolve_work_bible(channel, thread_ts, q)
+    if not work:
+        return False
+    epm = re.search(r"(\d{1,3})\s*[화회]", tail)
+    episode = int(epm.group(1)) if epm else (conti_state.get_episode(thread_ts) or {}).get("episode")
+    conti = _thread_or_saved_conti(channel, thread_ts, msgs, work, episode, announce=False)
+    source, label = (conti, "상세 콘티") if conti else (None, None)
+    if not source:
+        script, script_err = _script_for(work, episode, bible)
+        if script:
+            source, label = script, "대본"
+    if not source:
+        return False   # 요약할 원본이 없음 — 기존 "대본/콘티 없음" 안내 흐름에 맡긴다
+    try:
+        summary = generator.complete(
+            "너는 숏폼 드라마 자료를 짧게 요약하는 도우미다. 사건 순서와 인물 관계만 남기고 "
+            "3~6줄 이내의 자연스러운 한국어 산문으로 요약해라. 원문에 없는 내용을 지어내지 마라.",
+            f"[{label} 원문]\n{source[:6000]}\n\n위 내용을 간략히 요약해줘.",
+            job_key=thread_ts)
+    except Exception:
+        log.exception("콘티/대본 간략 요약 실패")
+        return False
+    if summary in (generator.CANCEL_MSG, generator.TIMEOUT_MSG):
+        _reply(channel, thread_ts, summary)
+        return True
+    _reply(channel, thread_ts, f"📝 {label} 요약(새로 만들거나 노션에 저장하지 않았어요):\n\n{summary.strip()}")
+    return True
+
 def _auto_register_element(work: str, name: str, etype: str, png: bytes) -> None:
     """AI로 만든 엘리먼트 후보를 확인 버튼 없이 바로 등록 — _act_element_gen_confirm과 동일한
     저장 로직(fixed-images 우선, 없으면 data/refs)이되 Slack 버튼 클릭 대신 자동주행이 바로 호출."""

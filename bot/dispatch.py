@@ -207,6 +207,7 @@ _STORYBOARD_MAYBE_CHAIN = (
     (sb._maybe_thread_status, False),
     (sb._maybe_episode_status, False),
     (sb._maybe_style_change_request, False),
+    (sb._maybe_brief_conti_summary_request, False),
     (sb._maybe_unconfirm_conti, False),
     (sb._maybe_natural_ref, True),
     (sb._maybe_bare_costume_label_request, True),
