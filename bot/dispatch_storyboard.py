@@ -6203,7 +6203,13 @@ def _do_autopilot(channel, thread_ts, rest, skip_stage_picker: bool = False):
         # ★2026-07-15: 명시적 단계 지정이 없는 맨몸 재실행이면, 기록된 last_stage 바로 다음
         # 단계부터 이어간다(그 단계 안에서 어디까지 됐는지는 이미 구현된 씬/컷 단위 재개 로직이
         # 각자 알아서 skip 처리).
-        start_stage = resumed_progress["last_stage"] + 1
+        # ★2026-07-20 "다시 [자동주행] 하면 그전에 비어있는 스틸컷이랑 영상도 체크해" — 재개
+        # 시작 단계를 4(샷분해·스틸컷) 이하로 묶는다. last_stage가 4나 5라 예전엔 곧장 영상화(5)나
+        # 합본(6)으로 건너뛰어서, 앞쪽 씬에 빠진 스틸컷/영상이 있어도 그냥 지나쳤다. 4단계부터
+        # 다시 들어가면 각 씬 스틸컷은 이미 다 있으면 건너뛰고(load_latest_cuts 개수 체크) 빠진
+        # 것만 새로 만들고, 영상화도 이미 저장된 컷은 find_existing_video로 건너뛰고 빈 컷만
+        # 채운다 — 둘 다 이미 멱등(idempotent)이라 다 채워진 상태면 재검만 하고 곧장 합본으로 간다.
+        start_stage = min(resumed_progress["last_stage"] + 1, 4)
     if not (1 <= start_stage <= end_stage <= 6):
         _reply(channel, thread_ts,
               f"❌ 자동주행 단계 범위가 잘못됐어요 ({start_stage}~{end_stage}) — 1~6 사이의 숫자여야 하고, "
@@ -6211,7 +6217,8 @@ def _do_autopilot(channel, thread_ts, rest, skip_stage_picker: bool = False):
         return
     stage_scope_note = f" ({start_stage}~{end_stage}단계만 실행)" if (start_stage, end_stage) != (1, 6) else ""
     conti_state.set_episode(thread_ts, work, episode)
-    resume_note = f" — 이전 진행(~{resumed_progress['last_stage']}단계) 이어서" if resumed_progress else ""
+    resume_note = (f" — 이전 진행(~{resumed_progress['last_stage']}단계) 이어서, 빠진 스틸컷·영상도 다시 체크해서 채울게요"
+                   if resumed_progress else "")
     scene_only_note = f" (테스트 모드: 씬{scene_only}만 처리, 나머지 씬은 건너뜀)" if scene_only else ""
     cut_range_note = (f" · 영상화는 컷{video_cut_range[0]}~{video_cut_range[1]}만"
                       + (" (⚠️ 6단계 합본까지 실행하면 범위 밖 컷은 영상 없이 합본돼요)" if video_cut_range and end_stage == 6 else "")
