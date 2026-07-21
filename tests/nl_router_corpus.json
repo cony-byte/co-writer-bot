@@ -2,6 +2,21 @@
   "_comment": "2026-07-20 실사용 스레드 6개에서 수집한 오라우팅 사고 + 정상 케이스 회귀 코퍼스. expected.intent는 필수, 그 외 키는 있으면 검증. ctx는 라우터에 주입할 상태 스냅숏 오버라이드.",
   "cases": [
     {
+      "id": "prop-first-cut-confirm-register",
+      "text": "맨 첫 컷에 나오는 방송 로고는 이거니까 이거로 확정해",
+      "ctx": {
+        "attached_image_count": 1,
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1
+      },
+      "expected": {
+        "intent": "element_register",
+        "elements_len": 1,
+        "element_names": ["방송 로고"]
+      },
+      "incident": "'확정해'가 등록 트리거 목록(R4)에 없어 element_register로 안 잡힐 수 있음 — few-shot 추가분"
+    },
+    {
       "id": "cancel-leak-rewrite",
       "text": "상세 콘티 1화 전체 내용 다시 적어줘. 지금은 씬2, 씬5 밖에 없어",
       "ctx": {

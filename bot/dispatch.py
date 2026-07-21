@@ -359,13 +359,17 @@ def _safe_fallback(channel, thread_ts, query, event) -> None:
     """라우터가 실패/미해결일 때의 안전 정지. 변형 작업을 절대 실행하지 않는다."""
     if _readonly_legacy_chain(channel, thread_ts, query, event):
         return
+    # ★2026-07-21 작업③: 조용히 버려지던 이 발화를 스레드당 최근 1건만 보관 — 다음 정상
+    # 라우팅 때 "이어서 할까요?"로 제안한다(_maybe_resume_offer_reply/offer_resume_if_pending).
+    nl_router.stash_failed_event(thread_ts, event, query)
+    cum = nl_router.record_safe_stop()
     if thread_ts not in _ROUTER_FAIL_NOTIFIED:
         _ROUTER_FAIL_NOTIFIED.add(thread_ts)
         _reply(channel, thread_ts, _ROUTER_FAIL_MSG)
-        log.info("route=safe_stop:notified")
+        log.info("route=safe_stop:notified cum=%d", cum)
     else:
         # 2회째부터는 canned 무한 반복 대신 로그만 (사고 2/사고4의 3연발 방지).
-        log.info("route=safe_stop:silent")
+        log.info("route=safe_stop:silent cum=%d", cum)
 
 
 def _handle_dispatch(event: dict) -> None:
@@ -443,6 +447,12 @@ def _handle_dispatch(event: dict) -> None:
             log.info("route=deterministic:pending:%s", fn.__name__)
             return
 
+    # ★2026-07-21 작업③: "아까 처리 못한 요청 이어서 할까요?" 제안에 대한 긍정 답변 —
+    # 레코드 게이트(제안이 실제로 나가 있었을 때만 발동)라 안전, LLM 안 태움.
+    if nl_router._maybe_resume_offer_reply(channel, thread_ts, query, _handle_dispatch):
+        log.info("route=deterministic:resume_offer")
+        return
+
     # 첨부 이미지를 기준으로 재생성하는 요청은 LLM보다 먼저 결정적으로 처리한다.
     # 라우터 호출이 실패해도 co-writer 자유응답으로 빠져 "이미지 기능 미지원"이라고
     # 잘못 답할 수 없게 하는 안전 경로다.
@@ -460,6 +470,7 @@ def _handle_dispatch(event: dict) -> None:
         r = nl_router.route(channel, thread_ts, query, event)
         if r is not None:
             log.info("route=nl_router:intent=%s conf=%.2f", r.intent, r.confidence)
+            nl_router.offer_resume_if_pending(channel, thread_ts, event)
             nl_router.execute(
                 channel, thread_ts, event, r,
                 dispatch_bracket=_run_bracket_text,
