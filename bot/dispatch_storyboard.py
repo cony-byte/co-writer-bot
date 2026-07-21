@@ -1065,6 +1065,19 @@ def sb_do_storyboard(channel, thread_ts, rest, stage=1):
         # 상세 콘티는 길어도 스레드 텍스트로 그대로 올림(txt 파일 생성 없음, 2026-07-15).
         # 게시물엔 "바뀐 점: ..." 같은 수정 요약 줄은 빼고 실제 씬 내용(씬1, 씬2, ...)만 남긴다.
         conti_body = _strip_conti_preamble(ans)
+        # ★2026-07-21: 원본 대본이 부실하면(예: 씬 요약만 있고 실제 대사 원문이 없음) 모델이
+        # JSON/콘티 형식이 아니라 "대사 원문이 없어 못 만들겠다"는 산문체 거절/질문으로 답할
+        # 때가 있다 — 이게 검증 없이 그대로 "완성된 상세 콘티"로 노션에 저장돼버려서, 이후
+        # 이 화의 모든 스토리보드/영상화 요청이 그 거절 텍스트를 콘티인 줄 알고 읽다가 계속
+        # "컷 분해 중 오류"로 실패하는 사고로 이어졌다(실측 — 노션 토글에 실제로 이런 거절
+        # 문구가 저장돼있었음). 씬 헤더(■ 씬N)가 하나도 없으면 저장하지 않고 원문 그대로
+        # 사용자에게 보여준다 — 무엇이 부족한지는 보통 그 거절 텍스트 자체에 담겨 있다.
+        if not _SCENE_HDR_RE.search(conti_body):
+            _post_chunks(channel, thread_ts,
+                        "⚠️ 상세 콘티를 만들지 못했어요(원본 대본/씬 정보가 부족해 보여요) — "
+                        "노션에 저장하지 않았어요. 아래는 모델의 응답이에요, 필요한 정보를 채워 "
+                        f"다시 요청해주세요:\n\n{conti_body[:1500]}", replace_ts=ph)
+            return
         _upload_conti(channel, thread_ts, work, conti_body, replace_ts=ph, episode=target)
         conti_state.set_episode(thread_ts, work, target)   # 이 스레드 콘티가 몇 화인지 기록
         # (F8) 완성 직후 메시지가 배지+경고+버튼 3개로 쪼개지지 않게 — 미등록 경고가 있으면
@@ -1387,11 +1400,29 @@ def _render_cuts(channel, thread_ts, work, bible, source_text, *,
                 group_bounds = [(s, min(e, len(shots))) for s, e in group_bounds if s < len(shots)]
         except Exception as e:
             log.exception("shots failed")
+            # ★2026-07-21: "컷 분해 중 오류가 났어요. 잠시 후 다시 시도해주세요"라는 말만
+            # 하고 멈추면 사용자가 뭘 해야 할지 알 수 없다 — raw가 남아있고 그게 JSON 배열이
+            # 아니라 산문체 응답이면(=모델이 정보 부족으로 거절/질문한 경우일 확률이 높음)
+            # 그 원문을 그대로 보여줘서 사용자가 뭘 보완해야 할지 스스로 판단하게 한다.
+            raw_snippet = (locals().get("raw") or "").strip()
+            if raw_snippet and not raw_snippet.lstrip().startswith("["):
+                msg = ("⚠️ 샷(컷) 리스트를 만들지 못했어요 — 모델이 정상적인 컷 목록 대신 "
+                       "아래와 같이 응답했어요(원본 콘티/대본에 정보가 부족하다는 뜻일 가능성이 "
+                       "높아요). 내용을 보완해서 다시 요청해주세요:\n\n"
+                       f"{raw_snippet[:800]}")
+            else:
+                msg = ("⚠️ 샷(컷) 리스트를 만드는 중 일시적인 오류가 났어요(모델 응답/네트워크 "
+                       f"문제로 보여요: {type(e).__name__}). 잠시 후 다시 시도해주세요 — 계속 "
+                       "실패하면 관리자에게 알려주세요.")
             _set_render_fail_reason(_skey, "컷 분해 중 오류가 났어요.")
-            _post_chunks(channel, thread_ts, "컷 분해 중 오류가 났어요. 잠시 후 다시 시도해주세요.", replace_ts=ph); return
+            _post_chunks(channel, thread_ts, msg, replace_ts=ph); return
         if not shots:
             _set_render_fail_reason(_skey, "컷을 못 만들었어요(샷 리스트가 비어있음).")
-            _post_chunks(channel, thread_ts, "컷을 못 만들었어요.", replace_ts=ph); return
+            _post_chunks(channel, thread_ts,
+                        "⚠️ 이 구간에서 컷을 하나도 못 만들었어요 — 넘긴 콘티/대본 구간에 실제 "
+                        "장면 내용(대사·지문·씬 헤더)이 없었을 가능성이 높아요. 대상 화/씬의 "
+                        "상세 콘티가 제대로 저장돼 있는지 확인한 뒤 다시 요청해주세요.",
+                        replace_ts=ph); return
         if not skip_confirm and target is None and kind and len(shots) >= _CUT_CONFIRM_THRESHOLD:
             _PENDING_CUT_CONFIRM[thread_ts] = {
                 "kind": kind, "orig_rest": orig_rest or "", "channel": channel, "work": work,
