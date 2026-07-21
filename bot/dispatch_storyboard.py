@@ -3286,6 +3286,17 @@ def _generate_videos_for_cuts(channel, thread_ts, work, title, cuts, scene_secon
     # 다른 길이를 준다 — 대사가 많은 컷은 더 길게, 짧은 컷은 짧게(seedance 허용 범위 4~15초).
     ordered = sorted(cuts, key=lambda c: c["n"])
     total = len(ordered)
+    # ★2026-07-21 재시작 재개: 이 영상 배치 전체를 재개 가능한 job으로 기록한다 — 예전엔 video
+    # job이 컷별 라벨(work|title|컷N)만 남겨 재시작 시 재실행할 정보가 없었다(그래서 "다시
+    # 시도해주세요"로 끝났음). scene/cut_nums/episode를 구조화(JSON)로 남겨 재시작 시 [▶️ 이어서]
+    # 버튼으로 이미 만든 컷은 건너뛰고 나머지만 이어서 만들 수 있게 한다. 크래시로 finish_job이
+    # 못 불려도 원장에 남아 _resume_pending_jobs가 회수한다.
+    _scene_rm = re.search(r"씬(\d+)", title or "")
+    _batch_jid = job_ledger.start_job("video", channel, thread_ts, json.dumps({
+        "resumable": True, "work": work, "title": title,
+        "episode": (conti_state.get_episode(thread_ts) or {}).get("episode"),
+        "scene": int(_scene_rm.group(1)) if _scene_rm else None,
+        "cut_nums": [c["n"] for c in ordered]}, ensure_ascii=False))
     # ★2026-07-14: 컷마다 몇 분씩 걸리는데 지금 몇 컷째인지 알 방법이 없어서 진행상황이 안
     # 보인다는 지적 — 진행 메시지 하나를 계속 갱신해 "컷 1/4 완료 → 컷 2/4 생성 중" 식으로 보여줌.
     _CANCEL.discard(thread_ts)
@@ -3297,6 +3308,7 @@ def _generate_videos_for_cuts(channel, thread_ts, work, title, cuts, scene_secon
         # 컷 시작 전마다 확인해 실제로 여기서 멈추게 한다.
         if thread_ts in _CANCEL:
             _CANCEL.discard(thread_ts)
+            job_ledger.finish_job(_batch_jid)   # 취소 → 재개 대상 아님(재시작 후 되살아나지 않게)
             _update_note(channel, ph, f"🛑 중단됨 — {idx - 1}/{total}컷까지 처리", clear=True)
             return
         # 콘티의 [N초] 비트 표기를 그대로 반영한 샷분해 duration을 그대로 쓴다(2026-07-14,
@@ -3315,6 +3327,7 @@ def _generate_videos_for_cuts(channel, thread_ts, work, title, cuts, scene_secon
                     (f"컷 {idx}/{total} 완료" if local_path else f"컷 {idx}/{total} 실패") +
                     (f" → 컷 {idx + 1}/{total} 생성 중…" if idx < total else f" — 전체 {total}컷 처리 끝"),
                     clear=(idx == total))
+    job_ledger.finish_job(_batch_jid)   # 정상 완료 → 원장에서 제거(재개 대상 아님)
 
 _PENDING_SCENE_PICK: dict[str, dict] = {}   # thread_ts -> {channel, rest} — (A7) "어느 씬을...?" 답 대기
 # ★2026-07-21: 드롭다운(static_select)으로 씬을 고르는 경로 — 게시된 메시지 ts로 키를 잡는다
@@ -6864,6 +6877,56 @@ def _maybe_notion_save_request(channel, thread_ts, query) -> bool:
     _do_save_conti(channel, thread_ts, rest=query)
     return True
 
+_PENDING_RESUME: dict[str, dict] = {}   # 버튼 메시지 ts -> resume descriptor
+
+
+def _run_resume(desc: dict) -> None:
+    """[▶️ 이어서] 재개 실행. video는 이미 만든 컷을 건너뛰고 나머지만(진짜 '이어서')."""
+    kind = desc.get("kind")
+    ch, tts = desc["channel"], desc["thread_ts"]
+    if kind == "video":
+        v = desc.get("video") or {}
+        work, scene, episode = v.get("work"), v.get("scene"), v.get("episode")
+        cut_nums = v.get("cut_nums") or []
+        done = set()
+        try:
+            vids = video_index.list_episode_videos(work, [scene] if scene else None, episode=episode)
+            for arr in vids.values():
+                for x in arr:
+                    done.add(x["cut_num"])
+        except Exception:
+            pass
+        remain = [n for n in cut_nums if n not in done]
+        if not remain:
+            _reply(ch, tts, "이미 그 씬 컷 영상이 다 있어요 — 이어서 만들 게 없어요.")
+            return
+        _reply(ch, tts, f"▶️ 씬{scene}에서 아직 없는 컷 {','.join(map(str, remain))}만 이어서 만들게요…")
+        _do_video_from_last_still(ch, tts, f"{work} 씬{scene}".strip(),
+                                  work=work, scene=scene, cut_nums=remain)
+
+
+@app.action("resume_job")
+def _act_resume_job(ack, body):
+    ack()
+    ch, tts = _action_ctx(body)
+    p = _PENDING_RESUME.pop(body["message"]["ts"], None)
+    if not p:
+        _disable_buttons(body, "⚠️ 만료된 재개 요청이에요.")
+        return
+    _disable_buttons(body, "▶️ 이어서 진행할게요…")
+    try:
+        _run_resume(p)
+    except Exception:
+        log.exception("job 재개 실패")
+        _reply(ch, tts, "재개에 실패했어요 — 원래 요청으로 다시 시도해주세요.")
+
+
+@app.action("resume_dismiss")
+def _act_resume_dismiss(ack, body):
+    ack()
+    _disable_buttons(body, "알겠어요 — 재개하지 않을게요.")
+
+
 def _resume_pending_jobs():
     """지난 실행이 [이미지]/[스틸컷]/씬설계/상세콘티 도중 죽어서(재시작·크래시 등) 못 끝낸 작업 처리.
     [이미지]/[스틸컷]은 그대로 자동 재개. 씬설계/상세콘티(plan/conti)는 스레드 맥락(수정 지시 등)이
@@ -6913,12 +6976,30 @@ def _resume_pending_jobs():
                 log.exception("복구 알림 전송 실패")
             continue
         if kind == "video":
-            # 영상화는 컷 원본(png)이 job_ledger에 저장 안 돼있어 자동 재실행이 불가능 —
-            # (_do_images/_do_stills처럼 그대로 재실행할 rest 문자열이 아니라 참고용 라벨일
-            # 뿐) 자동재개 대신 안내만 하고, "이 스틸컷으로 영상 만들어줘"로 다시 하게 한다.
+            # ★2026-07-21: 재개 가능한 배치 기록(JSON, resumable)이면 [▶️ 이어서 영상화] 버튼으로
+            # 이미 만든 컷은 건너뛰고 나머지만 이어서 만들 수 있게 한다. 옛 컷별 라벨(work|title|
+            # 컷N, JSON 아님)은 배치 기록이 대신 덮으므로 조용히 넘긴다(이중 안내 방지).
+            info = None
             try:
-                _reply(ch, tts, f"⚠️ 봇이 재시작되면서 진행 중이던 영상 생성이 끊겼어요({rest}). "
-                                "\"이 스틸컷으로 영상 만들어줘\"로 다시 시도해주세요.")
+                if (rest or "").lstrip().startswith("{"):
+                    info = json.loads(rest)
+            except Exception:
+                info = None
+            if not (info and info.get("resumable")):
+                continue
+            try:
+                scene = info.get("scene")
+                text = (f"⚠️ 봇이 재시작되면서 <{info.get('work')}> 씬{scene} 영상 생성이 끊겼어요. "
+                        "이미 만든 컷은 빼고 나머지만 이어서 만들까요?")
+                resp = app.client.chat_postMessage(
+                    channel=ch, thread_ts=tts, text=text,
+                    blocks=_with_text_block(text, [{"type": "actions", "elements": [
+                        {"type": "button", "text": {"type": "plain_text", "text": "▶️ 이어서 영상화"},
+                         "style": "primary", "action_id": "resume_job"},
+                        {"type": "button", "text": {"type": "plain_text", "text": "아니요"},
+                         "action_id": "resume_dismiss"}]}]))
+                _PENDING_RESUME[resp["ts"]] = {"kind": "video", "channel": ch, "thread_ts": tts,
+                                               "video": info}
             except Exception:
                 log.exception("복구 알림 전송 실패")
             continue
