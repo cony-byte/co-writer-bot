@@ -153,6 +153,12 @@ def _system_prompt_static() -> str:
     generate_stillcuts(episode=1, attachment_id=실제 첨부 ID); 작품·씬을 묻지 않는다.
 - 현재 메시지의 첨부 이미지를 '참고해서/구도 그대로' 봇이 새 스틸컷을 만들라는(생성/제작)
   요청에는 반드시 context.attachments의 해당 id를 generate_stillcuts.attachment_id로 넣는다.
+- Slack 첨부가 아니라 '노션에 첨부해둔/올려둔 스토리보드 이미지'를 보고 구도·연출을 그대로
+  하라는 스틸컷 요청은 노션 URL이나 재첨부를 요구하지 말고 generate_stillcuts에
+  use_notion_storyboard_ref=true를 넣어 바로 호출한다(이미지 회수는 코드가 한다). 이 경우
+  sync_notion을 호출하지 않는다.
+  예: '씬 1. 스틸컷은 내가 노션에 첨부해둔 스토리보드 이미지를 보고 연출과 구도는 똑같이
+  하도록 해. 임의로 생성하지 말고.' → generate_stillcuts(scene=1, use_notion_storyboard_ref=true)
 - 첨부 이미지 '자체'를 결과물로 삼아 재생성 없이 저장하라는 요청('저장해줘', '이대로 저장',
   '내가 준 그림 그대로 스틸컷으로', '새로 만들지 말고 이 이미지로', '씬N 컷1,2,3으로 저장')은
   generate_stillcuts가 아니라 save_stillcuts다. 봇이 새로 그리는 것과 정반대이며, 첨부한

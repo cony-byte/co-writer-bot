@@ -125,6 +125,21 @@ def _sb(name: str, args: dict, ctx) -> None:
     elif name == "generate_stillcuts":
         ref_data_url = (_attachment_data_url(args, ctx)
                         if args.get("attachment_id") else None)
+        # ★2026-07-21: 노션 첨부 스토리보드를 구도 참조로 — 못 찾으면 조용히 자유생성으로
+        # 폴백하지 않는다("임의로 생성하지 말고"는 명시적 부정 제약, 오전 nl_router 경로와
+        # 동일한 원칙). 이미지를 찾을 때만 ref_data_url로 넘긴다.
+        if not ref_data_url and args.get("use_notion_storyboard_ref"):
+            ref_bytes = sb._notion_scene_reference_image(
+                args.get("work"), args.get("episode"))
+            if ref_bytes is None:
+                from .shared.slack_io import _reply
+                _reply(channel, thread_ts,
+                       "노션 페이지에서 해당 화의 스토리보드 이미지를 못 찾았어요 — 노션에 "
+                       "이미지가 잘 붙어있는지 확인해주시거나, 이 스레드에 이미지를 직접 "
+                       "첨부해서 다시 요청해주세요. (요청하신 대로 구도를 임의로 생성하지는 "
+                       "않았어요.)")
+                return
+            ref_data_url = "data:image/png;base64," + base64.b64encode(ref_bytes).decode("ascii")
         sb._do_stills(channel, thread_ts, rest, feedback=args.get("instruction"),
                       ref_data_url=ref_data_url)
     elif name == "save_stillcuts":
@@ -491,6 +506,14 @@ for _name, (_desc, _risk) in _storyboard.items():
     _validator = None
     if _name == "generate_stillcuts":
         _props["attachment_id"] = ATTACHMENT_ID
+        # ★2026-07-21(회귀 코퍼스 notion-storyboard-composition-lock): "노션에 첨부해둔
+        # 스토리보드 이미지 보고 구도 그대로" 요청 — Slack 첨부가 아니라 노션 페이지의
+        # 해당 화 '스토리보드' 토글 안 이미지를 구도 참조로 쓴다. 이미지 회수는 코드
+        # (_notion_scene_reference_image)가 하고 모델은 이 플래그만 세운다.
+        _props["use_notion_storyboard_ref"] = {
+            "type": "boolean",
+            "description": "사용자가 노션에 이미 첨부해둔 스토리보드 이미지를 구도 참조로 쓰라고 한 경우 true",
+        }
         _validator = _validate_optional_attachment
     if _name == "save_stillcuts":
         _validator = _validate_save_stillcuts
