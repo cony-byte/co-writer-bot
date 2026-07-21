@@ -2479,9 +2479,10 @@ def _guess_scene_num(conti, instr):
     n = int(m.group(0))
     return n if any(n == s[0] for s in scenes) else None
 
-def _do_images(channel, thread_ts, rest):
+def _do_images(channel, thread_ts, rest, feedback=None):
     work, bible, tail, msgs = _resolve_work_bible(channel, thread_ts, rest)
-    if not _require_genre(channel, thread_ts, work, resume=lambda: _do_images(channel, thread_ts, rest)):
+    if not _require_genre(channel, thread_ts, work,
+                          resume=lambda: _do_images(channel, thread_ts, rest, feedback=feedback)):
         return
     tm = re.search(r"\b(\d{1,3})\b", tail)          # [이미지] <작품> N → 목표 컷 수
     target = int(tm.group(1)) if tm else None
@@ -2503,7 +2504,10 @@ def _do_images(channel, thread_ts, rest):
     # ★2026-07-15, "그림체가 너무 달라졌어" 버그: 이 그리드 경로만 style_suffix 없이 호출돼서
     # STILL_STYLE(세미리얼 지정)이 하나도 안 붙었다 — [스틸컷] 경로만 스타일이 고정되고 이
     # [이미지] 그리드 경로는 모델 기본값에 맡겨져 매번 다른 화풍(사진/애니메 등)으로 나왔다.
-    _render_cuts_tracked("images", rest, channel, thread_ts, work, bible, conti, target=target,
+    # ★2026-07-22: 사용자 메시지의 지시사항을 그리드 생성 프롬프트에도 반영(스틸컷은 이미
+    # feedback로 반영 중이었으나 그리드 경로만 빠져 있었다).
+    fb_note = (f"\n\n[사용자 지시 — 이 지시를 반드시 반영해 그려라: '{feedback}']" if feedback else "")
+    _render_cuts_tracked("images", rest, channel, thread_ts, work, bible, conti + fb_note, target=target,
                         title="스토리보드 그리드", filename=f"storyboard_{work or 'ep'}.png",
                         style_suffix=_style_for_work(work))
 
@@ -2586,9 +2590,16 @@ DEFAULT_STYLE_KEY = "realistic"
 
 def _style_for_work(work: str | None) -> str:
     """그 작품에 등록된 스타일(works.get_style)을 찾아 STYLE_PRESETS 문구로 변환. 작품이
-    없거나 스타일 미지정·모르는 키면 기본값(realistic)으로 폴백 — 항상 문자열을 반환한다."""
+    없거나 스타일 미지정·모르는 키면 기본값(realistic)으로 폴백 — 항상 문자열을 반환한다.
+    ★2026-07-22: 작품별 고정 지시(works.get_art_note, 예: '원본이랑 똑같이')가 있으면 화풍
+    프리셋 뒤에 붙여 그 작품의 모든 이미지·영상 생성(스틸·그리드·영상 style_lock 공통)에
+    항상 주입한다."""
     key = (work and works.get_style(work)) or DEFAULT_STYLE_KEY
-    return STYLE_PRESETS.get(key, STYLE_PRESETS[DEFAULT_STYLE_KEY])
+    preset = STYLE_PRESETS.get(key, STYLE_PRESETS[DEFAULT_STYLE_KEY])
+    note = work and works.get_art_note(work)
+    if note:
+        preset = f"{preset} 작품 고정 지시(반드시 따를 것): {note}. "
+    return preset
 
 
 STILL_STYLE = STYLE_PRESETS[DEFAULT_STYLE_KEY]   # 하위호환 — 옛 호출부가 참조해도 기존 기본값 그대로
@@ -7322,6 +7333,35 @@ def _do_style(channel, thread_ts, rest):
     _reply(channel, thread_ts,
           f"✅ <{w}> 스타일을 *{STYLE_LABELS[style_key]}*로 설정했어요 — 이제부터 스틸컷·영상·"
           "소품/의상 참조가 전부 이 화풍으로 만들어져요(이미 만든 컷은 그대로 유지).")
+
+
+_ART_NOTE_CLEAR_RE = re.compile(r"지워|삭제|해제|없애|초기화|리셋|clear|remove")
+
+
+def _do_set_art_note(channel, thread_ts, work=None, note=None) -> bool:
+    """작품별 고정 지시 프롬프트(자유 텍스트)를 등록/변경/해제한다(★2026-07-22). 등록하면 그
+    작품의 모든 이미지·영상 생성 프롬프트(_style_for_work 경유)에 항상 주입된다."""
+    work = _resolve_show_work(channel, thread_ts, work)
+    if not work:
+        _reply(channel, thread_ts, _WORK_NOT_FOUND_MSG)
+        return True
+    note = (note or "").strip()
+    if not note:
+        cur = works.get_art_note(work)
+        _reply(channel, thread_ts,
+               (f"<{work}> 현재 고정 지시: \"{cur}\"" if cur else f"<{work}>에 설정된 고정 지시가 없어요.")
+               + " 예: `<작품> 고정 스타일: 원본 레퍼런스랑 똑같이`. (해제하려면 '고정 지시 지워줘')")
+        return True
+    if _ART_NOTE_CLEAR_RE.search(note) and len(note) <= 12:
+        works.set_art_note(work, "")
+        _reply(channel, thread_ts, f"✅ <{work}> 고정 지시를 해제했어요.")
+        return True
+    w = works.set_art_note(work, note)
+    _reply(channel, thread_ts,
+           f"✅ <{w}> 고정 지시를 설정했어요: \"{note}\" — 이제부터 이 작품의 모든 이미지·영상 "
+           "생성에 항상 반영돼요(해제하려면 '고정 지시 지워줘').")
+    return True
+
 
 _PENDING_GENRE: dict[str, dict] = {}   # 드롭다운 메시지 ts -> {channel, thread_ts, work, resume}
 

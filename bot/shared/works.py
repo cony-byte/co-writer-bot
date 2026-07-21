@@ -326,6 +326,30 @@ def set_style(work: str, style_key: str) -> str | None:
     return w
 
 
+def get_art_note(work: str) -> str | None:
+    """작품별 '고정 지시 프롬프트'(자유 텍스트) — 예: '원본 레퍼런스와 똑같이'. 그 작품의 모든
+    이미지·영상 생성 프롬프트에 항상 주입된다(★2026-07-22). 없으면 None."""
+    w = resolve(work) or work
+    return ((_load().get(w) or {}).get("art_note") or None)
+
+
+def set_art_note(work: str, note: str | None) -> str | None:
+    """작품별 고정 지시 프롬프트를 등록/변경(빈 값이면 제거). 반환: 정식 작품명(못 찾으면 None)."""
+    w = resolve(work)
+    if not w:
+        return None
+    d = _load()
+    entry = d.get(w) or {"page": page_of(w) or "", "aliases": []}
+    note = (note or "").strip()
+    if note:
+        entry["art_note"] = note
+    else:
+        entry.pop("art_note", None)
+    d[w] = entry
+    _save(d)
+    return w
+
+
 def mark_genre_required(work: str) -> None:
     """★2026-07-20 "노션에도 필수로 추가" — 노션 링크로 신규 등록되는 작품인데 페이지
     본문에서 장르를 못 찾았을 때만 dispatch_cowriter._do_sync가 호출한다. 이미 등록된

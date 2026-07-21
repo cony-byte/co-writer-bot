@@ -121,7 +121,7 @@ def _sb(name: str, args: dict, ctx) -> None:
         if not ok:
             raise ValueError("수정할 콘티를 찾지 못했습니다")
     elif name == "generate_storyboard_grid":
-        sb._do_images(channel, thread_ts, rest)
+        sb._do_images(channel, thread_ts, rest, feedback=args.get("instruction"))
     elif name == "generate_stillcuts":
         ref_data_url = (_attachment_data_url(args, ctx)
                         if args.get("attachment_id") else None)
@@ -287,6 +287,11 @@ def _still_variant(args: dict, ctx) -> None:
     sb._do_still_variant(ctx.channel, ctx.thread_ts, work=args.get("work"),
                          scene=args.get("scene"), cut_number=args.get("cut_number"),
                          change=args.get("change"), episode=args.get("episode"))
+
+
+def _set_work_style_note(args: dict, ctx) -> None:
+    from . import dispatch_storyboard as sb
+    sb._do_set_art_note(ctx.channel, ctx.thread_ts, work=args.get("work"), note=args.get("note"))
 
 
 def _delete_media(args: dict, ctx) -> None:
@@ -667,6 +672,11 @@ _add("delete_media",
       "cut_number": {"type": "integer", "minimum": 1, "description": "특정 컷만 지울 때"},
       "kind": {"type": "string", "description": "지울 종류: 스틸컷/영상/합본 (여러 개면 각각 호출 또는 함께 명시)"}},
      [], HIGH, _delete_media)
+
+_add("set_work_style_note",
+     "작품에 항상 적용할 고정 스타일 지시(자유 문장)를 등록·변경·해제한다. '이 작품은 원본 레퍼런스랑 똑같이 만들어', '겨울 하루는 항상 따뜻한 톤으로', '이 작품 스타일 항상 이렇게 고정해줘'처럼 그 작품의 모든 이미지·영상 생성에 매번 반영할 지시. 화풍 프리셋(실사풍/2D 애니메이션) 변경(change_visual_style)과 달리 자유 문장이다. note에 그 지시를 넣고, 해제는 note에 '지워줘' 등을 넣는다.",
+     {"work": WORK, "note": {"type": "string", "description": "항상 반영할 고정 지시(자유 문장). 해제하려면 '지워줘' 등."}},
+     [], LOW, _set_work_style_note)
 
 _add("check_cut_seconds",
      "콘티의 컷 초수 합계가 씬 헤더의 목표 초수와 맞는지 검증해 보고한다. '컷 초수 합 맞는지 확인해줘', '씬2 몇 초야'처럼 시간 예산 검증 요청. 씬별로 [N초] 비트를 합산해 목표와 비교(±1초 이내면 OK)한다. scene을 주면 그 씬만 검증한다.",
