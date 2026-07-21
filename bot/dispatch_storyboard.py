@@ -4466,6 +4466,136 @@ def _do_show_refs(channel, thread_ts, work=None, name=None, kind=None) -> bool:
     return True
 
 
+_VIDEO_MEDIA_KW = ("영상", "동영상", "비디오", "video", "확정영상", "합본", "클립", "무비")
+_STILL_MEDIA_KW = ("스틸컷", "스틸", "stillcut", "still", "컷")
+_ELEM_MEDIA_KW = ("인물", "사람", "얼굴", "의상", "옷", "복장", "코스튬", "장소", "배경",
+                  "소품", "아이템", "참조", "레퍼런스", "캐릭터", "person", "place", "prop",
+                  "costume", "ref", "룩")
+
+
+def _classify_media(kind, scene, cut, name):
+    """무엇을 보여줄지 판별: 'video' / 'stillcut' / 'reference' / None(모호)."""
+    k = (kind or "").lower()
+    if any(w in k for w in _VIDEO_MEDIA_KW):
+        return "video"
+    if any(w in k for w in _STILL_MEDIA_KW):
+        return "stillcut"
+    if any(w in k for w in _ELEM_MEDIA_KW):
+        return "reference"
+    if scene is not None or cut is not None:
+        return "stillcut"
+    if name:
+        return "reference"
+    return None
+
+
+def _show_stillcuts(channel, thread_ts, work, episode, scene, cut) -> bool:
+    episode = episode or (conti_state.get_episode(thread_ts) or {}).get("episode")
+    if scene is None:
+        stills = vp_store.scan_episode_stills(work, episode) or {}
+        if not stills.get("scenes"):
+            _reply(channel, thread_ts, f"<{work}> {episode}화에 저장된 스틸컷이 없어요.")
+            return True
+        _reply(channel, thread_ts,
+               f"어느 씬 스틸컷을 볼까요? 스틸컷 있는 씬: {', '.join(stills['scenes'])} "
+               "(예: `7씬 스틸컷 보여줘`, 특정 컷은 `7씬 1컷`).")
+        return True
+    cuts = vp_store.load_latest_cuts(work, scene, episode=episode)
+    if not cuts:
+        _reply(channel, thread_ts, f"<{work}> 씬{scene}에 저장된 스틸컷이 없어요.")
+        return True
+    if cut is not None:
+        c = next((x for x in cuts if x.get("n") == cut), None)
+        if not c:
+            avail = ", ".join(str(x["n"]) for x in cuts)
+            _reply(channel, thread_ts, f"씬{scene}에 컷{cut}이 없어요. 있는 컷: {avail}")
+            return True
+        app.client.files_upload_v2(
+            channel=channel, thread_ts=thread_ts, file=c["png"],
+            filename=f"still_{_work_safe_name(work)}_s{scene}_cut{cut}.png",
+            title=f"씬{scene} 컷{cut} 스틸컷",
+            initial_comment=f"<{work}> 씬{scene} {cut}컷 스틸컷이에요.")
+        return True
+    panels = [(c["png"], c["n"], c.get("caption") or f"컷{c['n']}") for c in cuts]
+    grid_png = grid.build_grid(panels, cols=4)
+    app.client.files_upload_v2(
+        channel=channel, thread_ts=thread_ts, file=grid_png,
+        filename=f"stills_{_work_safe_name(work)}_s{scene}.png",
+        title=f"씬{scene} 스틸컷 {len(panels)}컷",
+        initial_comment=f"<{work}> 씬{scene} 스틸컷 {len(panels)}컷이에요.")
+    return True
+
+
+_SHOW_VIDEO_CAP = 6   # 한 번에 올리는 영상 최대 개수(플러딩 방지)
+
+
+def _show_videos(channel, thread_ts, work, episode, scene, cut, want_compiled=False) -> bool:
+    episode = episode or (conti_state.get_episode(thread_ts) or {}).get("episode")
+    proj = oi.vp_project_dir(work)
+    # 합본(확정영상) 요청이거나 컷 영상이 없을 때 fallback으로 compiled를 본다.
+    def _post_compiled():
+        cdir = (proj / "outputs" / "compiled") if proj else None
+        files = sorted(cdir.glob(f"{episode}화*.mp4")) if (cdir and cdir.exists()) else []
+        if not files:
+            return False
+        for p in files[:_SHOW_VIDEO_CAP]:
+            app.client.files_upload_v2(
+                channel=channel, thread_ts=thread_ts, file=str(p),
+                filename=p.name, title=p.stem,
+                initial_comment=f"<{work}> {episode}화 합본이에요.")
+        return True
+
+    if want_compiled and _post_compiled():
+        return True
+
+    vids = video_index.list_episode_videos(work, [scene] if scene else None, episode=episode)
+    items = []
+    for snum in sorted(vids):
+        for v in sorted(vids[snum], key=lambda x: x["cut_num"]):
+            if cut is not None and v["cut_num"] != cut:
+                continue
+            items.append((snum, v["cut_num"], v["path"]))
+    if not items:
+        if _post_compiled():
+            return True
+        _reply(channel, thread_ts,
+               f"<{work}> {episode}화에 저장된 영상이 없어요"
+               + (f" (씬{scene}{f' 컷{cut}' if cut else ''})." if scene else "."))
+        return True
+    for snum, cnum, path in items[:_SHOW_VIDEO_CAP]:
+        app.client.files_upload_v2(
+            channel=channel, thread_ts=thread_ts, file=str(path),
+            filename=f"video_{_work_safe_name(work)}_s{snum}_cut{cnum}.mp4",
+            title=f"씬{snum} 컷{cnum} 영상",
+            initial_comment=f"<{work}> 씬{snum} {cnum}컷 영상이에요.")
+    if len(items) > _SHOW_VIDEO_CAP:
+        _reply(channel, thread_ts,
+               f"…외 {len(items) - _SHOW_VIDEO_CAP}개 더 있어요 — 씬/컷을 지정하면 그것만 보여줄게요.")
+    return True
+
+
+def _do_show_media(channel, thread_ts, work=None, episode=None, scene=None, cut=None,
+                   name=None, kind=None) -> bool:
+    """인물 참조·스틸컷·영상 등 모든 시각 산출물을 "보여줘"로 통합 표시(★2026-07-21 — 기존
+    show_reference는 등록 참조만 다뤘고, 생성 스틸컷/영상을 보여주는 경로가 없어 '스틸컷
+    보여줘'가 스틸컷 생성/씬설계로 새던 라이브 버그). kind/scene/cut/name 신호로 무엇을 보여줄지
+    판별해 참조는 _do_show_refs, 스틸컷은 저장 컷 PNG, 영상은 저장 mp4를 올린다."""
+    work = _resolve_show_work(channel, thread_ts, work)
+    if not work:
+        _reply(channel, thread_ts, _WORK_NOT_FOUND_MSG)
+        return True
+    media = _classify_media(kind, scene, cut, name)
+    if media == "video":
+        want_compiled = any(w in (kind or "") for w in ("합본", "확정"))
+        return _show_videos(channel, thread_ts, work, episode, scene, cut, want_compiled)
+    if media == "stillcut":
+        return _show_stillcuts(channel, thread_ts, work, episode, scene, cut)
+    if media == "reference":
+        return _do_show_refs(channel, thread_ts, work=work, name=name, kind=kind)
+    # 모호: 이름 없이 그냥 "보여줘" → 등록 참조 그리드(기존 show 동작)로 안내 겸 표시.
+    return _do_show_refs(channel, thread_ts, work=work, name=None, kind=None)
+
+
 _PENDING_DELETE_REF: dict[str, dict] = {}   # 확인 메시지 ts -> {work, name, etype}
 
 

@@ -257,11 +257,12 @@ def _rename_reference(args: dict, ctx) -> None:
                       old_name=args.get("old_name"), new_name=args.get("new_name"))
 
 
-def _show_reference(args: dict, ctx) -> None:
+def _show_media(args: dict, ctx) -> None:
     from . import dispatch_storyboard as sb
-    kind = args.get("kind")
-    sb._do_show_refs(ctx.channel, ctx.thread_ts, work=args.get("work"),
-                     name=args.get("name"), kind=kind)
+    sb._do_show_media(ctx.channel, ctx.thread_ts, work=args.get("work"),
+                      episode=args.get("episode"), scene=args.get("scene"),
+                      cut=args.get("cut_number"), name=args.get("name"),
+                      kind=args.get("kind"))
 
 
 def _delete_reference(args: dict, ctx) -> None:
@@ -617,12 +618,14 @@ _add("rename_reference",
       "new_name": {"type": "string", "description": "바꿀 새 이름"}},
      ["old_name", "new_name"], HIGH, _rename_reference)
 
-_add("show_reference",
-     "이미 등록된 참조(인물·의상·장소·소품)의 이미지를 Slack에 보여준다. '이영 PD룩 보여줘', 'PD룩 뭔지 보여줘'처럼 등록된 참조 이미지를 눈으로 확인하려는 요청. name을 주면 그 한 장을, 이름 없이 '등록된 참조 전부 보여줘'처럼 요청하면 (kind 있으면 그 종류만) 그리드 한 장으로 보여준다. 새로 생성하는 게 아니라 이미 등록된 파일을 표시하는 것이다.",
-     {"work": WORK,
-      "kind": {"type": "string", "enum": ["인물", "의상", "장소", "소품"]},
-      "name": {"type": "string", "description": "볼 참조 이름. 전부 보려면 생략."}},
-     [], LOW, _show_reference)
+_add("show_media",
+     "이미 만들어진 시각 산출물(등록 참조 인물·의상·장소·소품 / 생성된 스틸컷 / 생성·확정 영상)을 Slack에 보여준다. '이영 PD룩 보여줘', '7씬 1컷 스틸컷 보여줘', '7씬 스틸컷 보여줘', '씬3 영상 보여줘', '1화 합본 보여줘'처럼 이미 있는 결과물을 눈으로 확인하려는 모든 요청. 새로 생성/재생성(만들어·다시 생성)과 다르며, 이미 저장된 파일을 표시만 한다. 신호: name=참조 이름, scene/cut_number=스틸컷·영상 위치, kind=무엇인지 힌트(인물/의상/장소/소품/스틸컷/영상/합본). 스틸컷은 cut_number 주면 그 컷, 없으면 그 씬 전체 그리드. 영상은 scene/cut 주면 그것만, 없으면 그 화 전체(또는 합본).",
+     {"work": WORK, "episode": EPISODE, "scene": SCENE,
+      "cut_number": {"type": "integer", "minimum": 1, "description": "스틸컷·영상의 컷 번호"},
+      "kind": {"type": "string",
+               "description": "무엇을 보여줄지 힌트: 인물/의상/장소/소품/스틸컷/영상/합본 등"},
+      "name": {"type": "string", "description": "참조를 볼 때 그 이름(예: 이영 PD룩)"}},
+     [], LOW, _show_media)
 
 _add("delete_reference",
      "이미 등록된 참조(인물·의상·장소·소품)를 삭제한다. '과 배경 참조 삭제해줘', '이 인물 지워줘'처럼 잘못 등록했거나 필요 없어진 참조 제거 요청. 되돌릴 수 없는 작업이라 확인 버튼을 띄운 뒤 삭제한다. kind는 알면 넣고 애매하면 생략한다.",
