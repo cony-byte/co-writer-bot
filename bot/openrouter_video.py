@@ -4,8 +4,8 @@
 Higgsfield는 bytedance/seedance가 계정별 활성화가 따로 필요해서 "Model not found"로 막혀
 kling-video로 우회했었는데, OpenRouter는 seedance 2.0을 계정 활성화 없이 그냥 노출한다 —
 이미 이미지 생성에 쓰던 OPENROUTER_API_KEY 그대로 재사용. 2026-07-13부터 슬랙 봇의 실제
-영상화 백엔드로 전환됨(higgsfield_video는 폐기하지 않고 남겨둠 — seedance 접근 이슈 생기면
-언제든 되돌릴 수 있게).
+영상화 백엔드로 전환됨(2026-07-21: 미사용 백업이던 higgsfield_video.py 모듈 삭제 — seedance
+하나만 남김).
 
 API (OpenRouter 공식 문서/쿡북 + 실제 호출 검증, 2026-07-13):
   POST https://openrouter.ai/api/v1/videos

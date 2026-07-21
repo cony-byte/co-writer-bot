@@ -224,14 +224,6 @@ HIGGSFIELD_IMAGE_MODEL = os.environ.get("HIGGSFIELD_IMAGE_MODEL", "gpt-image")  
 HIGGSFIELD_POLL_INTERVAL = int(os.environ.get("HIGGSFIELD_POLL_INTERVAL", "5"))  # 초
 HIGGSFIELD_IMG_TIMEOUT = int(os.environ.get("HIGGSFIELD_IMG_TIMEOUT", "600"))    # 잡 완료 최대 대기(초)
 
-# ── Higgsfield 영상(image-to-video) 모델 선택 ──
-# 2026-07-13 실측: bytedance/seedance/v1/pro/image-to-video는 이 계정에 접근 권한 없음
-# ("Model not found") → kling-video/v2.1/pro/image-to-video로 대체 사용 중.
-# seedance API 접근 권한이 열리면 .env에 아래 한 줄만 바꾸면 코드 수정 없이 전환됨:
-#   HIGGSFIELD_VIDEO_APPLICATION=bytedance/seedance/v1/pro/image-to-video
-HIGGSFIELD_VIDEO_APPLICATION = os.environ.get(
-    "HIGGSFIELD_VIDEO_APPLICATION", "kling-video/v2.1/pro/image-to-video")
-
 # ── CapCut(pyCapCut) 드래프트 생성 — 2026-07-14 ──
 # 로컬 파일 생성 라이브러리(원격 API 아님, 크레딧 없음). 최종 렌더링은 CapCut 앱을 사람이
 # 직접 열어서 해야 함(pycapcut_client.py 상단 참고).
