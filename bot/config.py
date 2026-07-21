@@ -142,6 +142,10 @@ OPENROUTER_IMAGE_MODERATION = os.environ.get("OPENROUTER_IMAGE_MODERATION", "low
 # OpenRouter가 seedance 2.0을 계정 활성화 없이 그냥 노출(Higgsfield는 계정별 활성화 필요해 막혀있었음).
 # 모델: bytedance/seedance-2.0(정속) / bytedance/seedance-2.0-fast(저가·속도 우선).
 OPENROUTER_VIDEO_MODEL = os.environ.get("OPENROUTER_VIDEO_MODEL", "bytedance/seedance-2.0")
+# ★2026-07-21: seedance 페이로드에 resolution을 안 넣어 기본(저해상, 보통 480p)으로 나가
+# 레거시(higgsfield/kling 기본 ~720p)보다 화질이 떨어졌다(사용자 지적). 레거시 품질에 맞춰
+# 720p 명시. 480p/720p/1080p 지원(openrouter_video._RES_DIMS). 필요 시 env로 조정.
+OPENROUTER_VIDEO_RESOLUTION = os.environ.get("OPENROUTER_VIDEO_RESOLUTION", "720p")
 OPENROUTER_VIDEO_POLL_INTERVAL = int(os.environ.get("OPENROUTER_VIDEO_POLL_INTERVAL", "10"))
 OPENROUTER_VIDEO_TIMEOUT = int(os.environ.get("OPENROUTER_VIDEO_TIMEOUT", "900"))
 # seedance 내장 generate_audio(대사·효과음 자동생성) 스위치.

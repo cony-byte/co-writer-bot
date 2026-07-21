@@ -142,6 +142,7 @@ def generate(png: bytes, motion_prompt: str, *, duration: int | None = None,
         "model": config.OPENROUTER_VIDEO_MODEL,
         "prompt": motion_prompt,
         "aspect_ratio": aspect_ratio,
+        "resolution": config.OPENROUTER_VIDEO_RESOLUTION,   # ★2026-07-21 레거시 품질(720p)에 맞춤
         "generate_audio": generate_audio,
         "input_references": [{"type": "image_url", "image_url": {"url": _data_url(png)},
                               "frame_image": "first_frame"}],
@@ -181,7 +182,8 @@ def generate(png: bytes, motion_prompt: str, *, duration: int | None = None,
             urls = st.get("unsigned_urls") or []
             if not urls:
                 raise RuntimeError("완료됐는데 unsigned_urls 없음: " + json.dumps(st)[:300])
-            cost = st.get("cost") or st.get("usage", {}).get("cost") or estimate_cost(duration or 5)
+            cost = (st.get("cost") or st.get("usage", {}).get("cost")
+                    or estimate_cost(duration or 5, config.OPENROUTER_VIDEO_RESOLUTION))
             return urls[0], float(cost)
         if status in ("failed", "cancelled", "expired"):
             raise RuntimeError(f"OpenRouter 영상 생성 실패({status}): " + json.dumps(st)[:300])
