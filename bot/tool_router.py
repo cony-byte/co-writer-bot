@@ -132,6 +132,11 @@ def _system_prompt_static() -> str:
   finalize 또는 sync를 추가하지 않는다.
 - 방송명·프로그램명·로고 이름 고정은 작품 별칭 등록이 아니다. register_work_alias를
   호출하지 않는다.
+- 등록된 참조 이미지를 '보여줘/뭔지 보여줘/이미지 보여줘'는 show_reference다(새로 생성 아님).
+  '참조 삭제/지워줘'는 delete_reference, '원본으로 되돌려줘'는 restore_reference다.
+- 영상은 나레이션(화면 밖 목소리) 음성만 지원하고, 화면 속 인물이 입을 맞춰 말하는
+  립싱크는 지원하지 않는다. '이영이 (입으로) 말하게 해줘/대사 립싱크' 요청은 실행하지 말고
+  '나레이션 음성만 가능하고 립싱크는 미지원'이라고 답한다(임의로 립싱크로 처리 금지).
 - 다음은 정보가 충분한 예이며 ask_for_clarification을 호출하면 안 된다.
   * sb_stage가 있는 상태의 '1씬만 만들어줘' → generate_stillcuts(scene=1)
   * 직전 봇이 컷 번호를 물은 뒤 '씬2 3컷만' → generate_stillcuts(scene=2,cuts=[3])

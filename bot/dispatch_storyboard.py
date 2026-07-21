@@ -4393,6 +4393,135 @@ def _do_rename_ref(channel, thread_ts, work=None, etype=None, old_name=None, new
     _reply(channel, thread_ts, msg)
     return True
 
+def _resolve_show_work(channel, thread_ts, work):
+    if not work:
+        joined = "\n".join(mm["content"] for mm in _thread_messages(channel, thread_ts))
+        work = _work_from_thread(joined, thread_ts)
+    return works.resolve(work) or work if work else None
+
+
+_ELEM_KR = {"person": "인물", "place": "장소", "prop": "소품", "costume": "의상"}
+
+
+def _do_show_refs(channel, thread_ts, work=None, name=None, kind=None) -> bool:
+    """등록된 참조 이미지를 Slack에 되보여준다(★2026-07-21 — 기존엔 등록 여부를 텍스트로만
+    답하고 이미지를 직접 못 띄웠다: '이영 PD룩 보여줘' 라이브 실패). 이름을 주면 그 한 장을,
+    없으면 (해당 kind의) 등록 참조 전부를 그리드 한 장으로 합성해 올린다. 생성에 실제로 붙는
+    것과 동일한 이미지(oi.element_image_bytes)를 보여준다."""
+    work = _resolve_show_work(channel, thread_ts, work)
+    if not work:
+        _reply(channel, thread_ts, _WORK_NOT_FOUND_MSG)
+        return True
+    etype = _REF_TYPE_KW.get(str(kind).lower()) if kind else None
+
+    if name:
+        e = oi.resolve_element(work, name)
+        got = oi.element_image_bytes(work, e) if e else None
+        if not got:
+            _reply(channel, thread_ts,
+                   f"'{name}' 참조의 이미지를 찾지 못했어요 — 이름이 정확한지, 이미지가 등록돼 "
+                   f"있는지 확인해 주세요.")
+            return True
+        data, ext = got
+        disp = oi._nfc(e.get("display", "")) or name
+        tlabel = _ELEM_KR.get(e.get("type"), "참조")
+        app.client.files_upload_v2(
+            channel=channel, thread_ts=thread_ts, file=data,
+            filename=f"{disp}{ext}", title=f"{tlabel} · {disp}",
+            initial_comment=f"등록된 {tlabel} 참조 「{disp}」이에요.")
+        return True
+
+    # 이름 없음 → (kind 필터) 등록 참조 전체를 그리드로.
+    elems = [e for e in oi.load_elements(work)
+             if (etype is None or e.get("type") == etype)]
+    panels = []
+    for i, e in enumerate(elems, 1):
+        got = oi.element_image_bytes(work, e)
+        if got:
+            disp = oi._nfc(e.get("display", "")) or f"#{i}"
+            panels.append((got[0], i, disp))
+    scope = f"{_ELEM_KR.get(etype)} " if etype else ""
+    if not panels:
+        _reply(channel, thread_ts, f"<{work}>에 이미지로 보여줄 {scope}참조가 아직 없어요.")
+        return True
+    grid_png = grid.build_grid(panels, cols=4)
+    app.client.files_upload_v2(
+        channel=channel, thread_ts=thread_ts, file=grid_png,
+        filename=f"refs_{_work_safe_name(work)}.png",
+        title=f"{work} 등록 {scope}참조",
+        initial_comment=f"<{work}>에 등록된 {scope}참조 {len(panels)}개예요.")
+    return True
+
+
+_PENDING_DELETE_REF: dict[str, dict] = {}   # 확인 메시지 ts -> {work, name, etype}
+
+
+def _delete_ref_confirm_blocks():
+    return [{
+        "type": "actions",
+        "elements": [
+            {"type": "button", "text": {"type": "plain_text", "text": "⚠️ 삭제"},
+             "style": "danger", "action_id": "delete_ref_confirm"},
+            {"type": "button", "text": {"type": "plain_text", "text": "취소"},
+             "action_id": "delete_ref_cancel"},
+        ],
+    }]
+
+
+def _do_delete_ref(channel, thread_ts, work=None, name=None, etype=None) -> bool:
+    """등록된 참조를 삭제한다(★2026-07-21 — CRUD의 D가 없어 잘못 등록한 참조가 계속 살아있던
+    문제). 되돌릴 수 없는 색인 제거이므로 danger 버튼으로 재확인한 뒤에만 실제 삭제한다
+    (이미지 바이트는 _trash로 보관돼 복구 가능)."""
+    if not name:
+        _reply(channel, thread_ts, "무슨 참조를 삭제할지 이름을 알려주세요 — 예: `장소 과 배경 삭제해줘`.")
+        return True
+    work = _resolve_show_work(channel, thread_ts, work)
+    if not work:
+        _reply(channel, thread_ts, _WORK_NOT_FOUND_MSG)
+        return True
+    tlabel = _ELEM_KR.get(etype, "참조")
+    text = (f"⚠️ <{work}> {tlabel} 참조 「{name}」을(를) 삭제할까요? "
+            f"색인에서 제거돼요 (이미지는 _trash에 보관돼 복구 가능).")
+    resp = app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text,
+                                       blocks=_with_text_block(text, _delete_ref_confirm_blocks()))
+    _PENDING_DELETE_REF[resp["ts"]] = {"work": work, "name": name, "etype": etype}
+    return True
+
+
+@app.action("delete_ref_confirm")
+def _act_delete_ref_confirm(ack, body):
+    ack()
+    ch, tts = _action_ctx(body)
+    p = _PENDING_DELETE_REF.pop(body["message"]["ts"], None)
+    if not p:
+        _disable_buttons(body, "⚠️ 만료된 요청이에요 (봇 재시작 시 대기 요청은 사라져요).")
+        return
+    _disable_buttons(body, "🗑 삭제 중…")
+    _ok, msg = oi.delete_element(p["work"], name=p["name"], etype=p.get("etype"))
+    app.client.chat_postMessage(channel=ch, thread_ts=tts, text=msg)
+
+
+@app.action("delete_ref_cancel")
+def _act_delete_ref_cancel(ack, body):
+    ack()
+    _disable_buttons(body, "취소했어요 — 아무것도 안 지웠어요.")
+
+
+def _do_restore_ref(channel, thread_ts, work=None, name=None, etype=None) -> bool:
+    """참조를 등록 당시 원본으로 되돌린다(★2026-07-21 — face_ref가 중화 전에 백업해 둔
+    _originals/를 노출). 복원은 로컬 원본을 되살리는 것뿐이라 파괴적이지 않아 확인 없이 실행."""
+    if not name:
+        _reply(channel, thread_ts, "무슨 참조를 원본으로 되돌릴지 이름을 알려주세요.")
+        return True
+    work = _resolve_show_work(channel, thread_ts, work)
+    if not work:
+        _reply(channel, thread_ts, _WORK_NOT_FOUND_MSG)
+        return True
+    _ok, msg = oi.restore_element(work, name=name, etype=etype)
+    _reply(channel, thread_ts, msg)
+    return True
+
+
 def _do_typed_ref(channel, thread_ts, event, work=None, etype=None, names=None) -> bool:
     """_maybe_typed_ref의 실행부(★2026-07-21 작업2, 트리거/파싱과 분리) — work/etype/names를
     이미 알면(라우터가 r.elements로 이미 확정) 텍스트 재파싱 없이 바로 등록 확정 카드를

@@ -257,6 +257,29 @@ def _rename_reference(args: dict, ctx) -> None:
                       old_name=args.get("old_name"), new_name=args.get("new_name"))
 
 
+def _show_reference(args: dict, ctx) -> None:
+    from . import dispatch_storyboard as sb
+    kind = args.get("kind")
+    sb._do_show_refs(ctx.channel, ctx.thread_ts, work=args.get("work"),
+                     name=args.get("name"), kind=kind)
+
+
+def _delete_reference(args: dict, ctx) -> None:
+    from . import dispatch_storyboard as sb
+    kind = args.get("kind")
+    etype = sb._REF_TYPE_KW.get(str(kind).lower()) if kind else None
+    sb._do_delete_ref(ctx.channel, ctx.thread_ts, work=args.get("work"),
+                      name=args.get("name"), etype=etype)
+
+
+def _restore_reference(args: dict, ctx) -> None:
+    from . import dispatch_storyboard as sb
+    kind = args.get("kind")
+    etype = sb._REF_TYPE_KW.get(str(kind).lower()) if kind else None
+    sb._do_restore_ref(ctx.channel, ctx.thread_ts, work=args.get("work"),
+                       name=args.get("name"), etype=etype)
+
+
 def _replace_logo(args: dict, ctx) -> None:
     from . import dispatch_storyboard as sb
     selected = _selected_attachment(args, ctx)
@@ -580,6 +603,27 @@ _add("rename_reference",
       "old_name": {"type": "string", "description": "현재 등록된 이름"},
       "new_name": {"type": "string", "description": "바꿀 새 이름"}},
      ["old_name", "new_name"], HIGH, _rename_reference)
+
+_add("show_reference",
+     "이미 등록된 참조(인물·의상·장소·소품)의 이미지를 Slack에 보여준다. '이영 PD룩 보여줘', 'PD룩 뭔지 보여줘'처럼 등록된 참조 이미지를 눈으로 확인하려는 요청. name을 주면 그 한 장을, 이름 없이 '등록된 참조 전부 보여줘'처럼 요청하면 (kind 있으면 그 종류만) 그리드 한 장으로 보여준다. 새로 생성하는 게 아니라 이미 등록된 파일을 표시하는 것이다.",
+     {"work": WORK,
+      "kind": {"type": "string", "enum": ["인물", "의상", "장소", "소품"]},
+      "name": {"type": "string", "description": "볼 참조 이름. 전부 보려면 생략."}},
+     [], LOW, _show_reference)
+
+_add("delete_reference",
+     "이미 등록된 참조(인물·의상·장소·소품)를 삭제한다. '과 배경 참조 삭제해줘', '이 인물 지워줘'처럼 잘못 등록했거나 필요 없어진 참조 제거 요청. 되돌릴 수 없는 작업이라 확인 버튼을 띄운 뒤 삭제한다. kind는 알면 넣고 애매하면 생략한다.",
+     {"work": WORK,
+      "kind": {"type": "string", "enum": ["인물", "의상", "장소", "소품"]},
+      "name": {"type": "string", "description": "삭제할 참조 이름"}},
+     ["name"], HIGH, _delete_reference)
+
+_add("restore_reference",
+     "참조를 등록 당시의 원본 이미지로 되돌린다. '원본으로 되돌려줘', '얼굴 원래대로'처럼 face_ref 중화나 재생성 이전 원본으로 복원하려는 요청. 원본 백업(_originals)이 있는 참조만 가능하다.",
+     {"work": WORK,
+      "kind": {"type": "string", "enum": ["인물", "의상", "장소", "소품"]},
+      "name": {"type": "string", "description": "되돌릴 참조 이름"}},
+     ["name"], HIGH, _restore_reference)
 
 _add("replace_logo",
      "첨부 로고를 특정 현재 컷에만 반영하거나 앞으로 쓸 방송·작품 로고 기본 참조로 등록한다. 두 범위를 모두 요청하면 scope별로 두 번 호출한다.",

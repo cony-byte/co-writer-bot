@@ -485,6 +485,114 @@ def rename_element(work: str, *, old_name: str, new_name: str,
     return True, f"✅ {tlabel} 이름을 '{old_name}' → '{new_name}'으로 바꿨어요{extra}.{alias_note}"
 
 
+def element_image_bytes(work: str | None, e: dict) -> "tuple[bytes, str] | None":
+    """등록 엘리먼트의 현재 대표 이미지 bytes + 확장자. 생성에 실제로 붙는 것과 동일한
+    해상 경로(_element_data_url)를 재사용하므로, 사용자에게 '보여주는' 이미지가 '생성에
+    쓰이는' 이미지와 항상 일치한다(2026-07-21 element_show)."""
+    u = _element_data_url(work, e)
+    if not u or not u.startswith("data:"):
+        return None
+    try:
+        header, b64 = u.split(",", 1)
+        mt = header[5:].split(";")[0] or "image/png"
+        ext = "." + mt.split("/")[-1].replace("jpeg", "jpg")
+        return base64.b64decode(b64), ext
+    except Exception:
+        return None
+
+
+def delete_element(work: str, *, name: str, etype: str | None = None) -> "tuple[bool, str]":
+    """등록된 참조 엘리먼트를 삭제한다(★2026-07-21 — 기존엔 등록/교체/개명만 되고 삭제가
+    없어서, 잘못 등록한 참조가 계속 살아있었다). 파괴적이므로 실제 이미지 바이트는 지우지
+    않고 _trash/로 옮겨 복구 가능하게 하고, elements.json 색인에서만 제거한다. dispatch가
+    danger 버튼으로 재확인한 뒤에만 호출한다. 반환: (성공, 사용자 안내 메시지)."""
+    nm = _nfc(name).strip()
+    if not (work and nm):
+        return False, "삭제할 참조 이름이 필요해요."
+    etype = etype if etype in ELEMENT_TYPES else None
+    with _ELEMENTS_LOCK:
+        elems = load_elements(work)
+        target = next((e for e in elems
+                       if (etype is None or e.get("type") == etype)
+                       and nm in _element_names(e)), None)
+        if target is None:
+            tlabel = _ELEM_TYPE_KR.get(etype)
+            what = f"{tlabel} 참조" if tlabel else "참조"
+            return False, f"'{name}' 이름의 {what}를 찾지 못했어요 — 등록된 이름·종류를 확인해 주세요."
+        eid = target.get("id")
+        display = _nfc(target.get("display", "")) or nm
+        notes = []
+        # 이미지 바이트는 지우지 않고 _trash/로 이동(복구 가능). fixed-images id 폴더 우선.
+        try:
+            refs = config.OPENROUTER_REFS_DIR / _canon_work(work)
+            trash = refs / "_trash"
+            trash.mkdir(parents=True, exist_ok=True)
+            fx = vp_fixed_dir(work)
+            if fx and eid and not str(eid).startswith("file:"):
+                src = fx / eid
+                if src.is_dir():
+                    dest = trash / eid
+                    if dest.exists():
+                        dest = trash / f"{eid}_{len(list(trash.iterdir()))}"
+                    src.rename(dest)
+                    notes.append("이미지 폴더 _trash 이동")
+            f = target.get("file")
+            if f and (refs / f).is_file():
+                (refs / f).rename(trash / f)
+                notes.append("로컬 파일 _trash 이동")
+        except Exception:
+            notes.append("⚠️ 이미지 백업 이동 실패(색인만 제거)")
+        elems = [e for e in elems if e is not target]
+        _save_elements(work, elems)
+    tlabel = _ELEM_TYPE_KR.get(target.get("type"), "참조")
+    extra = f" ({', '.join(notes)})" if notes else ""
+    return True, (f"🗑 {tlabel} 참조 '{name}'을(를) 삭제했어요{extra}. "
+                  f"이미지는 _trash에 보관돼 복구 가능해요.")
+
+
+def restore_element(work: str, *, name: str, etype: str | None = None) -> "tuple[bool, str]":
+    """참조를 등록 당시의 원본(_originals/<이름>.<ext> — face_ref가 중화 전에 백업해 둔 것)으로
+    되돌린다(★2026-07-21). 현재 대표 이미지 대신 원본을 로컬 참조 파일로 되살리고 색인의
+    'file'을 거기로 가리키게 해, 이후 생성이 원본을 쓰게 한다. 반환: (성공, 안내 메시지)."""
+    nm = _nfc(name).strip()
+    if not (work and nm):
+        return False, "되돌릴 참조 이름이 필요해요."
+    etype = etype if etype in ELEMENT_TYPES else None
+    refs = config.OPENROUTER_REFS_DIR / _canon_work(work)
+    orig_dir = refs / "_originals"
+    # 원본 파일 찾기: 정확 이름 우선, 없으면 별칭/표시이름들로 시도.
+    with _ELEMENTS_LOCK:
+        elems = load_elements(work)
+        target = next((e for e in elems
+                       if (etype is None or e.get("type") == etype)
+                       and nm in _element_names(e)), None)
+        cands = [nm] + ([_nfc(target.get("display", ""))] + list(target.get("aliases") or [])
+                        if target else [])
+        found = None
+        for cand in cands:
+            if not cand:
+                continue
+            for p in (orig_dir.glob(f"{cand}.*") if orig_dir.is_dir() else []):
+                if p.suffix.lower() in _REF_EXTS:
+                    found = p
+                    break
+            if found:
+                break
+        if not found:
+            return False, (f"'{name}'의 보관된 원본(_originals)을 찾지 못했어요 — "
+                           f"원본 백업이 있는 참조(주로 인물 얼굴 중화본)만 되돌릴 수 있어요.")
+        dest = refs / found.name
+        try:
+            dest.write_bytes(found.read_bytes())
+        except Exception:
+            return False, "원본 파일을 복원 위치로 쓰지 못했어요."
+        disp = _nfc(target.get("display", "")) if target else nm
+        register_element(work, disp or nm,
+                         (target.get("type") if target else etype) or "person",
+                         filename=dest.name)
+    return True, f"↩️ 참조 '{name}'을(를) 등록 당시 원본으로 되돌렸어요."
+
+
 _GENDER_CARD_RE = re.compile(r"^(?:#{1,3}\s*)?([^\n(]{1,12}?)\s*\(([^)\n]*)\)\s*/", re.M)
 
 
