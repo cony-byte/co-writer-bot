@@ -35,6 +35,84 @@ def available(work: str | None) -> bool:
     return oi.vp_project_dir(work) is not None
 
 
+_PROJECT_TEMPLATE = {
+    "$schema_version": "1.0",
+    "metadata": {
+        "purpose": "Shared project metadata for Claude Code agents and visual generation pipelines",
+        "shared_file": True,
+        "source_of_truth": True,
+        "managed_by": "",
+        "usage_note": "All Claude Code agents must read this file before image or video generation.",
+        "write_policy": {"default": "read_only", "allowed_writers": [], "manual_edit_allowed": True},
+    },
+    "shared_paths": {
+        "fixed_images_root": "fixed-images",
+        "generated_images_root": "generated",
+        "outputs_root": "outputs",
+        "logs_root": "logs",
+        "database": "visual.db",
+    },
+    "claude_code": {
+        "shared_usage": True,
+        "required_read_before_run": True,
+        "agents": [],
+        "rules": [
+            "Resolve all relative paths from project.project_root.",
+            "Use fixed_images as the only approved identity references.",
+            "Do not overwrite fixed images automatically.",
+            "Do not create a new character identity when a fixed image exists.",
+            "Write generated candidates only under generated_images_root.",
+            "Use element_id only after element.status is trained.",
+            "Stop generation when required character data is missing.",
+        ],
+    },
+    "characters": [],
+}
+
+
+def ensure_project(work: str | None) -> bool:
+    """★2026-07-21: "이 작품은 visual-pipeline 프로젝트가 없어서 저장 못 함"으로 조용히
+    끝내지 말고, 없으면 그 자리에서 만들어야 한다는 사용자 지적 — 기존 프로젝트(코니/날혐남)와
+    동일한 구조(project.json + fixed-images/ + outputs/{stills,compiled,videos} + logs/)로
+    새 프로젝트 폴더를 자동 생성한다. 이미 있으면(available) 아무것도 안 하고 True."""
+    if not work:
+        return False
+    if available(work):
+        return True
+    root = getattr(config, "FIXED_IMAGES_ROOT", None)
+    if not root:
+        return False
+    try:
+        pdir = root / work
+        (pdir / "fixed-images").mkdir(parents=True, exist_ok=True)
+        (pdir / "outputs" / "stills").mkdir(parents=True, exist_ok=True)
+        (pdir / "outputs" / "compiled").mkdir(parents=True, exist_ok=True)
+        (pdir / "outputs" / "videos").mkdir(parents=True, exist_ok=True)
+        (pdir / "logs").mkdir(parents=True, exist_ok=True)
+        try:
+            from .shared import works
+            page_id = works.page_of(work) or ""
+        except Exception:
+            page_id = ""
+        meta = {
+            **_PROJECT_TEMPLATE,
+            "project": {
+                "slug": f"auto-{work}",
+                "work_name": work,
+                "project_root": str(pdir),
+                "notion_page_id": page_id,
+                "status": "draft",
+            },
+        }
+        (pdir / "project.json").write_text(
+            json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+        log.info("visual-pipeline 프로젝트 자동 생성: %r -> %s", work, pdir)
+        return True
+    except Exception:
+        log.exception("visual-pipeline 프로젝트 자동 생성 실패: %r", work)
+        return False
+
+
 def _scene_dir_name(scene_num: int | None) -> str:
     return f"{scene_num}씬" if scene_num else "미분류씬"
 

@@ -4914,10 +4914,10 @@ def _act_still_confirm(ack, body):
     p = _PENDING_STILL.pop(msg_ts, None)
     if not p:
         _disable_buttons(body, "⚠️ 만료된 요청이에요 (봇이 재시작되면 대기 중인 요청은 사라져요) — `[스틸컷]`부터 다시 해주세요."); return
-    if not vp_store.available(p["work"]):
-        _disable_buttons(body, f"⚠️ <{p['work']}>의 visual-pipeline 프로젝트를 못 찾아 별도 저장은 안 됐어요 "
-                                "(위 슬랙 첨부 그리드가 결과물이에요).")
-        return
+    # ★2026-07-21: 프로젝트 폴더가 없다고 조용히 저장을 포기하지 말고 그 자리에서 만든다
+    # (기존 코니/날혐남 프로젝트와 동일 구조) — 사용자가 이미 확정 버튼을 누른 시점이라
+    # "저장 못 함" 경고보다 실제로 저장되는 게 맞다.
+    vp_store.ensure_project(p["work"])
     who = (body.get("user") or {}).get("id")
     ch, tts = _action_ctx(body)
     # ★2026-07-15: vp_store.save_still이 화/씬 폴더별 결정적 cut{n}.png 경로로 저장하는 구조로
@@ -4959,7 +4959,7 @@ def _act_figma_send_stillbatch(ack, body):
             # 동일한 방식으로 미리 저장해둔다(cut{n}.png 파일명이 결정적이라 이후 확정 시
             # 다시 저장해도 안전하게 덮어써질 뿐이다).
             episode = (conti_state.get_episode(tts) or {}).get("episode")
-            if vp_store.available(p.get("work")):
+            if vp_store.ensure_project(p.get("work")):
                 vp_store.save_still(p["work"], scene_num=p.get("scene_num"), prompt_summary=p.get("title"),
                                     png=p["grid_png"], requested_by=(body.get("user") or {}).get("id"),
                                     cuts=p.get("cuts"), episode=episode)
@@ -6619,7 +6619,7 @@ def _autopilot_stills_for_scene(channel, thread_ts, work, bible, num, hdr, body,
         # 않음) — 이 배치를 on_batch_ready로 영상화에 넘기기 전에 이 배치 컷만이라도 검수를 거친다.
         flagged = _autopilot_check_stills(work, cuts, vision_deadline)
 
-        if vp_store.available(work):
+        if vp_store.ensure_project(work):
             try:
                 vp_store.save_still(work, scene_num=num, prompt_summary=f"스틸컷 씬{num}", png=grid_png,
                                     cuts=cuts, episode=episode)
@@ -6673,7 +6673,7 @@ def _autopilot_regen_missing_stills(channel, thread_ts, work, bible, num, hdr, b
             continue
         c = cuts[0]
         c["n"] = n   # 배치는 1번으로 매겨 나오므로 씬 전체 기준 컷 번호로 되돌린다
-        if vp_store.available(work):
+        if vp_store.ensure_project(work):
             try:
                 vp_store.save_still(work, scene_num=num, prompt_summary=f"스틸컷 씬{num} 컷{n}",
                                     png=grid_png, cuts=[c], episode=episode)
