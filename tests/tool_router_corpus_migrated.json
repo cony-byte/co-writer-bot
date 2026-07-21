@@ -1,0 +1,670 @@
+{
+  "_doc": "nl_router 회귀 코퍼스(tests/nl_router_corpus.json)를 tool_router 스키마로 마이그레이션한 시드. 원본 58케이스 중 현행 tool_router_corpus.json과 텍스트가 중복되는 8케이스는 제외. id는 mig- 프리픽스. ctx의 attached_image_count는 attachments 리스트로 변환. expected는 원본 intent를 tool_router 도구로 매핑하되, 불확실하면 coarse(type+tool_oneof)하게. confirm/reject/resume 계열은 tool_router에서 버튼 전용이라 실행 호출을 내지 않아야 하므로 type_oneof[clarification,answer]로 표현.",
+  "cases": [
+    {
+      "id": "mig-prop-first-cut-confirm-register",
+      "text": "맨 첫 컷에 나오는 방송 로고는 이거니까 이거로 확정해",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "attachments": [{"id": "Fmig0", "name": "img0.png", "mimetype": "image/png"}]
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["register_reference_image", "register_reference_images", "replace_logo"]
+      },
+      "incident": "'확정해'가 등록 트리거 목록(R4)에 없어 element_register로 안 잡힐 수 있음 · 로고는 replace_logo 전용 tool로 라우팅되는 것이 정상 — few-shot 추가분 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-cancel-leak-rewrite",
+      "text": "상세 콘티 1화 전체 내용 다시 적어줘. 지금은 씬2, 씬5 밖에 없어",
+      "ctx": {
+        "sb_stage": 2,
+        "tracked_episode": 1
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["generate_detail_conti", "rewrite_conti"],
+        "forbid_tools_anywhere": ["cancel_current_job"],
+        "args": {"episode": 1}
+      },
+      "incident": "재작성 요청이 '🛑 중단했어요'로 응답됨 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-costume-register-3",
+      "text": "이미지 각각\n하루 의상, 겨울 의상, 여자 교복(엑스트라용)\n이야.",
+      "ctx": {
+        "tracked_work": "겨울 하루",
+        "attachments": [
+          {"id": "Fmig0", "name": "img0.png", "mimetype": "image/png"},
+          {"id": "Fmig1", "name": "img1.png", "mimetype": "image/png"},
+          {"id": "Fmig2", "name": "img2.png", "mimetype": "image/png"}
+        ]
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["register_reference_image", "register_reference_images"]
+      },
+      "incident": "'이미지' 단어 매칭으로 컷 분해 파이프라인 실행 → 오류 2연발 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-clothes-and-background",
+      "text": "김신우, 이영, 유나영 옷 과 배경 이미지 생성해줘.",
+      "ctx": {
+        "tracked_work": "저연프"
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["generate_reference_image", "generate_reference_images"]
+      },
+      "incident": "'과 배경'이라는 엘리먼트가 등록됨 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-edit-verb-not-whitelisted",
+      "text": "하루 의상 이거로 수정해줘.",
+      "ctx": {
+        "tracked_work": "겨울 하루",
+        "attachments": [{"id": "Fmig0", "name": "img0.png", "mimetype": "image/png"}]
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["replace_reference_image", "generate_reference_image"]
+      },
+      "incident": "'수정해줘'가 동사 화이트리스트에 없어 무반응 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-question-not-command-2",
+      "text": "오 좋아 그럼 뭐하면돼 이제?",
+      "ctx": {
+        "tracked_work": "결혼 빼고 다",
+        "sb_stage": 0
+      },
+      "expected": {
+        "type_oneof": ["answer", "clarification"]
+      },
+      "incident": "단순 질문에 씬설계 헤더 + 3화 대본 환각 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-outline-rewrite",
+      "text": "1화 개요 다시 쓰고 싶어 인물이랑 상황이 시청자들에게 충분히 설명이 잘되게",
+      "ctx": {
+        "last_bot_output_head": "1화 개요 초안 — 통과/재생성"
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["revise_script", "edit_plan", "generate_script"]
+      },
+      "incident": "'1화' 매칭으로 storyboard 씬설계로 샘 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-stillcut-scene-cuts",
+      "text": "씬3 스틸컷 컷5,13,14 만들어줘",
+      "ctx": {
+        "sb_stage": 2
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool": "generate_stillcuts",
+        "args": {"scene": 3, "cuts": [5, 13, 14]}
+      },
+      "incident": "화 번호 없다고 씬설계 1단계부터 재실행 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-revise-after-draft",
+      "text": "줄거리 수정해줘, 장면 연출 중심으로",
+      "ctx": {
+        "last_bot_output_head": "3화 대본 초안 — 통과/재생성",
+        "sb_stage": 1
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls", "clarification"],
+        "forbid_tools_anywhere": ["generate_storyboard_grid", "generate_detail_conti", "generate_scene_design"]
+      },
+      "incident": "대본 피드백이 storyboard 캐치올로 새서 상세 콘티 생성 · tracked_work 미설정 시 clarification 허용 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-cut-level-directing",
+      "text": "씬1 1-1컷에서, 하루의 전신이 다 나오는 구도 말고, 하루가 교실의 앞문으로 얼굴만 빼꼼 내밀어 간을 보다가, 1-2컷에서 약간 웃으며 긴장한 듯한 표정 클로즈업, 그리고 1-3컷에서 자리로 걸어가는 장면 말고 자신의 자리에 앉는 장면을 묘사해줘.",
+      "ctx": {
+        "sb_stage": 2,
+        "tracked_episode": 1
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["rewrite_conti", "generate_detail_conti"],
+        "args": {"scene": 1}
+      },
+      "incident": "2단계 컷 수정 지시가 1단계 요약 수정으로 처리돼 디테일 전부 유실 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-episode-denial",
+      "text": "난 3화를 만든 적이 없어. 1화 스토리보드 이미지가 이상하니까 고치라고.",
+      "ctx": {
+        "tracked_episode": 3
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool": "generate_storyboard_grid",
+        "args": {"episode": 1}
+      },
+      "incident": "봇이 계속 3화를 참조하며 canned 안내문 반복 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-target-not-episode",
+      "text": "4050 여성 타겟 회귀 로맨스인데 1화 대본 써줘",
+      "ctx": {},
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["generate_script", "edit_plan"],
+        "args": {"episode": 1}
+      },
+      "incident": "타겟층 '4050'을 화 번호로 파싱 → 노션에 4050화 토글 생성 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-visual-ref-request",
+      "text": "<결혼 빼고 다> 인물 비주얼 레퍼런스 텍스트",
+      "ctx": {
+        "registered_works": {"결혼 빼고 다": []}
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["generate_script"]
+      },
+      "incident": "같은 요청이 상태 따라 '대본 없음'/'씬설계 시작'으로 제각각 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-appearance-syn-text-1",
+      "text": "오미란 외모 스펙 정리해서 글로 써줘",
+      "ctx": {
+        "tracked_work": "결혼 빼고 다"
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["generate_script"]
+      },
+      "incident": "외형 동의어(외모) 미인식 확장 케이스 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-appearance-syn-text-2",
+      "text": "주인공 비주얼 스펙이랑 룩앤필 텍스트로 정리해줘",
+      "ctx": {
+        "tracked_work": "저연프"
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["generate_script"]
+      },
+      "incident": "외형 동의어(비주얼 스펙/룩앤필) 확장 케이스 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-appearance-syn-image",
+      "text": "김신우 비쥬얼 어떤지 이미지로 뽑아줘",
+      "ctx": {
+        "tracked_work": "저연프"
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["generate_reference_image", "generate_reference_images"]
+      },
+      "incident": "외형 동의어(비쥬얼, 오타 표기) + 이미지 생성 분기 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-appearance-syn-edit",
+      "text": "하루 외형 좀 더 앳되게 바꿔줘",
+      "ctx": {
+        "tracked_work": "겨울 하루",
+        "registered_elements": {"인물": ["하루", "겨울"]}
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["generate_reference_image", "generate_reference_images", "replace_reference_image"]
+      },
+      "incident": "외형 변경 요청 분기 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-appearance-syn-register",
+      "text": "겨울 외관 참고용으로 이 사진 등록해줘",
+      "ctx": {
+        "tracked_work": "겨울 하루",
+        "attachments": [{"id": "Fmig0", "name": "img0.png", "mimetype": "image/png"}]
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["register_reference_image", "register_reference_images"]
+      },
+      "incident": "외형 동의어(외관)가 있어도 첨부 있으면 등록 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-ordered-register-7",
+      "text": "<저연프> 김신우,이영,유나경,강해민,조이안,이도,온우주 이미지 순서대로 첨부했으니까 인물들 이미지 등록해줘.",
+      "ctx": {
+        "registered_works": {"저연프": []},
+        "attachments": [
+          {"id": "Fmig0", "name": "img0.png", "mimetype": "image/png"},
+          {"id": "Fmig1", "name": "img1.png", "mimetype": "image/png"},
+          {"id": "Fmig2", "name": "img2.png", "mimetype": "image/png"},
+          {"id": "Fmig3", "name": "img3.png", "mimetype": "image/png"},
+          {"id": "Fmig4", "name": "img4.png", "mimetype": "image/png"},
+          {"id": "Fmig5", "name": "img5.png", "mimetype": "image/png"},
+          {"id": "Fmig6", "name": "img6.png", "mimetype": "image/png"}
+        ]
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["register_reference_image", "register_reference_images"]
+      },
+      "incident": "7명이 '저연프'(작품명) 인물 1명으로 등록됨 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-detail-not-stage1",
+      "text": "<저연프> 1화 대본으로 상세 콘티 만들어달라고",
+      "ctx": {
+        "tracked_work": "저연프",
+        "sb_stage": 1,
+        "tracked_episode": 1
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool": "generate_detail_conti",
+        "args": {"episode": 1}
+      },
+      "incident": "상세콘티 요청에 1단계 씬설계를 새로 돌림 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-explicit-cancel",
+      "text": "그만",
+      "ctx": {},
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool": "cancel_current_job"
+      },
+      "incident": "명시적 취소 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-complaint-then-request",
+      "text": "왜 자꾸 3화 얘기를 하지.. <저연프> 1화 대본이랑 상세 콘티 모두 노션에 있으니까 그거 확인해서 스토리보드 이미지 다시 만들라고.",
+      "ctx": {
+        "tracked_work": "저연프",
+        "tracked_episode": 3
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool": "generate_storyboard_grid",
+        "forbid_tools_anywhere": ["sync_notion"],
+        "args": {"episode": 1}
+      },
+      "incident": "항의+요청 복합문에 canned 안내문만 반복 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-feedback-own-output-guard",
+      "text": "[피드백] <저연프> 1화",
+      "ctx": {
+        "recent_messages": [
+          {"role": "봇", "text": "⏳ 노션 페이지 정리해서 시트에 반영하는 중이에요…"}
+        ],
+        "registered_works": {"저연프": []}
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["review_script", "evaluate_fun", "evaluate_logic"]
+      },
+      "incident": "봇 진행 메시지를 대본으로 평가 → '평가 불가' · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-paste-script-to-conti",
+      "text": "방금 그거 대본 초안인데 콘티로 만들어줘. *1화 대본*\n\n연애 프로그램에서 가장 중요한 것은 출연진들의 케미다. …(대본 원문)",
+      "ctx": {
+        "sb_stage": 0
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["generate_scene_design", "generate_detail_conti"],
+        "args": {"episode": 1}
+      },
+      "incident": "중단 메시지 + 개연성 리포트가 먼저 발사 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-capability-question",
+      "text": "인물 이미지를 만드는 기능도 장착되어있나요?",
+      "ctx": {},
+      "expected": {
+        "type": "answer"
+      },
+      "incident": "기능 질문에 핸들러마다 다른 답(지원 안 함 vs 생성 시도) · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-scene-range-not-episodes",
+      "text": "씬 2~5도 그 내용 디벨롭해서 대본 작성해줘. 씬 1 포함해서 같이 작성해줘.",
+      "ctx": {
+        "tracked_work": "겨울 하루",
+        "tracked_episode": 1,
+        "sb_stage": 1
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["revise_script", "generate_script"]
+      },
+      "incident": "'씬 2~5'가 '2화·3화·4화·5화 대본 생성'으로 실행됨 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-episode-range",
+      "text": "2~5화 대본 써줘",
+      "ctx": {
+        "tracked_work": "저연프"
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["generate_script"]
+      },
+      "incident": "다중 화 범위 전개 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-confirm-word",
+      "text": "응 그렇게 해줘",
+      "ctx": {
+        "recent_messages": [
+          {"role": "봇", "text": "지금 요청이 *2단계 상세 콘티 생성* 맞을까요? 맞으면 \"응\"…"}
+        ]
+      },
+      "expected": {
+        "type_oneof": ["clarification", "answer"]
+      },
+      "incident": "확인 질문 뒤 승인 한마디 — tool_router에서 버튼 전용이라 실행 호출 금지 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-reject-word",
+      "text": "아니 그거 말고",
+      "ctx": {
+        "recent_messages": [
+          {"role": "봇", "text": "지금 요청이 *씬 설계* 맞을까요?"}
+        ]
+      },
+      "expected": {
+        "type_oneof": ["clarification", "answer"]
+      },
+      "incident": "직전 제안 거절 — 버튼 전용 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-resume-natural",
+      "text": "아까 하던 거 마저 해줘",
+      "ctx": {},
+      "expected": {
+        "type_oneof": ["clarification", "answer"]
+      },
+      "incident": "봇 재시작으로 끊긴 작업 자연어 재개 — 버튼 전용 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-attachment-missing",
+      "text": "겨울 의상 이 사진으로 바꿔줘",
+      "ctx": {
+        "tracked_work": "겨울 하루"
+      },
+      "expected": {
+        "type_oneof": ["clarification", "answer"]
+      },
+      "incident": "'첨부하신 이미지가 확인되지 않아요' — 파일 누락 시 재첨부 안내 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-bare-notion-link",
+      "text": "https://app.notion.com/p/tainai/39dbeda6e49080be923acc71fe6c25fa",
+      "ctx": {
+        "tracked_work": "저연프"
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool": "sync_notion"
+      },
+      "incident": "맨 링크 = 동기화로 가정 + 가정 공개 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-negation-preserved",
+      "text": "전신 나오는 구도 말고 얼굴만 빼꼼 내미는 걸로 스틸컷 다시",
+      "ctx": {
+        "sb_stage": 2,
+        "tracked_episode": 1
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool": "generate_stillcuts"
+      },
+      "incident": "배제 조건('말고')이 지시에서 유실 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-question-stillcut-explanation",
+      "text": "씬3 컷5 스틸컷은 왜 인물 의상이 다르게 나온 거야?",
+      "ctx": {
+        "tracked_work": "저연프",
+        "tracked_episode": 1,
+        "sb_stage": 2
+      },
+      "expected": {
+        "type": "answer"
+      },
+      "incident": "스토리보드 그리드 설명과 특정 스틸컷 설명이 같은 경로로 처리됨 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-angle-character-costume-register",
+      "text": "<하루> 의상",
+      "ctx": {
+        "tracked_work": "겨울 하루",
+        "registered_works": {"겨울 하루": []},
+        "attachments": [{"id": "Fmig0", "name": "img0.png", "mimetype": "image/png"}]
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["register_reference_image", "register_reference_images", "generate_reference_image"]
+      },
+      "incident": "<하루>를 작품명으로 오해하지 않고 캐릭터 의상으로 등록 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-element-reflection-question",
+      "text": "교복 이미지도 반영했어?",
+      "ctx": {
+        "tracked_work": "겨울 하루",
+        "registered_elements": {"의상": ["하루 의상", "여자 교복(엑스트라용)"]}
+      },
+      "expected": {
+        "type": "answer"
+      },
+      "incident": "특정 참조 반영 여부는 LLM 답변이 아니라 실제 등록 상태 조회 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-episode-costumes-and-background-generate",
+      "text": "<저연프> 1화, 김신우, 이영, 유나영 옷과 배경 이미지 생성해줘.",
+      "ctx": {
+        "tracked_work": "저연프",
+        "registered_works": {"저연프": []}
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["generate_reference_image", "generate_reference_images"]
+      },
+      "incident": "스토리보드가 아니라 해당 화 대본/콘티 기반 의상·배경 엘리먼트 생성 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-storyboard-rebuild-from-notion-tracked-episode",
+      "text": "<저연프> 대본이랑 상세 콘티 이미 되어있으니까 확인하고, 스토리보드 이미지 잘못 생성된 거 고치라고.",
+      "ctx": {
+        "tracked_work": "저연프",
+        "tracked_episode": 3,
+        "sb_stage": 2,
+        "registered_works": {"저연프": []}
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool": "generate_storyboard_grid",
+        "forbid_tools_anywhere": ["sync_notion"],
+        "args": {"episode": 3}
+      },
+      "incident": "화 번호를 되묻거나 로컬 파일 없음으로 끝내지 말고 추적 중인 3화 노션 자료 기준 재생성 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-conti-rewrite-static-moment",
+      "text": "씬1 1-1컷은 전신 말고 앞문으로 얼굴만 빼꼼, 1-2컷은 긴장한 미소 클로즈업과 작은 땀방울, 1-3컷은 걸어가는 장면 말고 자리에 앉은 찰나로. 큰 움직임 없이 묘사해줘.",
+      "ctx": {
+        "tracked_episode": 1,
+        "sb_stage": 2
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["rewrite_conti", "generate_detail_conti"],
+        "args": {"scene": 1}
+      },
+      "incident": "상세 콘티 전체 재생성이 아니라 특정 컷 연출 수정, 부정 조건 보존 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-pdlook-ref-noattach",
+      "text": "이영 PD룩은 이 이미지에 있는거랑 비슷하게 해줘",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "registered_works": {"저는 연프 출연진이 아닌데요 !": ["저연프"]}
+      },
+      "expected": {
+        "type_oneof": ["clarification", "answer"],
+        "forbid_tools_anywhere": ["generate_scene_design"]
+      },
+      "incident": "사고1/3: 첨부 전제인데 파일 0 → 되묻기(씬설계 아님) · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-stafflook-ref-attached",
+      "text": "김신우 스탭룩 이 사진처럼 맞춰줘",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "registered_works": {"저는 연프 출연진이 아닌데요 !": ["저연프"]},
+        "attachments": [{"id": "Fmig0", "name": "img0.png", "mimetype": "image/png"}]
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["replace_reference_image", "generate_reference_image"],
+        "forbid_tools_anywhere": ["generate_scene_design"]
+      },
+      "incident": "사고5: ~룩 의상 참조 수정(R23) · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-alias-bracket-regstatus",
+      "text": "[저연프] 인물 뭐 등록됐어?",
+      "ctx": {
+        "registered_works": {"저는 연프 출연진이 아닌데요 !": ["저연프"]}
+      },
+      "expected": {
+        "type": "answer"
+      },
+      "incident": "사고2: 별칭 표기 등록현황 질문 work canon 해석 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-rewrite-verb-suffix-1",
+      "text": "씬2 콘티 수정해줘. 리안이 문 앞에서 잠깐 멈추는 동작 추가해줘.",
+      "ctx": {
+        "sb_stage": 2,
+        "tracked_episode": 1
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["rewrite_conti", "generate_detail_conti"],
+        "args": {"scene": 2}
+      },
+      "incident": "작업2 회귀 — \"수정해줘\" 어미 트리거 관문 거부 방지 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-rewrite-verb-suffix-2",
+      "text": "씬2 콘티 바꿔줘. 리안이 문 앞에서 잠깐 멈추는 동작 추가해줘.",
+      "ctx": {
+        "sb_stage": 2,
+        "tracked_episode": 1
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["rewrite_conti", "generate_detail_conti"],
+        "args": {"scene": 2}
+      },
+      "incident": "작업2 회귀 — \"바꿔줘\" 어미 인식 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-rewrite-verb-suffix-3",
+      "text": "씬2 콘티 손봐줘. 리안이 문 앞에서 잠깐 멈추는 동작 추가해줘.",
+      "ctx": {
+        "sb_stage": 2,
+        "tracked_episode": 1
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["rewrite_conti", "generate_detail_conti"],
+        "args": {"scene": 2}
+      },
+      "incident": "작업2 회귀 — \"손봐줘\" 구어체 표현 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-display-label-clean",
+      "text": "이영 PD룩은 이 이미지에 있는 상의 디자인이랑 색깔 똑같이 맞춰서 재생성해줘",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "registered_works": {"저는 연프 출연진이 아닌데요 !": ["저연프"]},
+        "attachments": [{"id": "Fmig0", "name": "img0.png", "mimetype": "image/png"}]
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["replace_reference_image", "generate_reference_image"]
+      },
+      "incident": "확인메시지/후보카드에 instruction 원문 노출 문제 — display_label 검증 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-r25-costume-slot-extraction",
+      "text": "1화 이영 상의 이걸로 재생성",
+      "ctx": {
+        "tracked_work": "저연프",
+        "registered_works": {"저연프": []},
+        "attachments": [{"id": "Fmig0", "name": "img0.png", "mimetype": "image/png"}]
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["replace_reference_image", "generate_reference_image"]
+      },
+      "incident": "R25 일반화 검증: 의상 슬롯(character/part/episode) 추출 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-r25-place-slot-extraction",
+      "text": "1화 옥상 배경 이 사진으로 등록해줘",
+      "ctx": {
+        "tracked_work": "저연프",
+        "registered_works": {"저연프": []},
+        "attachments": [{"id": "Fmig0", "name": "img0.png", "mimetype": "image/png"}]
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["register_reference_image", "register_reference_images"]
+      },
+      "incident": "R25 일반화 검증: 장소 등록 시 자연어 표현(옥상)을 name으로 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-r25-prop-slot-extraction",
+      "text": "이영이 들고 다니는 카메라 소품 만들어줘",
+      "ctx": {
+        "tracked_work": "저연프",
+        "registered_works": {"저연프": []}
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["generate_reference_image", "generate_reference_images"]
+      },
+      "incident": "R25 일반화 검증: 소품 슬롯(character/name) 추출 · (migrated from nl_router corpus)"
+    },
+    {
+      "id": "mig-place-direct-label-register",
+      "text": "옥상-세트 이걸로 등록해줘",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "registered_works": {"저는 연프 출연진이 아닌데요 !": ["저연프"]},
+        "attachments": [{"id": "Fmig0", "name": "img0.png", "mimetype": "image/png"}]
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "tool_oneof": ["register_reference_image", "register_reference_images"]
+      },
+      "incident": "콘티 장소 라벨을 직접 부르면 그 라벨을 name으로 그대로 사용 · (migrated from nl_router corpus)"
+    }
+  ]
+}
