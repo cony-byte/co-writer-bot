@@ -2828,6 +2828,7 @@ def _generate_video_for_cut_with_safety_retry(channel, thread_ts, work, title, c
             if local_path:
                 cost_out = grid_cost_out
     _post_generated_video(channel, thread_ts, work, title, num, local_path, cost_out.get("cost"))
+    return local_path   # 배치 루프(_generate_videos_for_cuts) 진행 표시용 — 성공/실패 판정
 
 def _post_generated_video(channel, thread_ts, work, title, num, local_path, cost):
     """영상 생성 결과 1건을 슬랙에 게시(파일 업로드 또는 실패 안내) — ★2026-07-15
@@ -3321,7 +3322,11 @@ def _generate_videos_for_cuts(channel, thread_ts, work, title, cuts, scene_secon
                       if isinstance(planned, (int, float)) and planned > 0
                       else _estimate_cut_seconds(c.get("caption") or ""))
         try:
-            local_path = _generate_video_for_cut(channel, thread_ts, work, title, c, c["n"], cut_seconds)
+            # ★2026-07-21: 안전필터(실존인물)로 실패하면 얼굴에 격자를 덮어 재시도하는 폴백을
+            # 배치 경로에도 적용(기존엔 raw _generate_video_for_cut을 직접 불러 폴백을 안 탔다 —
+            # 실사도를 올려 필터가 더 걸리는데도 그냥 실패로 끝나던 문제).
+            local_path = _generate_video_for_cut_with_safety_retry(
+                channel, thread_ts, work, title, c, c["n"], cut_seconds)
         except Exception:
             log.exception("전체 컷 영상화 중 한 건 실패")
             local_path = None
