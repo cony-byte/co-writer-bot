@@ -33,6 +33,11 @@ AGENT_ROUTER_MAX_TURNS = int(os.environ.get("COWRITER_AGENT_ROUTER_MAX_TURNS", "
 # 에이전트 라우터가 쓸 모델(미지정이면 Claude Code 기본 모델).
 AGENT_ROUTER_MODEL = os.environ.get("COWRITER_AGENT_ROUTER_MODEL", "") or (AGENT_MODEL or "")
 
+# 참조 검증 게이트(reference preflight) 기본 ON. 끄려면 COWRITER_REF_PREFLIGHT=0.
+# 시각 생성(스틸컷/그리드/영상) 전에 씬에 필요한 인물 참조가 등록됐는지 대조해, 누락 시
+# 버튼으로 확인받는다. read/조회 툴에는 절대 적용 안 함(게이트 함수가 시각 생성부에서만 호출).
+REF_PREFLIGHT = os.environ.get("COWRITER_REF_PREFLIGHT", "1") != "0"
+
 # 생성 검증 관문(3단계 감사) 기본 ON. 끄려면 COWRITER_VERIFY_GATE=0.
 # 개별 요청은 '검증생략'/'빠르게' 플래그로 끄거나 '검증'으로 켤 수 있음.
 VERIFY_GATE = os.environ.get("COWRITER_VERIFY_GATE", "1") != "0"

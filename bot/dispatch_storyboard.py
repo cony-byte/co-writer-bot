@@ -3618,6 +3618,14 @@ def _do_stills_render_one(channel, thread_ts, rest, work, bible, scenes, num,
         avail = ", ".join(f"씬{s[0]}" for s in scenes)
         _reply(channel, thread_ts, f"씬{num}을 콘티에서 못 찾았어요. 있는 씬: {avail}")
         return False, "콘티에 없음"
+    # ★2026-07-21 참조 검증 게이트: 이 씬에 필요한 인물 참조가 미등록이면 실행 전 버튼으로
+    # 확인받는다('그래도 생성'→세션 스킵 후 재개, '참조 등록부터'→등록 후 자동 재개). read엔
+    # 절대 안 걸림(여기는 시각 생성부). ref_data_url이 있으면 이미 참조를 명시 지정한 것이라 skip.
+    if not ref_data_url and _ref_preflight_gate(
+            channel, thread_ts, work, episode, num, cut_filter,
+            {"kind": "stills", "channel": channel, "thread_ts": thread_ts, "rest": rest},
+            utterance=rest):
+        return False, "참조 확인 대기"
     _, hdr, body = match
     dm = re.search(r"(\d+)\s*초", hdr)     # 콘티 헤더 "■ 씬N · 10초 · 제목"에 이미 씬 길이가 있음
     scene_seconds = int(dm.group(1)) if dm else None
@@ -4886,6 +4894,158 @@ def _do_check_cut_seconds(channel, thread_ts, work=None, episode=None, scene=Non
     return True
 
 
+# ── 참조 검증 게이트 (reference preflight, ★2026-07-21) ─────────────────────
+_REF_SKIP_RE = re.compile(r"참조\s*없이|참조\s*안|임의로|그냥\s*(?:해|뽑|만들|생성)|상관\s*없|미등록\s*이?라?도?")
+_PREFLIGHT_SKIP: set = set()             # (thread_ts, work) — 세션 동안 '그래도 생성' 재확인 생략
+_PENDING_PREFLIGHT: dict[str, dict] = {}   # 게이트 카드 ts -> {work, missing, descriptor}
+_PREFLIGHT_RESUME: dict[str, dict] = {}    # thread_ts -> descriptor ('참조 등록부터' 후 등록 완료 시 재개)
+
+
+def _preflight_scene_slice(conti: str, scene) -> str:
+    if scene is None or not conti:
+        return conti or ""
+    heads = list(_SCENE_HDR_RE.finditer(conti))
+    for i, m in enumerate(heads):
+        if int(m.group(1)) == int(scene):
+            return conti[m.start(): heads[i + 1].start() if i + 1 < len(heads) else len(conti)]
+    return conti   # 못 찾으면 전체(보수적)
+
+
+def preflight_refs(work, episode, scene=None, cuts=None) -> dict:
+    """씬에 필요한 인물 참조가 등록됐는지 대조. 반환 {required, registered, missing, no_conti}.
+    보수적: 바이블에 열거된 등장인물 중 콘티 지문에 등장하는 이름만 required로 보고, 미등록만
+    missing으로 잡는다(false alarm 최소화). 장소·소품·의상은 열거 가능한 유니버스가 없어 현재
+    제외(후속 확장 — 그때는 replay로 발동률 측정 후 추출을 보수적으로 조정)."""
+    try:
+        conti, _src = _fetch_external_conti(work, episode)
+    except Exception:
+        conti = None
+    if not conti:
+        return {"required": None, "registered": [], "missing": [], "no_conti": True}
+    text = _preflight_scene_slice(conti, scene)
+    try:
+        from .sheet_bible import SheetBible
+        bible = SheetBible().get(work) or {}
+    except Exception:
+        bible = {}
+    required, registered, missing = [], [], []
+    for nm in (bible.get("characters") or {}).keys():
+        nm = (nm or "").strip()
+        if nm and nm in text and nm not in required:
+            required.append(nm)
+            (registered if oi.resolve_element(work, nm) else missing).append(nm)
+    return {"required": required, "registered": registered, "missing": missing, "no_conti": False}
+
+
+def preflight_note(work, episode, scene=None) -> str:
+    """텍스트 단계(콘티·씬설계) 완료 메시지에 붙일 누락 요약 1줄(없으면 '')."""
+    if not config.REF_PREFLIGHT:
+        return ""
+    try:
+        pf = preflight_refs(work, episode, scene)
+    except Exception:
+        return ""
+    miss = pf.get("missing") or []
+    if not miss:
+        return ""
+    return (f"\nℹ️ 아직 참조 미등록: 인물 {'·'.join(miss)} — 스틸컷/영상 전에 등록하면 "
+            "그 인물의 외형이 컷마다 일관되게 나와요.")
+
+
+def _preflight_gate_blocks():
+    return [{"type": "actions", "elements": [
+        {"type": "button", "text": {"type": "plain_text", "text": "📎 참조 등록부터"},
+         "action_id": "preflight_register"},
+        {"type": "button", "text": {"type": "plain_text", "text": "▶️ 그래도 생성"},
+         "style": "primary", "action_id": "preflight_proceed"},
+        {"type": "button", "text": {"type": "plain_text", "text": "취소"},
+         "action_id": "preflight_cancel"},
+    ]}]
+
+
+def _ref_preflight_gate(channel, thread_ts, work, episode, scene, cuts, descriptor,
+                        utterance="") -> bool:
+    """시각 생성부에서만 호출(read/조회엔 절대 호출 안 함). 게이트 카드를 띄웠으면(=호출부가
+    멈춰야 하면) True, 그냥 진행해도 되면 False."""
+    if not config.REF_PREFLIGHT:
+        return False
+    if utterance and _REF_SKIP_RE.search(utterance):
+        return False   # "참조 없이/임의로" — 게이트 스킵
+    if (thread_ts, work) in _PREFLIGHT_SKIP:
+        return False
+    try:
+        pf = preflight_refs(work, episode, scene, cuts)
+    except Exception:
+        return False   # 게이트 자체 실패는 생성을 막지 않는다
+    if pf.get("no_conti") or not pf.get("missing"):
+        return False
+    miss = pf["missing"]
+    text = (f"⚠️ 이 씬에 필요한 참조 중 없는 것: 인물 {'·'.join(miss)}. 없이 생성하면 "
+            "그 인물의 외형이 임의로 나오고 컷마다 달라질 수 있어요.")
+    resp = app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text,
+                                        blocks=_with_text_block(text, _preflight_gate_blocks()))
+    _PENDING_PREFLIGHT[resp["ts"]] = {"work": work, "missing": miss, "descriptor": descriptor}
+    return True
+
+
+def _rerun_gated(desc):
+    kind = desc.get("kind")
+    if kind == "stills":
+        _do_stills(desc["channel"], desc["thread_ts"], desc["rest"])
+    elif kind == "images":
+        _do_images(desc["channel"], desc["thread_ts"], desc["rest"])
+    elif kind == "video":
+        _do_video_from_last_still(desc["channel"], desc["thread_ts"], desc.get("rest") or "",
+                                  work=desc.get("work"), scene=desc.get("scene"),
+                                  cut_nums=desc.get("cut_nums"))
+
+
+def resume_preflight_after_register(channel, thread_ts) -> None:
+    """참조 등록이 끝나면 '참조 등록부터'로 보관해 둔 원 요청을 자동 재개(★spec 3)."""
+    desc = _PREFLIGHT_RESUME.pop(thread_ts, None)
+    if not desc:
+        return
+    _PREFLIGHT_SKIP.add((thread_ts, desc.get("work")))   # 방금 등록했으니 재게이트 방지
+    _reply(channel, thread_ts, "📎 참조 등록 완료 — 대기했던 생성을 이어서 진행할게요…")
+    try:
+        _rerun_gated(desc)
+    except Exception:
+        log.exception("preflight 등록 후 재개 실패")
+
+
+@app.action("preflight_proceed")
+def _act_preflight_proceed(ack, body):
+    ack()
+    ch, tts = _action_ctx(body)
+    p = _PENDING_PREFLIGHT.pop(body["message"]["ts"], None)
+    if not p:
+        _disable_buttons(body, "⚠️ 만료된 요청이에요 (봇 재시작 시 대기 요청은 사라져요).")
+        return
+    _PREFLIGHT_SKIP.add((tts, p["work"]))
+    _disable_buttons(body, "▶️ 참조 없이 생성 진행할게요…")
+    _rerun_gated(p["descriptor"])
+
+
+@app.action("preflight_register")
+def _act_preflight_register(ack, body):
+    ack()
+    ch, tts = _action_ctx(body)
+    p = _PENDING_PREFLIGHT.pop(body["message"]["ts"], None)
+    miss = p["missing"] if p else []
+    if p:
+        _PREFLIGHT_RESUME[tts] = p["descriptor"]
+    _disable_buttons(body, "📎 참조부터 등록해요.")
+    _reply(ch, tts,
+           f"먼저 이 인물 참조를 등록해 주세요: {'·'.join(miss)}. 이미지를 첨부하고 "
+           "`<인물명> 등록해줘`라고 하면 돼요 — 등록되면 대기 중인 생성을 이어서 진행할게요.")
+
+
+@app.action("preflight_cancel")
+def _act_preflight_cancel(ack, body):
+    ack()
+    _disable_buttons(body, "취소했어요 — 생성 안 했어요.")
+
+
 def _do_typed_ref(channel, thread_ts, event, work=None, etype=None, names=None) -> bool:
     """_maybe_typed_ref의 실행부(★2026-07-21 작업2, 트리거/파싱과 분리) — work/etype/names를
     이미 알면(라우터가 r.elements로 이미 확정) 텍스트 재파싱 없이 바로 등록 확정 카드를
@@ -5705,6 +5865,8 @@ def _act_ref_confirm(ack, body):
         f"✅ <{p['work']}> {tlabel} 엘리먼트 등록: {', '.join(saved)} ({where}에 저장)\n"
         "이제 컷에 이게 등장하면 참조로 자동 첨부돼요(일관성 유지)."
         + ("\n" + "\n".join(FACE_REF_NOTES) if FACE_REF_NOTES else ""))
+    ch, tts = _action_ctx(body)   # ★2026-07-21 참조 등록 완료 → preflight '참조 등록부터' 대기 재개
+    resume_preflight_after_register(ch, tts)
 
 @app.action("ref_edit")
 def _act_ref_edit(ack, body):
