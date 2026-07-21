@@ -270,7 +270,7 @@ def still_cut_path(work: str, scene_num: int | None, cut_num: int,
 def save_video(work: str, *, scene_num: int | None, cut_num: int | None, url: str,
               episode: int | str | None = None,
               prompt_summary: str = "", application: str = "", requested_by: str | None = None,
-              cost: float = 0.0, timeout: int = 120) -> str | None:
+              cost: float = 0.0, timeout: int = 300) -> str | None:
     """완성된 영상(URL)을 <프로젝트>/outputs/videos/<화>/에 로컬 mp4로 다운로드해 저장 +
     (가능하면) visual.db generations에 기록. 반환: 저장된 로컬 절대경로(str).
     프로젝트를 못 찾거나 다운로드 실패하면 None.

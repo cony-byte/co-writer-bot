@@ -35,12 +35,15 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import math
 import time
 import urllib.error
 import urllib.request
 
 from . import config
+
+log = logging.getLogger("bot")
 
 _VIDEOS_URL = "https://openrouter.ai/api/v1/videos"
 APPLICATION = config.OPENROUTER_VIDEO_MODEL  # higgsfield_video와 인터페이스 맞춤(app.py 무손실 교체용)
@@ -157,7 +160,20 @@ def generate(png: bytes, motion_prompt: str, *, duration: int | None = None,
 
     waited = 0
     while waited < config.OPENROUTER_VIDEO_TIMEOUT:
-        st = _req("GET", polling_url, None, timeout=30)
+        # ★2026-07-21: 폴링 GET 하나가 소켓 read 타임아웃(예: 서버가 30초 넘게 응답 안 줌)에
+        # 걸리면 예외가 그대로 올라가 전체 영상화가 "응답 시간 초과"로 죽었다 — 실제 영상 생성
+        # 작업 자체(OPENROUTER_VIDEO_TIMEOUT 전체 예산, 기본 900초)는 아직 안 끝났는데 그중
+        # 폴링 요청 1번이 느렸을 뿐인 경우까지 통째로 실패 처리하는 건 과함. 개별 폴링 타임아웃을
+        # 60초로 늘리고, 그래도 타임아웃/일시적 네트워크 오류가 나면 예외를 죽이지 않고 그
+        # 자리에서 잠깐 쉬었다가 전체 예산 안에서 계속 폴링한다(진짜 실패는 status=failed 등
+        # 명시적 응답으로만 판단).
+        try:
+            st = _req("GET", polling_url, None, timeout=60)
+        except Exception as exc:
+            log.warning("영상 폴링 요청 1회 실패(무시하고 계속 폴링): %s", exc)
+            time.sleep(config.OPENROUTER_VIDEO_POLL_INTERVAL)
+            waited += config.OPENROUTER_VIDEO_POLL_INTERVAL
+            continue
         status = st.get("status")
         if on_queue_update:
             on_queue_update(status)
