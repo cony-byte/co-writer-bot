@@ -3467,8 +3467,17 @@ _DIALOGUE_HAS_QUOTE_RE = re.compile(
     r"|[「『][^」』]{2,}[」』]"
 )
 
+# ★2026-07-21: 따옴표 없는 대사·나레이션까지 발화로 인정해 오디오를 켠다(사용자 지시 "대사 켜").
+# 기존엔 따옴표만 봐서 나레이션(씬1 이영 나레이션 등)·따옴표 없는 대사 컷이 음소거됐다. 발화가
+# 명시된 컷은 오디오를 켜고, 진짜 발화 표식이 하나도 없는 컷만 무음(seedance OUTPUT 오디오
+# 오탐으로 생성이 실패하던 무발화 컷 보호는 유지).
+_DIALOGUE_MARKER_RE = re.compile(
+    r"나레이션|내레이션|나레이숀|보이스\s*오버|방백|독백|읊조|중얼|외치|말한다|말하며|"
+    r"대사|\bNa\b|\(Na\)|V\.?O\.?|voice[\s-]*over|narrat", re.I)
+
 def _cut_has_dialogue(cut: dict) -> bool:
-    return bool(_DIALOGUE_HAS_QUOTE_RE.search(cut.get("caption") or ""))
+    cap = cut.get("caption") or ""
+    return bool(_DIALOGUE_HAS_QUOTE_RE.search(cap) or _DIALOGUE_MARKER_RE.search(cap))
 
 def _do_stills(channel, thread_ts, rest, feedback=None, ref_data_url=None):
     """[스틸컷] <작품> 씬N — 한 씬만 스틸컷 생성. ★2026-07-16: "씬2,3,4"/"씬2-4"처럼

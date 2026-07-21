@@ -141,7 +141,7 @@ OPENROUTER_IMAGE_MODERATION = os.environ.get("OPENROUTER_IMAGE_MODERATION", "low
 # ── OpenRouter 영상(image-to-video, /api/v1/videos) — 2026-07-13 신규 ──
 # OpenRouter가 seedance 2.0을 계정 활성화 없이 그냥 노출(Higgsfield는 계정별 활성화 필요해 막혀있었음).
 # 모델: bytedance/seedance-2.0(정속) / bytedance/seedance-2.0-fast(저가·속도 우선).
-OPENROUTER_VIDEO_MODEL = os.environ.get("OPENROUTER_VIDEO_MODEL", "bytedance/seedance-2.0-fast")
+OPENROUTER_VIDEO_MODEL = os.environ.get("OPENROUTER_VIDEO_MODEL", "bytedance/seedance-2.0")
 OPENROUTER_VIDEO_POLL_INTERVAL = int(os.environ.get("OPENROUTER_VIDEO_POLL_INTERVAL", "10"))
 OPENROUTER_VIDEO_TIMEOUT = int(os.environ.get("OPENROUTER_VIDEO_TIMEOUT", "900"))
 # seedance 내장 generate_audio(대사·효과음 자동생성) 스위치.
