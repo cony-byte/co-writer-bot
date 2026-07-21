@@ -407,20 +407,34 @@ _COMMAND_TOKENS = {
 }
 
 
+def _canonical_for_token(token: str, ctx: dict) -> str | None:
+    """등록 작품명/별칭 토큰을 정식 작품명으로 해석한다(별칭이면 정식명으로 치환)."""
+    registry = ctx.get("registered_works") or {}
+    if not isinstance(registry, dict):
+        return None
+    if token in registry:
+        return token
+    for work, aliases in registry.items():
+        if token in (aliases or []):
+            return str(work)
+    return None
+
+
 def _explicit_work_token(text: str, ctx: dict) -> str | None:
-    """현재 문장의 <작품명> 또는 [작품명]을 등록 작품/별칭 기준으로 찾는다.
+    """현재 문장의 <작품명> 또는 [작품명]을 등록 작품/별칭 기준으로 찾아 정식명으로 반환한다.
 
     대괄호는 [피드백], [이미지] 같은 정식 명령과 충돌하므로 등록된 작품명/별칭과
     정확히 일치하는 경우에만 작품 토큰으로 인정한다. 꺾쇠도 같은 기준을 적용해
-    <하루>처럼 미등록 캐릭터 이름을 작품명으로 오인하지 않는다.
+    <하루>처럼 미등록 캐릭터 이름을 작품명으로 오인하지 않는다. 별칭으로 매칭된
+    경우에도 정식명으로 치환해 반환한다(★2026-07-21 사고2: 별칭 그대로 반환되던 문제).
     """
-    registered = _registered_work_names(ctx)
     for match in re.finditer(r"<([^<>]+)>|\[([^\[\]]+)\]", text):
         token = (match.group(1) or match.group(2) or "").strip()
         if not token or token in _COMMAND_TOKENS:
             continue
-        if token in registered:
-            return token
+        canonical = _canonical_for_token(token, ctx)
+        if canonical:
+            return canonical
     return None
 
 
@@ -640,7 +654,11 @@ def _apply_safety_normalization(r: Route, query_text: str, ctx: dict) -> Route:
         r.episodes = None
         r.scene = None
         r.cuts = None
-        r.steps = None
+        # 복합 요청(등록 + 다른 작업 순차 실행)은 LLM이 이미 여러 단계로 분해한
+        # steps를 그대로 보존한다. 단일 등록 오분류 보정일 때만 초기화한다
+        # (★2026-07-21 사고3: 여기서 무조건 None으로 밀어써서 순차 스텝이 사라짐).
+        if not (r.steps and len(r.steps) >= 2):
+            r.steps = None
         r.needs_clarification = False
 
         # LLM이 이미 올바른 구조를 뽑았다면 그대로 사용하고, 비어 있을 때만
