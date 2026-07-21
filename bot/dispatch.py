@@ -408,6 +408,14 @@ def _handle_dispatch(event: dict) -> None:
         _dispatch_bracket_command(channel, thread_ts, query, event, m, in_thread)
         return
 
+    # ★2026-07-21 "그만"/"멈춰"/"취소" 결정적 취소 게이트(양 백엔드 공통, 사용자 요청 복원).
+    # 실행 중 작업 취소는 LLM 판단에 맡기지 않고 라우터 앞에서 무조건 처리한다 — 라우터가
+    # LLM 선행으로 바뀌며 이 하드 게이트가 안 걸리던 걸 되살린다.
+    if sb._STOP_RE.match(query):
+        log.info("route=deterministic:stop")
+        sb._do_text_stop(channel, thread_ts)
+        return
+
     # 레거시 pending matcher는 "응/네/그걸로" 같은 자연어를 실행 승인으로 소비한다.
     # Native router가 켜진 동안에는 절대 호출하지 않고, 정확한 pending_id가 담긴 Slack
     # action payload만 tool_router_slack이 소비한다. 킬스위치 롤백 때만 예전 동작을 보존한다.

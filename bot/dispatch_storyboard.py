@@ -793,10 +793,23 @@ def _act_stillcut_scene_pick(ack, body):
     _disable_buttons(body, f"✅ 씬{num} 선택함, 생성 중…")
     _do_stills(p["channel"], p["thread_ts"], f"{p['rest']} 씬{num}".strip())
 
+def _do_text_stop(channel, thread_ts) -> bool:
+    """"그만"/"멈춰"/"취소" 텍스트 취소의 단일 실행부(★2026-07-21 복원 — 라우터가 LLM 선행으로
+    바뀌며 이 결정적 취소가 안 걸리게 됐던 걸, 라우터 앞 게이트에서 무조건 부르도록 되살림).
+    [🛑 중단] 버튼과 완전히 동일한 절차: _CANCEL 등록 + 병렬 job 취소 + ledger/interrupted 정리."""
+    _CANCEL.add(thread_ts)
+    got = generator.cancel_prefix(thread_ts)
+    job_ledger.finish_by_thread(thread_ts)
+    interrupted_state.clear(thread_ts)
+    _reply(channel, thread_ts,
+           "🛑 중단 요청했어요…" if got else
+           "🛑 중단 요청했어요 (이미지 생성 중이면 진행 중인 컷까지만 끝내고 멈춰요).")
+    return True
+
+
 @app.action("autopilot_stop")
 def _act_autopilot_stop(ack, body):
-    """[🛑 중단] 버튼 — _STOP_RE("멈춰"/"중단"/"취소" 등) 텍스트 핸들러와 동일한 취소 절차를
-    그대로 수행한다(_CANCEL 등록 + 병렬 job_key 전체 취소 + job_ledger/interrupted_state 정리)."""
+    """[🛑 중단] 버튼 — _STOP_RE 텍스트 취소(_do_text_stop)와 완전히 동일한 절차."""
     ack()
     ch, tts = _action_ctx(body)
     _CANCEL.add(tts)
