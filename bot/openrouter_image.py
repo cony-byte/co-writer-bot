@@ -86,6 +86,12 @@ def tool_chat(system: str | list[dict], user: str, tools: list[dict], *,
         "tools": tools,
         "tool_choice": "required",
         "parallel_tool_calls": True,
+        # ★2026-07-21: 실측 사고 — "등록 안 된 인물/의상 있어?" 질문에 온도 기본값(≈1.0)에서
+        # 같은 스레드·같은 질문을 다시 던져도 매번 답이 달랐다(맞을 때도, context.registered_
+        # elements를 무시하고 예전 오답을 그대로 재현할 때도 있었음). 이건 창작 다양성이 필요한
+        # 호출이 아니라 분류/비교 판단이라 temperature=0으로 고정해 같은 입력엔 같은(더 일관된)
+        # 답이 나오게 한다.
+        "temperature": 0,
     }
     req = urllib.request.Request(
         _CHAT_URL, data=json.dumps(payload).encode("utf-8"),
