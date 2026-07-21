@@ -179,6 +179,60 @@ def list_images(page_id: str, token: str | None = None) -> list[dict]:
     return out
 
 
+def find_storyboard_images_for_episode(page_id: str, episode: int, token: str | None = None) -> list[dict]:
+    """'{episode}화' 섹션 안의 '스토리보드' 토글에 든 이미지들을 찾는다(2026-07-21, "노션에
+    첨부해둔 스토리보드 이미지 보고 구도 그대로 해" 요청 대응). list_images()의 평탄화 + 캡션에
+    'N화' 텍스트가 있길 바라는 방식은 실제 페이지 구조와 안 맞았다 — 화 구분은 이미지 자체의
+    캡션이 아니라 "어느 헤딩/토글 밑에 중첩돼 있는가"라는 문서 구조로 되어 있어서(예: '1화'
+    헤딩 아래 '스토리보드' 토글 안에 그 화의 이미지들이 들어있고, '2화' 아래엔 다른 이미지들이
+    있는 식), find_conti_toggle_for_episode/find_authored_conti_for_episode가 대본/콘티에
+    쓰는 것과 같은 화-섹션 경계 탐색(_find_episode_container/_episode_section_bounds)을
+    그대로 재사용해 이미지 버전을 만들었다.
+
+    탐색 순서(실패 시 다음 단계로 폴백, 매 단계 log.warning으로 어느 단계였는지 남김):
+    ① 그 화 섹션 안의 '스토리보드' 토글 안의 이미지 (정상 경로)
+    ② 토글이 없거나 이미지가 없으면 → 그 화 섹션 전체(안의 다른 토글 포함) 안의 이미지
+    ③ 그 화 섹션 자체를 못 찾으면(또는 ②도 이미지 없으면) → 페이지 전체의 이미지(list_images와 동일,
+       최후의 수단 — 여러 화가 있는 페이지에서 엉뚱한 화 이미지를 줄 수 있어 반드시 log.warning."""
+    token = token or config.NOTION_TOKEN
+    if not token:
+        raise RuntimeError("NOTION_TOKEN 미설정")
+
+    def _block_text(b: dict) -> str:
+        t = b.get("type", "")
+        return _rt((b.get(t) or {}).get("rich_text")) if t else ""
+
+    sb_re = re.compile(r"스토리보드")
+    found = _find_episode_container(page_id, token, episode)
+    if found is None:
+        log.warning("스토리보드 이미지: %s화 섹션을 페이지에서 못 찾음 → 페이지 전체 폴백", episode)
+        return list_images(page_id, token)
+
+    container_id, children, ep_start, ep_end = found
+    section = children[ep_start + 1:ep_end]
+
+    toggle = next((b for b in section
+                   if b.get("type") == "toggle" and sb_re.search(_block_text(b))), None)
+    if toggle is not None:
+        imgs: list[dict] = []
+        if toggle.get("has_children"):
+            _walk_images(_children(toggle["id"], token), token, imgs)
+        if imgs:
+            return imgs
+        log.warning("스토리보드 이미지: %s화 '스토리보드' 토글은 찾았지만 이미지가 없음 "
+                    "→ 화 섹션 전체 폴백", episode)
+    else:
+        log.warning("스토리보드 이미지: %s화 섹션에 '스토리보드' 토글이 없음 → 화 섹션 전체 폴백",
+                    episode)
+
+    section_imgs: list[dict] = []
+    _walk_images(section, token, section_imgs)
+    if section_imgs:
+        return section_imgs
+    log.warning("스토리보드 이미지: %s화 섹션 전체에도 이미지가 없음 → 페이지 전체 폴백", episode)
+    return list_images(page_id, token)
+
+
 def download_file(url: str, timeout: int = 60) -> bytes:
     """file/pdf 블록의 url 다운로드(원본 bytes)."""
     with urllib.request.urlopen(url, timeout=timeout) as r:

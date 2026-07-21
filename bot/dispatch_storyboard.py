@@ -355,20 +355,19 @@ def _notion_scene_reference_image(work, episode):
     if not pid:
         return None
     try:
-        imgs = notion_sync.list_images(pid)
+        if episode:
+            # 화 헤딩/토글 구조를 따라 그 화의 '스토리보드' 토글 안 이미지만 찾는다(2026-07-21) —
+            # 캡션에 'N화' 텍스트가 있길 바라던 예전 방식은 화 구분이 캡션이 아니라 문서 구조
+            # (어느 헤딩/토글 밑에 중첩됐는가)로 되어 있어 거의 항상 실패했다.
+            imgs = notion_sync.find_storyboard_images_for_episode(pid, episode)
+        else:
+            imgs = notion_sync.list_images(pid)
     except Exception:
         log.exception("노션 이미지 목록조회 실패: work=%s pid=%s", work, pid)
         return None
     if not imgs:
         return None
-    # 화 번호가 이름/캡션에 있으면 그 화 우선(파일첨부 대본과 동일한 우선순위 로직).
-    cands = imgs
-    if episode:
-        exact = [f for f in imgs
-                 if (m := re.search(r"(\d+)\s*화", f["name"])) and int(m.group(1)) == episode]
-        if exact:
-            cands = exact
-    f = cands[0]
+    f = imgs[0]
     try:
         return notion_sync.download_file(f["url"])
     except Exception:
