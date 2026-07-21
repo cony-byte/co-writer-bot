@@ -127,6 +127,18 @@ def _sb(name: str, args: dict, ctx) -> None:
                         if args.get("attachment_id") else None)
         sb._do_stills(channel, thread_ts, rest, feedback=args.get("instruction"),
                       ref_data_url=ref_data_url)
+    elif name == "save_stillcuts":
+        images = _image_attachments_in_order(ctx)
+        if not images:
+            raise ValueError("저장할 첨부 이미지를 찾지 못했습니다")
+        ok = sb._do_save_stills_from_attachments(
+            channel, thread_ts, images,
+            work=args.get("work"), scene_num=args.get("scene"),
+            cut_nums=args.get("cuts"), episode=args.get("episode"),
+            instruction=args.get("instruction"),
+            who=(event.get("user") if event else None))
+        if not ok:
+            raise ValueError("첨부 이미지를 저장하지 못했습니다")
     elif name == "generate_video":
         ok = sb._do_video_from_last_still(channel, thread_ts,
                                           args.get("instruction") or "영상으로 만들어줘",
@@ -243,6 +255,41 @@ def _selected_attachment(args: dict, ctx) -> dict:
     raise ValueError("선택한 첨부 이미지를 현재 메시지에서 찾지 못했어요.")
 
 
+def _image_attachments_in_order(ctx) -> list[tuple[bytes, str]]:
+    """Download every image attached to the *current* Slack event, in upload order.
+
+    save_stillcuts saves N attachments straight to N cuts, so — unlike the single
+    attachment_id tools — it must not rely on the model enumerating each file id
+    (fragile for many images). It reads the real files[] off the validated event and
+    maps them by position. Returns [(png_bytes, mimetype), ...]; skips non-images and
+    files without a private URL.
+    """
+    from . import config
+    out: list[tuple[bytes, str]] = []
+    for file in (ctx.event.get("files") or []):
+        if not str(file.get("mimetype") or "").startswith("image/"):
+            continue
+        url = file.get("url_private_download") or file.get("url_private")
+        if not url:
+            continue
+        request = urllib.request.Request(
+            url, headers={"Authorization": f"Bearer {config.SLACK_BOT_TOKEN}"}
+        )
+        with urllib.request.urlopen(request, timeout=30) as response:
+            data = response.read()
+        if data:
+            out.append((data, str(file.get("mimetype") or "image/png")))
+    return out
+
+
+def _validate_save_stillcuts(args: dict, ctx) -> str | None:
+    images = [f for f in (ctx.event.get("files") or [])
+              if str(f.get("mimetype") or "").startswith("image/")]
+    if not images:
+        return "저장할 이미지를 이 메시지에 첨부해 주세요."
+    return None
+
+
 def _attachment_data_url(args: dict, ctx) -> str:
     """Download only the already-validated current-event Slack image."""
     from . import config
@@ -325,6 +372,7 @@ _USER_LABELS = {
     "rewrite_conti": "상세 콘티 수정하기",
     "generate_storyboard_grid": "스토리보드 이미지 만들기",
     "generate_stillcuts": "스틸컷 만들기·다시 만들기",
+    "save_stillcuts": "첨부 이미지를 스틸컷으로 저장하기",
     "generate_video": "영상 만들기",
     "compile_episode": "회차 영상 합본 만들기",
     "run_autopilot": "제작 단계 이어서 진행하기",
@@ -376,6 +424,7 @@ _storyboard = {
     "rewrite_conti": ("기존 상세 콘티의 지정 범위를 수정한다. '수정/바꿔/손봐/다듬어'라는 원문 자체가 instruction이므로 추가 수정 방향을 묻지 않는다.", HIGH),
     "generate_storyboard_grid": ("상세 콘티를 여러 컷이 배치된 스토리보드 이미지 또는 그리드 이미지로 생성한다. 스틸컷 생성과 다르다.", HIGH),
     "generate_stillcuts": ("현재 스토리보드의 지정 씬·컷 또는 최근 스틸컷을 생성·재생성한다. 현재 메시지의 첨부 스토리보드를 그대로 참고하라는 요청이면 attachment_id를 반드시 포함한다. 활성 스레드에서는 작품·회차가 없어도 호출한다.", HIGH),
+    "save_stillcuts": ("사용자가 첨부한 이미지 자체를 재생성 없이 그대로 그 씬의 스틸컷으로 저장한다. '이 이미지들을 씬N 컷1,2,3으로 저장해줘', '내가 준 그림 그대로 스틸컷으로', '새로 만들지 말고 이대로 저장'처럼 첨부 이미지를 결과물로 굳히라는 요청. 여러 장이면 업로드 순서대로 컷에 매핑한다. 봇이 새로 그리는 generate_stillcuts와 정반대다. 활성 스레드에서는 작품·회차가 없어도 호출한다.", HIGH),
     "generate_video": ("현재 스토리보드나 최근 스틸컷의 지정 씬·컷을 영상으로 생성한다. 활성 스레드에서는 작품·회차가 없어도 호출한다.", HIGH),
     "compile_episode": ("생성된 영상들을 회차 합본으로 만든다.", HIGH),
     "run_autopilot": ("여러 제작 단계를 자동으로 연속 실행한다.", HIGH),
@@ -399,6 +448,8 @@ for _name, (_desc, _risk) in _storyboard.items():
     if _name == "generate_stillcuts":
         _props["attachment_id"] = ATTACHMENT_ID
         _validator = _validate_optional_attachment
+    if _name == "save_stillcuts":
+        _validator = _validate_save_stillcuts
     _add(_name, _desc,
          _props,
          _required,

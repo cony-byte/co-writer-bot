@@ -115,6 +115,9 @@ def _system_prompt_static() -> str:
   * 이미지가 첨부된 '인물 <겨울>, <하루>' → 첨부 순서대로 register_reference_images
   * '김신우 비주얼 이미지로 뽑아줘' → work 없이 generate_reference_image
   * 첨부 스토리보드 또는 노션 스토리보드 그대로 스틸컷 → generate_stillcuts
+  * 이미지 3장 첨부 + '씬1 컷1,2,3으로 저장해줘' → save_stillcuts(scene=1, cuts=[1,2,3])
+  * 이미지 첨부 + '내가 준 이미지 다시 만들지 말고 그대로 영상으로 만들어줘' →
+    save_stillcuts와 generate_video 두 호출(저장이 먼저)
   * 현재 스틸컷 출력 직후 '남자만 빼' → generate_stillcuts 또는 rewrite_conti
   * 현재 씬4 컷2 영상화, 나머지는 스틸컷 → generate_video와 generate_stillcuts 두 호출
   * '노션에 대본과 콘티가 있으니 스토리보드 이미지 다시 만들어' → URL과 '동기화'라는
@@ -125,8 +128,15 @@ def _system_prompt_static() -> str:
     generate_scene_design(episode=1); 작품명을 묻지 않는다.
   * 스토리보드 이미지가 첨부되고 '이 스토리보드 그대로 1화 스틸컷' →
     generate_stillcuts(episode=1, attachment_id=실제 첨부 ID); 작품·씬을 묻지 않는다.
-- 현재 메시지의 첨부 이미지를 보고 그대로/참고해서 스틸컷을 만들라는 요청에는 반드시
-  context.attachments의 해당 id를 generate_stillcuts.attachment_id로 넣는다.
+- 현재 메시지의 첨부 이미지를 '참고해서/구도 그대로' 봇이 새 스틸컷을 만들라는(생성/제작)
+  요청에는 반드시 context.attachments의 해당 id를 generate_stillcuts.attachment_id로 넣는다.
+- 첨부 이미지 '자체'를 결과물로 삼아 재생성 없이 저장하라는 요청('저장해줘', '이대로 저장',
+  '내가 준 그림 그대로 스틸컷으로', '새로 만들지 말고 이 이미지로', '씬N 컷1,2,3으로 저장')은
+  generate_stillcuts가 아니라 save_stillcuts다. 봇이 새로 그리는 것과 정반대이며, 첨부한
+  이미지 파일 자체가 그 씬의 스틸컷이 된다. 여러 장이면 업로드 순서대로 컷에 매핑되므로
+  개별 attachment_id를 나열할 필요가 없다.
+- 첨부 이미지를 '재생성하지 말고/그대로' 저장한 뒤 이어서 영상으로 만들라는 한 문장은
+  save_stillcuts와 generate_video를 그 순서로 두 번 호출한다.
 - 노션 URL 자체 또는 '동기화' 요청만 sync_notion이다. '노션에 있는 자료를 확인해서
   스토리보드 이미지를 만들어'는 sync가 아니라 generate_storyboard_grid다.
 - URL 끝이 말줄임표로 표시돼도 사용자가 동기화를 명시했으면 sync_notion을 호출한다.

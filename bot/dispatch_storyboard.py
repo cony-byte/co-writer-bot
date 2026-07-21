@@ -4872,6 +4872,79 @@ def _do_video_from_last_still(channel, thread_ts, query, work=None) -> bool:
                                             "scene_seconds": None})
     return True
 
+def _do_save_stills_from_attachments(channel, thread_ts, images, *, work=None,
+                                     scene_num=None, cut_nums=None, episode=None,
+                                     instruction=None, who=None) -> bool:
+    """★2026-07-21: 첨부한 이미지를 재생성 없이 '그대로' 그 작품 씬의 스틸컷(cut{n}.png)으로
+    확정 저장한다. 봇이 새로 그리지 않고 사용자가 준 이미지 자체를 결과물로 굳히는 유일한 경로 —
+    이후 "이 이미지 그대로 영상으로 만들어줘"는 기존 영상화 경로(_do_video_from_last_still →
+    load_latest_cuts → _generate_video_for_cut)가 이 저장분을 그대로 집어 쓴다(별도 영상 경로
+    불필요). images는 (png_bytes, mimetype)를 업로드 순서대로 받고, cut_nums가 있으면 그 순서에
+    1:1로, 없으면 1..N으로 매핑한다(사용자 확정 규칙 — 업로드 순서). 저장 뒤엔 확정 스틸컷과
+    똑같이 영상화 컷 선택 버튼을 붙여 바로 영상으로 이어갈 수 있게 한다."""
+    if not images:
+        _reply(channel, thread_ts, "저장할 이미지를 찾지 못했어요 — 저장할 그림을 메시지에 첨부해 주세요.")
+        return True
+    # 작품 확정: 명시가 없으면 스레드 문맥에서 찾는다(_do_video_from_last_still과 동일 규칙).
+    if not work:
+        info = still_state.get_confirmed(thread_ts) or still_state.get_last(thread_ts)
+        if info:
+            work = info["work"]
+        else:
+            work, _, _, _ = _resolve_work_bible(channel, thread_ts, instruction or "")
+    if not work:
+        _reply(channel, thread_ts,
+              "⚠️ 어느 작품인지 못 찾았어요 — `<작품명>`을 붙여서 다시 말해주세요. "
+              "예: `<겨울 하루> 씬1 컷1,2,3으로 저장해줘`(+ 이미지 첨부).")
+        return True
+    if scene_num is None:
+        _reply(channel, thread_ts,
+              f"⚠️ 어느 씬으로 저장할지 알려주세요 — 예: `<{work}> 씬1 컷1,2,3으로 저장해줘`.")
+        return True
+    # 회차: 명시가 있으면 기록해둬야 이후 영상화가 같은 화(outputs/stills/<화>/<씬>/)에서 컷을 찾는다.
+    if episode is not None:
+        conti_state.set_episode(thread_ts, work, int(episode))
+    else:
+        episode = (conti_state.get_episode(thread_ts) or {}).get("episode")
+
+    # 컷 번호 매핑 — 업로드 순서대로. cut_nums가 있으면 1:1, 없으면 1..N. 짧은 쪽에 맞추고
+    # 남는 쪽은 저장하지 않고 그 사실을 알린다(조용히 버리면 "3장 줬는데 2개만 저장됨"이 안 보임).
+    nums = [int(n) for n in (cut_nums or [])] or list(range(1, len(images) + 1))
+    pairs = list(zip(images, nums))
+    dropped_imgs = len(images) - len(pairs)
+    dropped_nums = len(nums) - len(pairs)
+
+    cuts = [{"n": n, "png": png,
+             "caption": (instruction or "").strip() or f"컷{n} (첨부 저장)",
+             "prompt": "첨부 이미지 직접 저장(재생성 없음)",
+             "characters": [], "places": [], "props": [], "scene_text": ""}
+            for (png, _mime), n in pairs]
+
+    vp_store.ensure_project(work)
+    rel = vp_store.save_still(work, scene_num=scene_num,
+                             prompt_summary="첨부 이미지 직접 저장(재생성 없음)",
+                             png=b"", requested_by=who, cuts=cuts, episode=episode)
+    if not rel:
+        _reply(channel, thread_ts, "⚠️ 저장에 실패했어요 (작품 프로젝트 폴더를 못 찾았어요).")
+        return True
+
+    label = ",".join(str(c["n"]) for c in cuts)
+    ep_txt = f"{episode}화 " if episode else ""
+    msg = (f"✅ 첨부 이미지 {len(cuts)}장을 재생성 없이 그대로 <{work}> {ep_txt}씬{scene_num} "
+           f"컷{label}으로 저장했어요 — `{rel}`.")
+    if dropped_imgs > 0:
+        msg += f"\n⚠️ 컷 번호({len(nums)}개)보다 첨부 이미지가 많아 뒤 {dropped_imgs}장은 저장하지 않았어요."
+    if dropped_nums > 0:
+        msg += f"\n⚠️ 첨부 이미지({len(images)}장)보다 컷 번호가 많아 뒤 {dropped_nums}개는 건너뛰었어요."
+    _reply(channel, thread_ts, msg)
+
+    rest = f"<{work}> {ep_txt}씬{scene_num} 컷{label}".strip()
+    still_state.set_confirmed(thread_ts, work, scene_num, rest)
+    _post_video_button(channel, thread_ts,
+                       {"work": work, "title": f"스틸컷 씬{scene_num} (첨부 저장)",
+                        "cuts": cuts, "scene_seconds": None})
+    return True
+
 # renamed from _do_ref (name collision with the other bot's function of the same name, different behavior)
 def sb_do_ref(channel, thread_ts, rest, event):
     """[참조] <작품> [인물|장소|소품] 이름[,이름2] + 이미지 첨부 → 이름/타입 확정 카드를 띄우고,

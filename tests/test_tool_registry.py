@@ -249,6 +249,79 @@ def test_internal_terms_are_rewritten_before_user_output():
     assert "스틸컷" in text and "첨부 이미지" in text
 
 
+def test_save_stillcuts_requires_an_image_attachment():
+    spec = tool_registry.get("save_stillcuts")
+    assert spec is not None and spec.risk == tool_registry.HIGH
+    # no files at all → guided error
+    assert tool_registry.validate_call(spec, {"scene": 1, "cuts": [1, 2, 3]}, _ctx())
+    # a non-image file present but no image → still an error
+    error = tool_registry.validate_call(
+        spec, {"scene": 1}, _ctx([{"id": "F1", "mimetype": "text/plain"}])
+    )
+    assert error and "첨부" in error
+    # one real image → passes validation
+    assert tool_registry.validate_call(
+        spec, {"scene": 1, "cuts": [1]},
+        _ctx([{"id": "F1", "mimetype": "image/png"}]),
+    ) is None
+
+
+def test_save_stillcuts_executor_downloads_all_images_in_upload_order():
+    captured = {}
+    fake_sb = types.ModuleType("bot.dispatch_storyboard")
+
+    def do_save(channel, thread_ts, images, *, work=None, scene_num=None,
+                cut_nums=None, episode=None, instruction=None, who=None):
+        captured.update(channel=channel, thread_ts=thread_ts, images=images,
+                        work=work, scene_num=scene_num, cut_nums=cut_nums,
+                        episode=episode, instruction=instruction, who=who)
+        return True
+
+    fake_sb._do_save_stills_from_attachments = do_save
+    ctx = SimpleNamespace(
+        channel="C", thread_ts="T",
+        event={"user": "U1", "files": [
+            {"id": "A", "mimetype": "image/png", "url_private": "https://s.test/A"},
+            {"id": "B", "mimetype": "text/plain", "url_private": "https://s.test/B"},
+            {"id": "C", "mimetype": "image/jpeg", "url_private_download": "https://s.test/C"},
+        ]},
+    )
+    downloaded_urls = []
+
+    class Response:
+        def __init__(self, data):
+            self._data = data
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+        def read(self):
+            return self._data
+
+    def urlopen(request, timeout):
+        downloaded_urls.append(request.full_url)
+        return Response(b"png-" + request.full_url[-1:].encode())
+
+    with patch.dict(sys.modules, {"bot.dispatch_storyboard": fake_sb}), \
+            patch.object(tool_registry.urllib.request, "urlopen", side_effect=urlopen):
+        tool_registry._sb("save_stillcuts", {
+            "work": "겨울 하루", "episode": 1, "scene": 1, "cuts": [1, 2, 3],
+        }, ctx)
+
+    # only the two images are downloaded, in order; the text file is skipped
+    assert downloaded_urls == ["https://s.test/A", "https://s.test/C"]
+    assert [data for data, _mime in captured["images"]] == [b"png-A", b"png-C"]
+    assert [mime for _data, mime in captured["images"]] == ["image/png", "image/jpeg"]
+    assert captured["scene_num"] == 1
+    assert captured["cut_nums"] == [1, 2, 3]
+    assert captured["work"] == "겨울 하루"
+    assert captured["episode"] == 1
+    assert captured["who"] == "U1"
+
+
 if __name__ == "__main__":
     tests = [value for name, value in globals().copy().items() if name.startswith("test_")]
     for test in tests:
