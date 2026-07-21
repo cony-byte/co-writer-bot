@@ -1,9 +1,5 @@
 """dispatch.py -- the real merged Slack event router (Phase 3 final assembly).
 
-Router V2 (2026-07-21): protocol events stay deterministic; every user-written natural-language
-message goes through nl_router.route() before any natural-language matcher is allowed to run.
-Legacy regex/freeform handlers remain in the file only for the explicit router kill switch.
-
 This is the single place that:
   1. registers the ONE pair of Bolt event handlers (`on_mention`/`on_message`) on the
      shared `app` instance (bot.shared.slack_io.app) -- neither dispatch_cowriter.py nor
@@ -377,14 +373,8 @@ def _safe_fallback(channel, thread_ts, query, event) -> None:
 
 
 def _handle_dispatch(event: dict) -> None:
-    """Merged Router V2.
-
-    Deterministic before the LLM is limited to protocol-level handling only:
-    deduplication, Slack/file metadata normalization, and explicit bracket commands.
-    Every user-authored natural-language sentence -- including stop/help/resume, card replies,
-    image-reference instructions, and questions -- is classified by the LLM first.
-    Execution is still performed only by existing validated handlers in nl_router.execute().
-    """
+    """The merged router body. See module docstring for the confirmed order."""
+    # step 0: dedup guard (storyboard's -- co-writer never had one)
     if sb._is_duplicate_event(event):
         log.info("중복 이벤트 감지 — 건너뜀: channel=%s ts=%s", event.get("channel"), event.get("ts"))
         return
@@ -394,46 +384,72 @@ def _handle_dispatch(event: dict) -> None:
     query = _clean(event.get("text", ""))
     in_thread = bool(event.get("thread_ts")) and event.get("thread_ts") != event.get("ts")
 
-    # File recovery is transport normalization, not intent interpretation.
-    nl_router.recover_event_files(channel, thread_ts, event)
+    # storyboard's episode-reference normalization ("지난 화"/"다음 화" -> "3화" etc.) runs
+    # unconditionally before any routing decision in the real storyboard _handle -- preserved
+    # here so this pre-processing isn't silently lost for storyboard-flavored messages.
+    query, resolved_ep = sb._normalize_episode_refs(query, thread_ts)
+    if resolved_ep is not None:
+        _reply(channel, thread_ts, f"📌 {resolved_ep}화로 이해하고 진행할게요!")
 
-    # Exact bracket syntax is a user-selected protocol and remains deterministic.
+    # step 3: bracket-command parse
     m = cw.CMD_RE.match(query)
     if not m:
-        promoted = _promote_bracket_command(query)
-        if promoted:
-            query = promoted
+        # ★2026-07-20 "[피드백]"을 문장 끝에 쓴 경우("<저연프> 대본 1화 [피드백]") 등 — 맨 앞이
+        # 아니라 명령으로 인식 못 하고 스토리보드 등으로 새던 문제. 알려진 명령 브래킷을 앞으로
+        # 끌어와 다시 인식한다.
+        _promoted = _promote_bracket_command(query)
+        if _promoted:
+            query = _promoted
             m = cw.CMD_RE.match(query)
     if m:
-        log.info("route=protocol:bracket cmd=%r", m.group(1))
+        log.info("route=deterministic:bracket cmd=%r", m.group(1))
         _dispatch_bracket_command(channel, thread_ts, query, event, m, in_thread)
         return
 
-    # All remaining natural language goes to the LLM router. No stop/help/question/image regex
-    # runs before this point. This removes competing interpreters for the same sentence.
+    # pending-state 카드 응답 (레코드 게이트라 안전 — LLM 안 태움)
+    for fn in (sb._maybe_ref_edit_reply, sb._maybe_scene_pick_reply,
+               sb._maybe_stillcut_regen_ask_reply, sb._maybe_element_regen_ask_reply,
+               sb._maybe_planregen_ask_reply):
+        if fn(channel, thread_ts, query):
+            log.info("route=deterministic:pending:%s", fn.__name__)
+            return
+
+    # ★2026-07-21 작업③: "아까 처리 못한 요청 이어서 할까요?" 제안에 대한 긍정 답변 —
+    # 레코드 게이트(제안이 실제로 나가 있었을 때만 발동)라 안전, LLM 안 태움.
+    if nl_router._maybe_resume_offer_reply(channel, thread_ts, query, _handle_dispatch):
+        log.info("route=deterministic:resume_offer")
+        return
+
+    # 파일 메타데이터 복구만 코드로 수행한다. 첨부의 의미(등록/교체/재생성)는
+    # 자연어 라우터가 answer/action/clarify로 판단한다.
+    nl_router.recover_event_files(channel, thread_ts, event, query_text=query)
+
+    # ★ LLM 라우터. 성공 시 execute. execute 내부의 미해결 폴백(work/episode 못 잡음 등)도
+    # 파이프라인 매처가 아니라 _safe_fallback(읽기전용+안전정지)으로 보낸다 → 오발 실행 원천 차단.
     try:
         r = nl_router.route(channel, thread_ts, query, event)
         if r is not None:
-            log.info("route=nl_router_v2:intent=%s conf=%.2f", r.intent, r.confidence)
+            log.info("route=nl_router:intent=%s conf=%.2f", r.intent, r.confidence)
             nl_router.offer_resume_if_pending(channel, thread_ts, event)
             nl_router.execute(
                 channel, thread_ts, event, r,
                 dispatch_bracket=_run_bracket_text,
                 legacy_fallback=lambda ev: _safe_fallback(channel, thread_ts, query, ev),
-                handle_dispatch=_handle_dispatch,
-                combined_help=_COMBINED_HELP,
             )
             return
     except Exception:
-        log.exception("nl_router v2 실행 예외 → 안전 정지")
+        log.exception("nl_router 실행 예외 → 안전 정지")
 
+    # 여기 도달 = route()가 None(킬스위치 / 백엔드 실패·타임아웃 / 미지 intent) 또는 execute 예외.
     if not nl_router.ROUTER_ENABLED:
-        # Explicit rollback only. Legacy code remains callable but is never a normal fallback.
+        # 킬스위치(COWRITER_ROUTER_ENABLED=0): 의도적으로 라우터를 끈 것 → 예전 전체 체인 유지.
         log.info("route=killswitch_legacy")
         _legacy_freeform_chain(channel, thread_ts, query, event, in_thread)
         return
 
+    # 라우터 활성인데 해석 실패 → 안전 정지(변형 실행 안 함, 조회성만 시도 후 1회 안내).
     _safe_fallback(channel, thread_ts, query, event)
+
 
 def _dispatch_bracket_command(channel: str, thread_ts: str, query: str, event: dict,
                                m: "re.Match", in_thread: bool) -> None:
