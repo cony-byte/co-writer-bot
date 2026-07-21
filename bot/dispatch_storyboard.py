@@ -4761,11 +4761,15 @@ def _maybe_video_from_last_still(channel, thread_ts, query) -> bool:
     return _do_video_from_last_still(channel, thread_ts, query)
 
 
-def _do_video_from_last_still(channel, thread_ts, query, work=None) -> bool:
+def _do_video_from_last_still(channel, thread_ts, query, work=None, scene=None, cut_nums=None) -> bool:
     """_maybe_video_from_last_still의 실행부(★2026-07-21 작업2, 트리거 판정과 분리) —
     라우터가 intent=video를 이미 확정했을 때 _VIDEO_FROM_STILL_RE 재심사 없이 바로 진입.
     work을 이미 알면(라우터가 확정) 아래 재탐색을 건너뛴다(★2026-07-21 후속 — 이 함수만
-    work 파라미터가 없어 매번 텍스트/still_state에서 다시 찾고 있었다)."""
+    work 파라미터가 없어 매번 텍스트/still_state에서 다시 찾고 있었다).
+    scene/cut_nums(★2026-07-21 실사용 사고): "씬5, 씬6을 영상화해줘"를 라우터가 씬별 두
+    호출로 나눠도, 이 함수가 instruction 텍스트에서 씬 번호를 다시 파싱하면 두 호출 모두
+    첫 번째 숫자(씬5)만 잡아 씬6 호출까지 "씬5 확정 저장 안 됨" 경고가 두 번 나갔다 —
+    라우터가 이미 확정한 scene/cuts를 파라미터로 받으면 텍스트 재파싱을 건너뛴다."""
     q = query or ""
     # ★확정된(=컷 원본이 실제로 저장된) 걸 우선 참조 — get_last는 확정 여부 상관없이
     # 생성할 때마다 갱신되므로, 그 뒤에 다른 씬을 확정 없이 한 번 더 생성만 해도
@@ -4803,9 +4807,12 @@ def _do_video_from_last_still(channel, thread_ts, query, work=None) -> bool:
     epm = re.search(r"(\d{1,3})\s*[화회]", q)
     if epm:
         conti_state.set_episode(thread_ts, work, int(epm.group(1)))
-    scene_m = _SCENE_NUM_RE.search(q)
-    scene_num = (int(next(g for g in scene_m.groups() if g)) if scene_m
-                else (info.get("scene_num") if info else None))
+    if scene is not None:
+        scene_num = int(scene)   # 라우터가 확정한 씬 — 텍스트 재파싱 안 함(위 docstring 사고 참고)
+    else:
+        scene_m = _SCENE_NUM_RE.search(q)
+        scene_num = (int(next(g for g in scene_m.groups() if g)) if scene_m
+                    else (info.get("scene_num") if info else None))
     # ★2026-07-15: info도 없고(=이 스레드 첫 언급) 씬 번호도 못 뽑았으면 어느 씬인지 알 길이
     # 없다 — 예전엔 여기서 그냥 False를 반환해 안내 없이 legacy_fallback의 범용 캔드
     # 메시지("요청 해석기가 불안정해서...")로 빠졌다(실측 — "스토리보드 이미지를 참고해서
@@ -4838,6 +4845,22 @@ def _do_video_from_last_still(channel, thread_ts, query, work=None) -> bool:
                   "눌러야 컷 파일이 저장되고 영상화할 수 있어요.")
         return True
     title = f"스틸컷 씬{scene_num}" if scene_num else "스틸컷"
+    # ★2026-07-21: 라우터가 확정한 컷 목록 — 텍스트 컷 파싱(범위/콤마/단일)보다 우선.
+    if cut_nums:
+        wanted = {int(n) for n in cut_nums}
+        picked = [c for c in cuts if c["n"] in wanted]
+        if not picked:
+            avail = ", ".join(str(c["n"]) for c in cuts)
+            _reply(channel, thread_ts,
+                   f"컷{','.join(map(str, sorted(wanted)))} 중 이 씬에 있는 컷이 없어요. 있는 컷: {avail}")
+            return True
+        missing = sorted(wanted - {c["n"] for c in picked})
+        if missing:
+            _reply(channel, thread_ts, f"⚠️ 컷{','.join(map(str, missing))}은 이 씬에 없어서 건너뛰어요.")
+        label = ",".join(str(n) for n in sorted(c["n"] for c in picked))
+        _reply(channel, thread_ts, f"🎬 컷{label} ({len(picked)}개) 영상 순차 생성 시작… (컷마다 완료되는 대로 하나씩 올라와요)")
+        _generate_videos_for_cuts(channel, thread_ts, work, title, picked, None)
+        return True
     # ★2026-07-15: "씬1 2~12 영상화"처럼 범위 지정 — 단일 컷 패턴보다 먼저 검사(순서 중요,
     # 안 그러면 "2~12"의 "12"가 "N컷" 패턴에 먼저 걸려 범위가 무시된다).
     range_lohi = _match_video_cut_range(q)

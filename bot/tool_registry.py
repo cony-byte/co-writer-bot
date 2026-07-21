@@ -169,9 +169,14 @@ def _sb(name: str, args: dict, ctx) -> None:
     elif name == "explain_stage_skip":
         sb._do_stage_skip_help(channel, thread_ts)
     elif name == "generate_video":
+        # ★2026-07-21 실사용 사고: "씬5, 씬6 영상화"를 모델이 씬별 두 호출로 나눴는데 여기서
+        # scene/cuts 인자를 버리고 instruction 원문만 넘겨서, 실행부가 텍스트에서 첫 씬(씬5)만
+        # 두 번 파싱 — 씬6 호출까지 "씬5 확정 저장 안 됨" 경고가 중복으로 나갔다.
         ok = sb._do_video_from_last_still(channel, thread_ts,
                                           args.get("instruction") or "영상으로 만들어줘",
-                                          work=args.get("work"))
+                                          work=args.get("work"),
+                                          scene=args.get("scene"),
+                                          cut_nums=args.get("cuts"))
         if not ok:
             raise ValueError("영상화할 스틸컷을 찾지 못했습니다")
     elif name == "compile_episode":

@@ -2,6 +2,22 @@
   "_doc": "tool_router 회귀 코퍼스 — 실사용에서 실제로 오라우팅이 났던 발화들. python -m tests.test_tool_router --live 로 실행. expected 키: type/type_oneof(answer|clarification|tool_call|tool_calls), tool/tool_oneof/forbid_tool(첫 실행 호출 기준), forbid_tools_anywhere(모든 호출에서 금지), calls_min, args.work/episode/scene/cuts/kind 정확일치, args.attachment_id_required(true면 비어있지 않아야), args.instruction_contains",
   "cases": [
     {
+      "id": "multi-scene-video",
+      "text": "저연프 씬5, 씬6을 영상화해줘",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "sb_stage": 2,
+        "registered_works": {"저는 연프 출연진이 아닌데요 !": ["저연프"]}
+      },
+      "expected": {
+        "type_oneof": ["tool_call", "tool_calls"],
+        "calls_min": 2,
+        "tools_include": ["generate_video"]
+      },
+      "incident": "2026-07-21 실사용(tia): '씬5, 씬6 영상화'가 두 호출로 나뉘어야 하는데, 실행부가 instruction 텍스트에서 씬 번호를 재파싱해 두 호출 모두 씬5만 잡음 — scene 파라미터를 executor가 그대로 넘기도록 수정"
+    },
+    {
       "id": "attached-storyboard-same-stillcut",
       "text": "이 스토리보드 그대로 1화 스틸컷을 만들고 싶어",
       "ctx": {
