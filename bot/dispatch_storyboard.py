@@ -4172,9 +4172,15 @@ def _do_typed_ref(channel, thread_ts, event, work=None, etype=None, names=None) 
     띄운다."""
     imgs = _image_files(event)
     if not imgs:
-        return False
+        # ★2026-07-21 후속: "조용히 멈추지 말고 무조건 안내" — 등록 의도는 확인됐는데
+        # 첨부 이미지가 안 실려서 실행을 못 하는 상황을 그냥 넘기지 않는다.
+        _reply(channel, thread_ts,
+              "⚠️ 첨부 이미지가 안 보여요 — 같은 이름/문구와 함께 이미지를 다시 첨부해서 보내주세요.")
+        return True
     if not names:
-        return False
+        _reply(channel, thread_ts,
+              "⚠️ 등록할 이름을 못 찾았어요 — 예: `인물 김신우, 이영` + 이미지 첨부처럼 이름을 같이 말해주세요.")
+        return True
     if not work:
         joined = "\n".join(mm["content"] for mm in _thread_messages(channel, thread_ts))
         work = _work_from_thread(joined, thread_ts)
@@ -4528,9 +4534,11 @@ def _maybe_video_from_last_still(channel, thread_ts, query) -> bool:
     return _do_video_from_last_still(channel, thread_ts, query)
 
 
-def _do_video_from_last_still(channel, thread_ts, query) -> bool:
+def _do_video_from_last_still(channel, thread_ts, query, work=None) -> bool:
     """_maybe_video_from_last_still의 실행부(★2026-07-21 작업2, 트리거 판정과 분리) —
-    라우터가 intent=video를 이미 확정했을 때 _VIDEO_FROM_STILL_RE 재심사 없이 바로 진입."""
+    라우터가 intent=video를 이미 확정했을 때 _VIDEO_FROM_STILL_RE 재심사 없이 바로 진입.
+    work을 이미 알면(라우터가 확정) 아래 재탐색을 건너뛴다(★2026-07-21 후속 — 이 함수만
+    work 파라미터가 없어 매번 텍스트/still_state에서 다시 찾고 있었다)."""
     q = query or ""
     # ★확정된(=컷 원본이 실제로 저장된) 걸 우선 참조 — get_last는 확정 여부 상관없이
     # 생성할 때마다 갱신되므로, 그 뒤에 다른 씬을 확정 없이 한 번 더 생성만 해도
@@ -4539,22 +4547,27 @@ def _do_video_from_last_still(channel, thread_ts, query) -> bool:
     # ★"<작품명> 씬2 2컷으로 영상을 만들어줘"처럼 작품명을 명시하면 그걸 우선 쓴다(2026-07-14).
     # 이 스레드에서 이미 여러 작품을 다뤘으면 저장된 last/confirmed가 다른 작품을 가리킬 수
     # 있어서, thread 상태만 믿으면 방금 만든 작품인데도 "컷별 원본을 못 찾았어요"로 잘못 샜다.
-    wm = SUB_RE.match(q)
-    if wm and not _looks_like_mention(wm.group(1).strip()):
-        work = works.resolve(wm.group(1).strip()) or wm.group(1).strip()
-    elif info:
-        work = info["work"]
-    else:
-        # ★2026-07-15 "슬랙에서 새 메세지인데 씬1 영상화" — still_state는 thread_ts로만 찾아서,
-        # 이 스레드에서 직접 스틸컷을 만든 적이 한 번도 없으면(예: 자동주행이 다른 스레드/세션
-        # 에서 만들어 디스크에만 남은 경우) info가 항상 None이라 여기서 그냥 False를 반환해왔다
-        # — 그러면 "씬1 영상화"가 스토리보드 자동체인으로 새서 콘티를 다시 만들어버리는 사고로
-        # 이어진다("영상화"라는 명확한 단어가 있는데도). 스레드 문맥(_resolve_work_bible이 이미
-        # 하는 작품명 추론)으로라도 작품을 찾아본다 — 그래도 못 찾으면 정말 단서가 없는 것이므로
-        # 기존처럼 다른 핸들러로 넘긴다.
-        work, _, _, _ = _resolve_work_bible(channel, thread_ts, q)
     if not work:
-        return False
+        wm = SUB_RE.match(q)
+        if wm and not _looks_like_mention(wm.group(1).strip()):
+            work = works.resolve(wm.group(1).strip()) or wm.group(1).strip()
+        elif info:
+            work = info["work"]
+        else:
+            # ★2026-07-15 "슬랙에서 새 메세지인데 씬1 영상화" — still_state는 thread_ts로만 찾아서,
+            # 이 스레드에서 직접 스틸컷을 만든 적이 한 번도 없으면(예: 자동주행이 다른 스레드/세션
+            # 에서 만들어 디스크에만 남은 경우) info가 항상 None이라 여기서 그냥 False를 반환해왔다
+            # — 그러면 "씬1 영상화"가 스토리보드 자동체인으로 새서 콘티를 다시 만들어버리는 사고로
+            # 이어진다("영상화"라는 명확한 단어가 있는데도). 스레드 문맥(_resolve_work_bible이 이미
+            # 하는 작품명 추론)으로라도 작품을 찾아본다 — 그래도 못 찾으면 정말 단서가 없는 것이므로
+            # 기존처럼 다른 핸들러로 넘긴다.
+            work, _, _, _ = _resolve_work_bible(channel, thread_ts, q)
+    if not work:
+        # ★2026-07-21 후속: "조용히 멈추지 말고 무조건 안내" — work를 못 찾으면 명시적으로 알린다.
+        _reply(channel, thread_ts,
+              "⚠️ 어느 작품인지 못 찾았어요 — `<작품명>`을 붙여서 다시 말해주세요. "
+              "예: `<겨울 하루> 씬2 영상 만들어줘`.")
+        return True
     # ★2026-07-14: 723273e는 [스틸컷] 명령(_do_stills)만 고쳤는데, "영상으로 만들어줘" 자연어
     # 경로(여기)는 애초에 화 번호를 전혀 안 봐서 conti_state에 기록될 일이 없었다 — 그래서
     # "3화 씬1 1컷으로 영상을 만들어줘"처럼 명시해도 나중에 vp_store.save_video가
@@ -4567,9 +4580,16 @@ def _do_video_from_last_still(channel, thread_ts, query) -> bool:
     scene_num = (int(next(g for g in scene_m.groups() if g)) if scene_m
                 else (info.get("scene_num") if info else None))
     # ★2026-07-15: info도 없고(=이 스레드 첫 언급) 씬 번호도 못 뽑았으면 어느 씬인지 알 길이
-    # 없다 — 이 경우만 다른 핸들러로 넘긴다(work는 있어도 씬 특정이 안 되면 무의미).
+    # 없다 — 예전엔 여기서 그냥 False를 반환해 안내 없이 legacy_fallback의 범용 캔드
+    # 메시지("요청 해석기가 불안정해서...")로 빠졌다(실측 — "스토리보드 이미지를 참고해서
+    # 영상 만들어줘"처럼 그리드 전체를 가리키기만 하고 씬/컷을 안 짚은 요청). 씬/컷을 못
+    # 짚어 실행을 못 한다는 걸 여기서 바로, 구체적으로 안내한다(★2026-07-21).
     if scene_num is None and not info:
-        return False
+        _reply(channel, thread_ts,
+              "⚠️ 어느 씬(컷)을 영상화할지 특정이 안 됐어요 — `[스틸컷] <작품> 씬N`으로 먼저 "
+              "그 씬을 컷별로 확정 저장한 뒤, \"씬N 영상 만들어줘\"처럼 씬 번호를 알려주세요. "
+              "특정 컷만 원하면 \"씬N 3컷\"/\"씬N 2~5컷\"처럼 컷 번호도 같이 말해주면 그 컷만 만들어요.")
+        return True
     # ★2026-07-15: save_video와 동일한 패턴으로 화 번호를 실어 outputs/stills/<화>/<씬>/ 경로를 찾는다.
     episode = (conti_state.get_episode(thread_ts) or {}).get("episode")
     cuts = vp_store.load_latest_cuts(work, scene_num, episode=episode)
@@ -5229,7 +5249,13 @@ def _do_conti_rewrite(channel, thread_ts, query, event, work=None, episode=None,
     한 번만 명시적으로 붙인다(우연히 살아남은 원문 텍스트에 의존하지 않음)."""
     text, _blocked = _files_text(event)
     if text:
-        return False   # 첨부 있으면 _maybe_conti_final이 처리
+        # 첨부 있으면 원래 _maybe_conti_final이 처리하는 케이스지만, 라우터 경로에선
+        # 그쪽으로 안 이어질 수 있다 — 안내 없이 조용히 넘기지 말고 명시적으로 알린다
+        # (★2026-07-21 후속: "조용히 멈추지 말고 무조건 사용자에게 안내" 원칙 적용).
+        _reply(channel, thread_ts,
+              "⚠️ 이미지가 첨부돼있어서 콘티 수정이 아니라 다른 처리(예: 완성 콘티 확정)로 "
+              "보일 수 있어요 — 콘티 수정만 원하면 이미지 없이 같은 지시를 다시 보내주세요.")
+        return True
     q = query or ""
     rest_q = q
     if not work:
@@ -5240,7 +5266,10 @@ def _do_conti_rewrite(channel, thread_ts, query, event, work=None, episode=None,
         joined = "\n".join(m["content"] for m in _thread_messages(channel, thread_ts))
         work = _work_from_thread(joined, thread_ts)
     if not work:
-        return False   # 작품을 못 찾으면 기존 흐름(대본 못 찾음 안내 등)에 맡긴다
+        _reply(channel, thread_ts,
+              "⚠️ 어느 작품인지 못 찾았어요 — `<작품명>`을 붙여서 다시 말해주세요. "
+              "예: `<겨울 하루> 1화 콘티 수정해줘`.")
+        return True
     work = works.resolve(work) or work
     if not episode:
         joined = "\n".join(m["content"] for m in _thread_messages(channel, thread_ts))
@@ -5252,7 +5281,11 @@ def _do_conti_rewrite(channel, thread_ts, query, event, work=None, episode=None,
             scene = int(next(g for g in scene_m.groups() if g))
     content, src = _fetch_external_conti(work, episode)
     if not content:
-        return False   # 고칠 기존 콘티가 아예 없으면 "다시 쓰기"가 아니라 새로 만들기 — 기존 흐름에 맡긴다
+        _reply(channel, thread_ts,
+              f"⚠️ <{work}> {(str(episode) + '화 ') if episode else ''}상세 콘티를 아직 못 찾았어요 — "
+              "먼저 `[스토리보드] <작품> N화`로 상세 콘티부터 만들어주세요. "
+              "이미 노션에 있다면 화 번호를 정확히 알려주세요.")
+        return True
     # 트리거 표현·화 번호·씬 번호·조사/어미 찌꺼기를 걷어내고 남는 텍스트가 있으면 구체적
     # 수정 지시로 본다. "씬N"은 scene 파라미터로 이미 뽑았으니 여기서 걷어내 중복 방지.
     instr = re.sub(r"(\d{1,3})\s*[화회]", "", rest_q)
