@@ -5115,7 +5115,12 @@ def _is_bare_question(q: str) -> bool:
     q = (q or "").strip()
     return bool(_QUESTION_END_RE.search(q) and not _IMPERATIVE_RE.search(q))
 
-_CONTI_REWRITE_RE = re.compile(r"다시\s*(쓰|써|작성|만들|생성)|재작성|고치고\s*싶|수정하고\s*싶|고쳐\s*(줘|주세요)|바꾸고\s*싶|다시\s*하고\s*싶")
+_CONTI_REWRITE_RE = re.compile(
+    r"다시\s*(쓰|써|작성|만들|생성)|재작성|고치고\s*싶|수정하고\s*싶|고쳐\s*(줘|주세요)|바꾸고\s*싶|다시\s*하고\s*싶"
+    # ★2026-07-21: "내용 수정해줘"/"수정해주세요"처럼 가장 흔한 표현이 빠져있어 실측 사고 —
+    # 작품/화 번호까지 정확해도 이 트리거 관문에서부터 막혀 조용히 안전정지로 빠졌다.
+    r"|수정\s*(해\s*줘|해\s*주세요|해줄래|할래|하고자|해달라)|바꿔\s*(줘|주세요)"
+)
 
 def _maybe_conti_rewrite_request(channel, thread_ts, query, event) -> bool:
     """"3화 상세 콘티 다시 쓰고 싶어"/"콘티 수정하고 싶어" 같은, 이미 존재하는 콘티를 고치고
