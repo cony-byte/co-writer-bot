@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Offline deterministic tests for confirmation and execution safety.
+"""Offline deterministic tests for immediate execution and stop-button safety.
 
 No Slack or LLM request is made.  A tiny fake slack_io module is installed before
 tool_router import so button actions can be exercised as ordinary functions.
@@ -57,7 +57,7 @@ def _reset():
     _fake_app.client.posts.clear()
     _fake_app.client.updates.clear()
     _replies.clear()
-    tool_runtime._PENDING = PendingManager(ttl_seconds=900)
+    tool_runtime._RUNNING = PendingManager(ttl_seconds=3600)
 
 
 def _body(pending_id: str) -> dict:
@@ -132,49 +132,59 @@ def test_unknown_tool_never_executes():
     assert "지원하지 않는" in _replies[-1]["text"]
 
 
-def test_invalid_high_risk_call_never_gets_confirmation_card():
+def test_invalid_call_never_starts_or_gets_stop_card():
     _reset()
     decision = _decision("reset_episode_outputs", {"work": "작품"})
     tool_runtime.execute("C1", "T1", {}, decision)
     assert not _fake_app.client.posts
-    assert _replies and "episode" in _replies[-1]["text"]
+    assert _replies and "회차" in _replies[-1]["text"]
 
 
-def test_low_risk_also_requires_exact_button():
+def test_all_valid_tools_start_immediately_with_only_stop_button():
+    for risk in (tool_registry.LOW, tool_registry.HIGH):
+        _reset()
+        calls = []
+        name = f"__test_{risk}"
+        _install_test_tool(name, risk, calls)
+        tool_runtime.execute("C1", "T1", {}, _decision(name))
+        assert len(calls) == 1
+        buttons = _fake_app.client.posts[-1]["blocks"][1]["elements"]
+        assert [button["action_id"] for button in buttons] == ["stop_running_tool_call"]
+        assert [button["text"]["text"] for button in buttons] == ["중단"]
+        assert _fake_app.client.updates[-1]["text"] == "✅ 요청한 작업을 마쳤어요."
+
+
+def test_progress_text_uses_public_label_not_registry_description_or_tool_name():
+    spec = tool_registry.get("generate_stillcuts")
+    text = tool_runtime._progress_text(spec, {
+        "work": "겨울 하루", "episode": 1, "scene": 3,
+        "instruction": "2번 컷만 수정해줘",
+    })
+    assert "스틸컷 만들기·다시 만들기" in text
+    assert spec.description not in text
+    assert spec.name not in text
+    assert "schema" not in text and "attachment_id" not in text
+
+
+def test_execution_failure_never_exposes_internal_exception():
     _reset()
-    calls = []
-    _install_test_tool("__test_low", tool_registry.LOW, calls)
-    tool_runtime.execute("C1", "T1", {}, _decision("__test_low"))
-    assert calls == []
-    pending_id = _fake_app.client.posts[-1]["blocks"][1]["elements"][0]["value"]
-    tool_runtime.confirm_tool_call(lambda: None, _body(pending_id))
-    assert len(calls) == 1
-
-
-def test_high_risk_waits_for_exact_button_and_executes_once():
-    _reset()
-    calls = []
-    _install_test_tool("__test_high", tool_registry.HIGH, calls)
-    tool_runtime.execute("C1", "T1", {}, _decision("__test_high"))
-    assert calls == []
-    post = _fake_app.client.posts[-1]
-    buttons = post["blocks"][1]["elements"]
-    assert [button["action_id"] for button in buttons] == [
-        "confirm_tool_call", "cancel_tool_call", "edit_tool_call"
-    ]
-    pending_id = buttons[0]["value"]
-
-    acked = []
-    tool_runtime.confirm_tool_call(lambda: acked.append(True), _body("wrong-id"))
-    assert calls == []
-    current = tool_runtime._PENDING.peek("T1", tool_runtime._PENDING_KIND)
-    assert current and current.status == "waiting"
-
-    tool_runtime.confirm_tool_call(lambda: acked.append(True), _body(pending_id))
-    assert len(calls) == 1
-    tool_runtime.confirm_tool_call(lambda: acked.append(True), _body(pending_id))
-    assert len(calls) == 1
-    assert len(acked) == 3
+    name = "__private_failure"
+    spec = tool_registry.ToolSpec(
+        name=name, description="INTERNAL DESCRIPTION",
+        parameters={"type": "object", "properties": {}, "required": [],
+                    "additionalProperties": False},
+        risk=tool_registry.HIGH,
+        executor=lambda *_args: (_ for _ in ()).throw(
+            RuntimeError("attachment_id=SECRET generate_stillcuts")
+        ),
+        user_label="테스트 작업하기",
+    )
+    tool_registry.TOOLS[name] = spec
+    tool_runtime.execute("C1", "T1", {}, _decision(name))
+    reply = _replies[-1]["text"]
+    assert "SECRET" not in reply
+    assert "attachment_id" not in reply
+    assert "문제가 생겼어요" in reply
 
 
 def test_compound_plan_is_fully_validated_then_executes_in_order():
@@ -187,22 +197,32 @@ def test_compound_plan_is_fully_validated_then_executes_in_order():
         {"tool": "__step_two", "arguments": {}},
     ], raw={"context": {}})
     tool_runtime.execute("C1", "T1", {}, decision)
-    assert calls == []
-    pending_id = _fake_app.client.posts[-1]["blocks"][1]["elements"][0]["value"]
-    tool_runtime.confirm_tool_call(lambda: None, _body(pending_id))
     assert [thread for _args, thread in calls] == ["T1", "T1"]
+    buttons = _fake_app.client.posts[-1]["blocks"][1]["elements"]
+    assert [button["action_id"] for button in buttons] == ["stop_running_tool_call"]
 
 
-def test_cancel_and_edit_buttons_make_call_unexecutable():
-    for action in (tool_runtime.cancel_tool_call, tool_runtime.edit_tool_call):
-        _reset()
-        calls = []
-        _install_test_tool("__test_abort", tool_registry.HIGH, calls)
-        tool_runtime.execute("C1", "T1", {}, _decision("__test_abort"))
-        pending_id = _fake_app.client.posts[-1]["blocks"][1]["elements"][0]["value"]
-        action(lambda: None, _body(pending_id))
-        tool_runtime.confirm_tool_call(lambda: None, _body(pending_id))
+def test_stop_button_requires_exact_running_id_and_cancels_once():
+    _reset()
+    calls = []
+    original = tool_registry.TOOLS["cancel_current_job"]
+    _install_test_tool("cancel_current_job", tool_registry.HIGH, calls)
+    tool_runtime._RUNNING.create(
+        "T1", tool_runtime._RUNNING_KIND,
+        {"event": {}, "context": {}}, request_id="RUN1",
+    )
+    try:
+        tool_runtime.stop_running_tool_call(lambda: None, _body("WRONG"))
         assert calls == []
+        current = tool_runtime._RUNNING.peek("T1", tool_runtime._RUNNING_KIND)
+        assert current and current.status == "waiting"
+
+        tool_runtime.stop_running_tool_call(lambda: None, _body("RUN1"))
+        assert len(calls) == 1
+        tool_runtime.stop_running_tool_call(lambda: None, _body("RUN1"))
+        assert len(calls) == 1
+    finally:
+        tool_registry.TOOLS["cancel_current_job"] = original
 
 
 def test_expired_pending_cannot_be_consumed():

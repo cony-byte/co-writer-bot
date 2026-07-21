@@ -29,7 +29,8 @@ def test_extra_arguments_are_rejected():
         {"work": "작품", "episode": 1, "shell_command": "rm -rf"},
         _ctx(),
     )
-    assert error and "지원하지 않는 인자" in error
+    assert error and "안전하게 확인하지 못했어요" in error
+    assert "shell_command" not in error
 
 
 def test_wrong_argument_type_is_rejected():
@@ -37,13 +38,13 @@ def test_wrong_argument_type_is_rejected():
     error = tool_registry.validate_call(
         spec, {"work": "작품", "episode": "1"}, _ctx()
     )
-    assert error and "정수" in error
+    assert error and "회차는 숫자로" in error
 
 
 def test_episode_workflows_require_episode():
     spec = tool_registry.get("generate_detail_conti")
     error = tool_registry.validate_call(spec, {"work": "작품"}, _ctx())
-    assert error and "episode" in error
+    assert error and "회차" in error
 
 
 def test_attachment_must_exist_on_current_event():
@@ -190,7 +191,7 @@ def test_batch_reference_validates_every_attachment_before_execution():
     error = tool_registry.validate_call(
         spec, args, _ctx([{"id": "F1", "mimetype": "image/png"}])
     )
-    assert error and "elements[1]" in error
+    assert error and "2번째 이미지" in error
 
 
 def test_generation_batch_allows_distinct_variants_without_overwrite():
@@ -232,6 +233,20 @@ def test_resume_requires_machine_readable_interrupted_state():
     ctx = _ctx()
     ctx.context["interrupted_job"] = {"kind": "conti"}
     assert tool_registry.validate_call(spec, {}, ctx) is None
+
+
+def test_every_registered_tool_has_user_facing_label():
+    assert tool_registry.TOOLS
+    assert all(spec.user_label for spec in tool_registry.TOOLS.values())
+
+
+def test_internal_terms_are_rewritten_before_user_output():
+    text = tool_registry.sanitize_user_text(
+        "generate_stillcuts tool_call의 attachment_id와 schema를 확인하세요"
+    )
+    for internal in ("generate_stillcuts", "tool_call", "attachment_id", "schema"):
+        assert internal not in text
+    assert "스틸컷" in text and "첨부 이미지" in text
 
 
 if __name__ == "__main__":

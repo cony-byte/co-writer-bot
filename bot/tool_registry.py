@@ -27,6 +27,7 @@ class ToolSpec:
     risk: str
     executor: Callable
     validator: Callable | None = None
+    user_label: str | None = None
 
     def api_schema(self) -> dict:
         return {
@@ -275,14 +276,14 @@ def _validate_reference_batch(args: dict, ctx, *, attachments_required: bool) ->
         instruction = str(element.get("instruction") or "").strip()
         key = base if attachments_required else (*base, instruction)
         if key in seen:
-            return f"elements[{index}]에 중복 대상이 있어요: {key[1]}"
+            return f"{index + 1}번째 대상이 앞선 대상과 겹쳐요: {key[1]}"
         seen.add(key)
         if not attachments_required and base_counts[base] > 1 and not instruction:
-            return f"elements[{index}]의 버전별 생성 지시가 필요해요: {base[1]}"
+            return f"{index + 1}번째 {base[1]} 이미지에 구분할 설명이 필요해요."
         if attachments_required or element.get("attachment_id"):
             error = _validate_attachment(element, ctx)
             if error:
-                return f"elements[{index}]: {error}"
+                return f"{index + 1}번째 이미지: {error}"
     return None
 
 
@@ -307,9 +308,46 @@ def _register(spec: ToolSpec) -> ToolSpec:
 
 TOOLS: dict[str, ToolSpec] = {}
 
+_USER_LABELS = {
+    "generate_script": "창작 텍스트 만들기",
+    "revise_script": "대본 수정하기",
+    "edit_plan": "기획안 수정하기",
+    "review_script": "대본 피드백하기",
+    "evaluate_fun": "재미와 몰입도 살펴보기",
+    "evaluate_logic": "개연성과 논리 살펴보기",
+    "research_trends": "트렌드 조사하기",
+    "suggest_ideas": "아이디어 제안하기",
+    "sync_notion": "노션 자료 동기화하기",
+    "register_work_alias": "작품 별칭 등록하기",
+    "convert_script_format": "대본 형식 변환하기",
+    "generate_scene_design": "씬 설계 만들기",
+    "generate_detail_conti": "상세 콘티 만들기",
+    "rewrite_conti": "상세 콘티 수정하기",
+    "generate_storyboard_grid": "스토리보드 이미지 만들기",
+    "generate_stillcuts": "스틸컷 만들기·다시 만들기",
+    "generate_video": "영상 만들기",
+    "compile_episode": "회차 영상 합본 만들기",
+    "run_autopilot": "제작 단계 이어서 진행하기",
+    "show_episode_status": "제작 진행 상황 확인하기",
+    "change_visual_style": "이미지 스타일 바꾸기",
+    "finalize_conti": "콘티 최종본 확정하기",
+    "save_conti_to_notion": "상세 콘티를 노션에 저장하기",
+    "reset_episode_outputs": "회차 결과 초기화하기",
+    "export_file": "결과 파일로 내보내기",
+    "cancel_current_job": "진행 중인 작업 중단하기",
+    "resume_interrupted_job": "중단된 작업 이어서 하기",
+    "register_reference_image": "참고 이미지 등록하기",
+    "replace_reference_image": "참고 이미지 바꾸기",
+    "generate_reference_image": "참고 이미지 만들기",
+    "register_reference_images": "여러 참고 이미지 등록하기",
+    "generate_reference_images": "여러 참고 이미지 만들기",
+    "replace_logo": "로고 적용하기",
+}
+
 
 def _add(name, desc, props, required, risk, executor, validator=None):
-    _register(ToolSpec(name, desc, _object(props, required), risk, executor, validator))
+    _register(ToolSpec(name, desc, _object(props, required), risk, executor, validator,
+                       _USER_LABELS.get(name)))
 
 
 _writing = {
@@ -426,6 +464,31 @@ def get(name: str) -> ToolSpec | None:
     return TOOLS.get(name)
 
 
+def sanitize_user_text(value: str) -> str:
+    """Replace implementation vocabulary before model text reaches Slack."""
+    text = str(value or "")
+    for name, spec in sorted(TOOLS.items(), key=lambda item: len(item[0]), reverse=True):
+        text = text.replace(name, spec.user_label or "요청한 작업")
+    replacements = {
+        "attachment_id": "첨부 이미지", "sb_stage": "현재 제작 단계",
+        "pending_id": "확인 요청", "requires_confirmation": "실행 확인",
+        "cut_number": "컷 번호", "logo_type": "로고 종류",
+        "episodes": "회차 범위", "episode": "회차", "scene": "씬",
+        "cuts": "컷", "instruction": "반영할 내용", "scope": "적용 범위",
+        "elements": "대상 목록", "kind": "종류", "work": "작품",
+        "JSON schema": "요청 형식", "json schema": "요청 형식",
+        "schema": "요청 형식", "handler": "처리 과정",
+        "tool_call": "실행 요청", "tool": "기능",
+        "context": "대화 내용", "arguments": "요청 내용",
+    }
+    for internal, public in replacements.items():
+        text = re.sub(
+            rf"(?<![A-Za-z0-9_]){re.escape(internal)}(?![A-Za-z0-9_])",
+            public, text, flags=re.I,
+        )
+    return text
+
+
 def hydrate_arguments(spec: ToolSpec, args: dict, context: dict | None) -> dict:
     """Fill only trusted thread defaults; never invent a model argument."""
     hydrated = dict(args or {})
@@ -467,42 +530,56 @@ def hydrate_arguments(spec: ToolSpec, args: dict, context: dict | None) -> dict:
     return hydrated
 
 
+_ARG_LABELS = {
+    "work": "작품명", "episode": "회차", "episodes": "회차 범위",
+    "scene": "씬 번호", "cuts": "컷 번호", "instruction": "작업 내용",
+    "attachment_id": "첨부 이미지", "scope": "적용 범위",
+    "cut_number": "컷 번호", "logo_type": "로고 종류", "kind": "이미지 종류",
+    "name": "대상 이름", "elements": "등록·생성할 대상",
+}
+
+
+def _argument_label(path: str) -> str:
+    tail = path.rsplit(".", 1)[-1].split("[", 1)[0]
+    return _ARG_LABELS.get(tail, "요청 내용")
+
+
 def validate_schema(schema: dict, value, path: str = "arguments") -> str | None:
     expected = schema.get("type")
     if expected == "object":
         if not isinstance(value, dict):
-            return f"{path}는 객체여야 합니다."
+            return "요청 형식을 확인하지 못했어요. 내용을 다시 적어주세요."
         for key in schema.get("required", []):
             if key not in value or value[key] in (None, ""):
-                return f"{key} 값이 필요해요."
+                return f"필요한 정보가 빠졌어요: {_ARG_LABELS.get(key, '요청 내용')}"
         if schema.get("additionalProperties") is False:
             unknown = set(value) - set(schema.get("properties", {}))
             if unknown:
-                return f"지원하지 않는 인자예요: {', '.join(sorted(unknown))}"
+                return "요청 내용을 안전하게 확인하지 못했어요. 내용을 다시 적어주세요."
         for key, child in schema.get("properties", {}).items():
             if key in value and value[key] is not None:
                 error = validate_schema(child, value[key], f"{path}.{key}")
                 if error:
                     return error
     elif expected == "string" and not isinstance(value, str):
-        return f"{path}는 문자열이어야 합니다."
+        return f"{_argument_label(path)} 형식이 올바르지 않아요."
     elif expected == "integer" and (not isinstance(value, int) or isinstance(value, bool)):
-        return f"{path}는 정수여야 합니다."
+        return f"{_argument_label(path)}는 숫자로 알려주세요."
     elif expected == "array":
         if not isinstance(value, list):
-            return f"{path}는 배열이어야 합니다."
+            return f"{_argument_label(path)} 형식이 올바르지 않아요."
         if len(value) > schema.get("maxItems", len(value)):
-            return f"{path} 항목이 너무 많아요."
+            return f"{_argument_label(path)}가 너무 많아요. 범위를 나눠서 요청해 주세요."
         if len(value) < schema.get("minItems", 0):
-            return f"{path} 항목이 부족해요."
+            return f"{_argument_label(path)}을 하나 이상 알려주세요."
         for index, item in enumerate(value):
             error = validate_schema(schema.get("items", {}), item, f"{path}[{index}]")
             if error:
                 return error
     if "enum" in schema and value not in schema["enum"]:
-        return f"{path} 값은 {schema['enum']} 중 하나여야 합니다."
+        return f"{_argument_label(path)}을 다시 확인해 주세요."
     if isinstance(value, int) and "minimum" in schema and value < schema["minimum"]:
-        return f"{path} 값은 {schema['minimum']} 이상이어야 합니다."
+        return f"{_argument_label(path)}은 1 이상으로 알려주세요."
     return None
 
 

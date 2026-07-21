@@ -65,6 +65,9 @@ def _system_prompt(context: dict) -> str:
 반드시 제공된 함수만 호출한다. 일반 텍스트를 출력하지 않는다.
 - 정보 질문/상태 질문/잡담은 respond_with_answer를 호출한다.
 - 실행에 필요한 대상이나 범위가 하나라도 불명확하면 ask_for_clarification을 호출한다.
+- respond_with_answer와 ask_for_clarification의 text는 사용자에게 그대로 보인다. 함수명,
+  tool, schema, handler, context, attachment_id, sb_stage, 내부 필드명 같은 구현 용어를 절대
+  언급하지 말고 자연스러운 한국어로만 답한다.
 - 각 함수 JSON schema의 required 배열에 든 값만 필수다. 선택 인자가 없어도 실행 의미가
   명확하면 묻지 말고 생략한다. 특히 상세 콘티는 씬이 없으면 회차 전체를 뜻한다.
 - schema에서 work가 required가 아니면 작품명을 묻지 않는다. 현재 활성 스레드의 handler가
@@ -80,7 +83,7 @@ def _system_prompt(context: dict) -> str:
 - 첨부 파일은 context.attachments에 실제로 있는 id만 사용한다.
 - '응/네/그래/좋아/해줘/그걸로/아까 거/계속'처럼 독립적으로 대상을 확정할 수 없는
   짧은 답은 어떤 실행 함수도 호출하지 말고 ask_for_clarification을 호출한다. 실행 확인,
-  취소, 재개, 후보 선택은 Slack 버튼만 담당한다.
+  재개나 후보 선택처럼 대상이 필요한 짧은 답은 Slack 선택 UI만 담당한다.
 - 확인 여부나 위험도는 네가 결정하지 않는다. 코드는 함수별 정책으로 처리한다.
 - 한 문장에 서로 다른 작업이 명시되면 필요한 실행 함수를 사용자 문장 순서대로 모두 호출한다.
 - context.resolved_defaults에 값이 있으면 그것은 코드가 검증한 현재 작품/회차다. 사용자가
@@ -203,7 +206,7 @@ def decide_from_context(query: str, context: dict, *, model: str | None = None,
     if _SHORT_ACK_RE.fullmatch(query or ""):
         return Decision(
             type="clarification",
-            text="실행·재개·선택은 위에 표시된 버튼을 눌러주세요.",
+            text="재개하거나 대상을 선택하려면 위에 표시된 버튼을 눌러주세요.",
             raw={"context": context, "blocked_short_ack": True},
         )
     message = oi.tool_chat(

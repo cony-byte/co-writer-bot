@@ -326,9 +326,8 @@ def _legacy_freeform_chain(channel, thread_ts, query, event, in_thread):
 # (킬스위치 COWRITER_ROUTER_ENABLED=0 은 의도적 되돌림이므로 그때만 전체 legacy 체인 유지.)
 _ROUTER_FAIL_NOTIFIED: set = set()   # thread_ts — 이 스레드에 라우터 실패 안내를 이미 보냄
 _ROUTER_FAIL_MSG = (
-    "⚠️ 지금 요청 해석기가 불안정해서 작업을 시작하지 않았어요. "
-    "잠시 후 같은 내용을 다시 보내주시면 처리할게요. "
-    "급하면 정식 명령(`[생성]`/`[이미지]`/`[스틸컷]` 등)은 바로 동작해요."
+    "요청 내용을 안전하게 확인하지 못해서 아무 작업도 시작하지 않았어요. "
+    "내용을 조금 더 구체적으로 적어서 다시 보내주세요."
 )
 
 # 레거시 체인 핸들러 중 '읽기 전용'으로 분류돼 라우터 실패 시에도 안전하게 실행 가능한 것만.

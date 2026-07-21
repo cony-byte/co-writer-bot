@@ -14,20 +14,21 @@ Slack event
        -> ask_for_clarification
        -> one or more ordered, whitelisted executable functions
   -> JSON-schema and domain validation
-  -> persist the fully validated plan and show Execute / Cancel / Edit buttons
-  -> button action consumes the exact pending id
+  -> start the fully validated plan immediately
+  -> show a Stop button carrying the exact run id
   -> registered adapter invokes the domain operation
+  -> Stop consumes that run id and cancels only the current thread job
 ```
 
 The safety target is not perfect language understanding. It is that a mistaken model
-interpretation cannot escape the declared function schemas or execute any natural-language
-call without a code-generated confirmation.
+interpretation cannot escape the declared function schemas. Valid calls start immediately;
+an exact code-generated run ID prevents stale Stop buttons from affecting another job.
 
 ## Ownership
 
 - `bot/tool_router.py`: Slack-independent model boundary and
   `answer / clarification / tool_call` parsing.
-- `bot/tool_router_slack.py`: confirmation buttons, pending consumption, and execution.
+- `bot/tool_router_slack.py`: immediate execution, progress cards, and exact-ID stopping.
 - `bot/tool_registry.py`: the only natural-language executable whitelist; function
   schemas, code-owned risk levels, validators, and current domain adapters.
 - `bot/openrouter_image.py::tool_chat`: transport for OpenRouter native function calls.
@@ -47,13 +48,11 @@ the new variable is unset.
 3. Cross-check attachment IDs against the current Slack event, then pass only the
    selected attachment to the adapter.
 4. Risk level is registry metadata. Ignore any model-provided confirmation flag.
-5. Every natural-language execution plan, including low-risk calls, executes only from a
-   Slack button carrying an exact pending ID. Explicit bracket commands remain deterministic.
-6. A short natural-language confirmation (`응`, `그래`, `그걸로`) never consumes a
-   pending tool call. Resume and selection acknowledgements follow the same rule. Users use
-   the button; stale or mismatched IDs are rejected.
+5. Every valid natural-language execution plan starts immediately after full validation.
+6. The progress card exposes only Stop. It carries an exact run ID; stale or mismatched IDs
+   are rejected and can never stop a newer job.
 7. Compound requests are represented as an ordered list of real whitelisted functions. Code
-   validates every step before posting one confirmation card, then executes in that order.
+   validates every step before starting, then executes in that order under one Stop control.
 8. Add a function only when its validator and offline boundary tests are added together.
 
 Regression commands:
@@ -72,7 +71,7 @@ python3 scripts/test_tool_router_batch.py utterances.json --workers 5
 ```
 
 The batch CLI accepts JSON, JSONL, and CSV, writes an atomic checkpoint after every
-completed case, validates tool arguments, and reports code-owned confirmation risk. It
+completed case, validates tool arguments, and reports immediate/stop-button policy. It
 never invokes a registered executor.
 
 ## Migration direction

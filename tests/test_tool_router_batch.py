@@ -39,13 +39,15 @@ def test_evaluation_validates_but_never_executes_tool():
         "index": 0, "id": "safe", "text": "test",
         "context": dict(batch.BASE_CONTEXT),
         "expected": {"type": "tool_call", "tool": name,
-                     "requires_confirmation": True},
+                     "requires_confirmation": False},
     }
     decision = tool_router.Decision(type="tool_call", tool=name, arguments={})
     with patch("bot.tool_router.decide_from_context", return_value=decision):
         result = batch._evaluate(case, model=None, timeout=1, retries=0)
     assert result["passed"] is True
-    assert result["requires_confirmation"] is True
+    assert result["requires_confirmation"] is False
+    assert result["starts_immediately"] is True
+    assert result["has_stop_button"] is True
     assert executed == []
 
 

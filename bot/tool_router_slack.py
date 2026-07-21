@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass
 
 from . import tool_registry
-from .pending_manager import PendingManager
+from .pending_manager import PendingManager, WAITING
 from .shared.slack_io import app, log, _reply
 from .tool_router import Decision
 
@@ -19,14 +19,14 @@ class ExecutionContext:
     context: dict | None = None
 
 
-_PENDING = PendingManager(ttl_seconds=900)
-_PENDING_KIND = "tool_call_confirmation"
+_RUNNING = PendingManager(ttl_seconds=3600)
+_RUNNING_KIND = "running_tool_call"
 
 
-def _confirmation_text(spec: tool_registry.ToolSpec, args: dict) -> str:
+def _progress_text(spec: tool_registry.ToolSpec, args: dict) -> str:
     scope = []
     if args.get("work"):
-        scope.append(f"<{args['work']}>")
+        scope.append(str(args["work"]))
     if args.get("episode") is not None:
         scope.append(f"{args['episode']}화")
     if args.get("scene") is not None:
@@ -34,44 +34,71 @@ def _confirmation_text(spec: tool_registry.ToolSpec, args: dict) -> str:
     if args.get("cuts"):
         scope.append("컷 " + ", ".join(str(n) for n in args["cuts"]))
     if args.get("attachment_id"):
-        scope.append("첨부 이미지 참조")
-    target = " ".join(scope)
+        scope.append("첨부 이미지 사용")
+    target = " · ".join(scope)
     instruction = str(args.get("instruction") or "").strip()
-    detail = f"\n요청: {instruction[:500]}" if instruction else ""
-    return f"{target + '에서 ' if target else ''}*{spec.description}*{detail}\n실행할까요?"
-
-
-def _post_confirmation(ctx: ExecutionContext, calls: list[dict]) -> None:
-    pending_id = uuid.uuid4().hex
-    _PENDING.create(ctx.thread_ts, _PENDING_KIND,
-                    {"calls": calls, "event": ctx.event,
-                     "channel": ctx.channel, "thread_ts": ctx.thread_ts,
-                     "context": ctx.context},
-                    request_id=pending_id)
     lines = []
+    if target:
+        lines.append(f"*{target}*")
+    lines.append(f"진행할 작업: *{spec.user_label or '요청한 작업 진행하기'}*")
+    if instruction:
+        safe_instruction = tool_registry.sanitize_user_text(instruction[:500]).replace("\n", "\n> ")
+        lines.extend(["", "*반영할 내용*", f"> {safe_instruction}"])
+    return "\n".join(lines)
+
+
+def _run_immediately(ctx: ExecutionContext, calls: list[dict]) -> None:
+    run_id = uuid.uuid4().hex
+    _RUNNING.create(
+        ctx.thread_ts, _RUNNING_KIND,
+        {"calls": calls, "event": ctx.event, "channel": ctx.channel,
+         "thread_ts": ctx.thread_ts, "context": ctx.context},
+        request_id=run_id,
+    )
+    summaries = []
     for index, item in enumerate(calls, 1):
         spec = tool_registry.get(item["tool"])
-        detail = _confirmation_text(spec, item["arguments"]).removesuffix("\n실행할까요?")
-        lines.append(f"{index}. {detail}" if len(calls) > 1 else detail)
-    text = "\n".join(lines) + "\n실행할까요?"
+        detail = _progress_text(spec, item["arguments"])
+        summaries.append(f"*작업 {index}*\n{detail}" if len(calls) > 1 else detail)
+    intro = (f"요청한 작업 {len(calls)}개를 순서대로 시작했어요."
+             if len(calls) > 1 else "요청한 작업을 시작했어요.")
+    text = f"{intro}\n\n" + "\n\n".join(summaries)
+    text += "\n\n필요하면 아래 버튼으로 중단할 수 있어요."
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": text}},
         {"type": "actions", "elements": [
-            {"type": "button", "action_id": "confirm_tool_call", "style": "primary",
-             "text": {"type": "plain_text", "text": "실행"}, "value": pending_id},
-            {"type": "button", "action_id": "cancel_tool_call",
-             "text": {"type": "plain_text", "text": "취소"}, "value": pending_id},
-            {"type": "button", "action_id": "edit_tool_call",
-             "text": {"type": "plain_text", "text": "수정"}, "value": pending_id},
+            {"type": "button", "action_id": "stop_running_tool_call",
+             "style": "danger", "text": {"type": "plain_text", "text": "중단"},
+             "value": run_id},
         ]},
     ]
-    app.client.chat_postMessage(channel=ctx.channel, thread_ts=ctx.thread_ts,
-                                text=text, blocks=blocks)
+    try:
+        response = app.client.chat_postMessage(
+            channel=ctx.channel, thread_ts=ctx.thread_ts, text=text, blocks=blocks,
+        )
+        message_ts = str((response or {}).get("ts") or "")
+        for item in calls:
+            spec = tool_registry.get(item["tool"])
+            spec.executor(item["arguments"], ctx)
+        record = _RUNNING.peek(ctx.thread_ts, _RUNNING_KIND)
+        if record and record.request_id == run_id and record.status == WAITING:
+            _RUNNING.consume(ctx.thread_ts, _RUNNING_KIND, request_id=run_id)
+            _RUNNING.complete(ctx.thread_ts, _RUNNING_KIND)
+            if message_ts:
+                app.client.chat_update(
+                    channel=ctx.channel, ts=message_ts,
+                    text="✅ 요청한 작업을 마쳤어요.", blocks=[],
+                )
+    except Exception as exc:
+        _RUNNING.fail(ctx.thread_ts, _RUNNING_KIND, str(exc))
+        log.exception("immediate tool 실행 실패")
+        _reply(ctx.channel, ctx.thread_ts,
+               "작업을 진행하는 중 문제가 생겼어요. 같은 요청을 다시 보내주시거나 관리자에게 알려주세요.")
 
 
 def execute(channel: str, thread_ts: str, event: dict, decision: Decision) -> bool:
     if decision.type in ("answer", "clarification"):
-        text = (decision.text or "").strip()
+        text = tool_registry.sanitize_user_text((decision.text or "").strip())
         _reply(channel, thread_ts, text or "조금 더 구체적으로 알려주세요.")
         return True
     if decision.type not in ("tool_call", "tool_calls"):
@@ -95,9 +122,9 @@ def execute(channel: str, thread_ts: str, event: dict, decision: Decision) -> bo
         if error:
             _reply(channel, thread_ts, error)
             return True
-    # Every natural-language mutation, including formerly low-risk calls, is confirmed
-    # by an exact Slack button payload. Natural-language approval is never sufficient.
-    _post_confirmation(ctx, calls)
+    # Validation is still mandatory, but valid natural-language actions start
+    # immediately. The exact run id on the stop button is the only runtime control.
+    _run_immediately(ctx, calls)
     return True
 
 
@@ -109,69 +136,33 @@ def _action_context(body: dict) -> tuple[str, str, str, str]:
     return channel, thread_ts, str(action.get("value") or ""), str(message.get("ts") or "")
 
 
-@app.action("confirm_tool_call")
-def confirm_tool_call(ack, body):
+@app.action("stop_running_tool_call")
+def stop_running_tool_call(ack, body):
     ack()
-    channel, thread_ts, pending_id, message_ts = _action_context(body)
-    current = _PENDING.peek(thread_ts, _PENDING_KIND)
-    if current is None or current.request_id != pending_id:
-        _reply(channel, thread_ts, "이 실행 요청은 만료됐거나 이미 처리됐어요.")
+    channel, thread_ts, run_id, message_ts = _action_context(body)
+    current = _RUNNING.peek(thread_ts, _RUNNING_KIND)
+    if current is None or current.request_id != run_id or current.status != WAITING:
+        _reply(channel, thread_ts, "이 작업은 이미 끝났거나 중단할 수 없는 상태예요.")
         return
-    record = _PENDING.consume(thread_ts, _PENDING_KIND, request_id=pending_id)
+    record = _RUNNING.consume(thread_ts, _RUNNING_KIND, request_id=run_id)
     if record is None:
-        _reply(channel, thread_ts, "이 실행 요청은 만료됐거나 이미 처리됐어요.")
+        _reply(channel, thread_ts, "이 작업은 이미 끝났거나 중단할 수 없는 상태예요.")
         return
     try:
         payload = record.payload
+        cancel_spec = tool_registry.get("cancel_current_job")
+        if cancel_spec is None:
+            raise RuntimeError("cancel tool missing")
         ctx = ExecutionContext(channel, thread_ts, payload.get("event") or {},
                                payload.get("context") or {})
-        calls = payload.get("calls") or []
-        if not calls:
-            raise ValueError("실행 계획이 비어 있습니다")
-        resolved = []
-        for item in calls:
-            spec = tool_registry.get(item.get("tool", ""))
-            if spec is None:
-                raise ValueError("허용 목록에서 사라진 tool입니다")
-            args = tool_registry.hydrate_arguments(
-                spec, item.get("arguments") or {}, payload.get("context") or {}
-            )
-            error = tool_registry.validate_call(spec, args, ctx)
-            if error:
-                raise ValueError(error)
-            resolved.append((spec, args))
-        app.client.chat_update(channel=channel, ts=message_ts,
-                               text="✅ 실행을 확인했어요.", blocks=[])
-        for spec, args in resolved:
-            spec.executor(args, ctx)
-        _PENDING.complete(thread_ts, _PENDING_KIND)
+        cancel_spec.executor({}, ctx)
+        _RUNNING.complete(thread_ts, _RUNNING_KIND)
+        app.client.chat_update(
+            channel=channel, ts=message_ts,
+            text="🛑 중단을 요청했어요. 현재 처리 중인 단계가 정리되면 멈춰요.", blocks=[],
+        )
     except Exception as exc:
-        _PENDING.fail(thread_ts, _PENDING_KIND, str(exc))
-        log.exception("confirmed tool 실행 실패")
-        _reply(channel, thread_ts, f"실행하지 못했어요: {exc}")
-
-
-@app.action("cancel_tool_call")
-def cancel_tool_call(ack, body):
-    ack()
-    channel, thread_ts, pending_id, message_ts = _action_context(body)
-    record = _PENDING.peek(thread_ts, _PENDING_KIND)
-    if record is None or record.request_id != pending_id:
-        _reply(channel, thread_ts, "이 실행 요청은 만료됐거나 이미 처리됐어요.")
-        return
-    _PENDING.expire(thread_ts, _PENDING_KIND)
-    app.client.chat_update(channel=channel, ts=message_ts, text="취소했어요.", blocks=[])
-
-
-@app.action("edit_tool_call")
-def edit_tool_call(ack, body):
-    ack()
-    channel, thread_ts, pending_id, message_ts = _action_context(body)
-    record = _PENDING.peek(thread_ts, _PENDING_KIND)
-    if record is None or record.request_id != pending_id:
-        _reply(channel, thread_ts, "이 실행 요청은 만료됐거나 이미 처리됐어요.")
-        return
-    _PENDING.expire(thread_ts, _PENDING_KIND)
-    app.client.chat_update(
-        channel=channel, ts=message_ts,
-        text="수정할 내용을 이 스레드에 구체적으로 적어주세요.", blocks=[])
+        _RUNNING.fail(thread_ts, _RUNNING_KIND, str(exc))
+        log.exception("running tool 중단 실패")
+        _reply(channel, thread_ts,
+               "중단 요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요.")

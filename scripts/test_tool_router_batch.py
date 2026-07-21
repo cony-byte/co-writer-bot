@@ -360,6 +360,8 @@ def _evaluate(case: dict, *, model: str | None, timeout: int,
                 "validation_error": None,
                 "risk": None,
                 "requires_confirmation": False,
+                "starts_immediately": False,
+                "has_stop_button": False,
                 "attempts": attempt + 1,
                 "elapsed_seconds": round(time.monotonic() - started, 3),
             }
@@ -390,7 +392,9 @@ def _evaluate(case: dict, *, model: str | None, timeout: int,
                 result["validation_error"] = "; ".join(validation_errors) or None
                 result["risk"] = (tool_registry.HIGH if tool_registry.HIGH in risks
                                   else tool_registry.LOW)
-                result["requires_confirmation"] = True
+                result["requires_confirmation"] = False
+                result["starts_immediately"] = True
+                result["has_stop_button"] = True
             expectation_errors = _check_expected(case["expected"], result)
             if result["validation_error"]:
                 expectation_errors.append(f"schema/domain: {result['validation_error']}")
