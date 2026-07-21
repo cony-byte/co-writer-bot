@@ -4466,16 +4466,30 @@ def _do_show_refs(channel, thread_ts, work=None, name=None, kind=None) -> bool:
     return True
 
 
+_ORIGINAL_MEDIA_KW = ("원본", "원본사진", "원본 사진", "오리지널", "original", "되돌리기 전", "중화 전")
 _VIDEO_MEDIA_KW = ("영상", "동영상", "비디오", "video", "확정영상", "합본", "클립", "무비")
-_STILL_MEDIA_KW = ("스틸컷", "스틸", "stillcut", "still", "컷")
+# 스토리보드 그리드는 디스크에 저장 안 되므로(미리보기용), '스토리보드/그리드/이미지 보여줘'는
+# 저장된 스틸컷으로 서빙한다 — 그래서 스틸컷 키워드에 합류시킨다(2026-07-21).
+_STILL_MEDIA_KW = ("스틸컷", "스틸", "stillcut", "still", "컷", "스토리보드", "그리드", "이미지",
+                   "storyboard", "grid", "image")
 _ELEM_MEDIA_KW = ("인물", "사람", "얼굴", "의상", "옷", "복장", "코스튬", "장소", "배경",
                   "소품", "아이템", "참조", "레퍼런스", "캐릭터", "person", "place", "prop",
                   "costume", "ref", "룩")
 
 
+_DOC_MEDIA_KW = ("상세콘티", "상세 콘티", "콘티", "씬설계", "씬 설계", "설계안", "기획안", "conti")
+_TRASH_MEDIA_KW = ("휴지통", "삭제한", "지운", "trash", "삭제된")
+
+
 def _classify_media(kind, scene, cut, name):
-    """무엇을 보여줄지 판별: 'video' / 'stillcut' / 'reference' / None(모호)."""
+    """판별: 'trash'/'document'/'original'/'video'/'stillcut'/'reference'/None."""
     k = (kind or "").lower()
+    if any(w in k for w in _TRASH_MEDIA_KW):
+        return "trash"
+    if any(w in k for w in _DOC_MEDIA_KW):
+        return "document"
+    if any(w in k for w in _ORIGINAL_MEDIA_KW):
+        return "original"
     if any(w in k for w in _VIDEO_MEDIA_KW):
         return "video"
     if any(w in k for w in _STILL_MEDIA_KW):
@@ -4489,32 +4503,54 @@ def _classify_media(kind, scene, cut, name):
     return None
 
 
+def _still_cut_meta(work, scene, cut, episode) -> str:
+    """스틸컷 캡션 메타 — 생성 시각(파일 mtime) + 저장(=확정)됨 표시. '이거 최신 맞아?' 후속
+    질문 선제 차단(2026-07-21)."""
+    try:
+        p = vp_store.still_cut_path(work, scene_num=scene, cut_num=cut, episode=episode)
+        if p and p.exists():
+            hm = time.strftime("%m/%d %H:%M", time.localtime(p.stat().st_mtime))
+            return f" · {hm} 생성 · ✅저장됨"
+    except Exception:
+        pass
+    return ""
+
+
 def _show_stillcuts(channel, thread_ts, work, episode, scene, cut) -> bool:
     episode = episode or (conti_state.get_episode(thread_ts) or {}).get("episode")
+    stills = vp_store.scan_episode_stills(work, episode) or {}
+    have_scenes = stills.get("scenes") or []
     if scene is None:
-        stills = vp_store.scan_episode_stills(work, episode) or {}
-        if not stills.get("scenes"):
+        if not have_scenes:
             _reply(channel, thread_ts, f"<{work}> {episode}화에 저장된 스틸컷이 없어요.")
             return True
+        # 다중 매칭 규칙(2026-07-21): 씬 미지정 → 가장 최근(번호 큰) 씬을 보여주고 캡션에 명시.
+        latest = max(int(re.sub(r"\D", "", s) or 0) for s in have_scenes)
         _reply(channel, thread_ts,
-               f"어느 씬 스틸컷을 볼까요? 스틸컷 있는 씬: {', '.join(stills['scenes'])} "
-               "(예: `7씬 스틸컷 보여줘`, 특정 컷은 `7씬 1컷`).")
-        return True
+               f"씬 지정이 없어 가장 최근 씬{latest}을 보여드려요 — 스틸컷 있는 씬: "
+               f"{', '.join(have_scenes)} (특정 씬은 `N씬 스틸컷 보여줘`).")
+        scene = latest
     cuts = vp_store.load_latest_cuts(work, scene, episode=episode)
     if not cuts:
-        _reply(channel, thread_ts, f"<{work}> 씬{scene}에 저장된 스틸컷이 없어요.")
+        # 없을 때 끝내지 않고 있는 걸 제시 + 생성 제안(자동 생성 금지, 제안만).
+        avail = f"지금 있는 씬: {', '.join(have_scenes)}. " if have_scenes else ""
+        _reply(channel, thread_ts,
+               f"<{work}> 씬{scene}에 저장된 스틸컷이 없어요. {avail}"
+               f"씬{scene}을 만들까요? (`[스틸컷] <{work}> 씬{scene}`)")
         return True
     if cut is not None:
         c = next((x for x in cuts if x.get("n") == cut), None)
         if not c:
             avail = ", ".join(str(x["n"]) for x in cuts)
-            _reply(channel, thread_ts, f"씬{scene}에 컷{cut}이 없어요. 있는 컷: {avail}")
+            _reply(channel, thread_ts,
+                   f"씬{scene}에 컷{cut}이 없어요. 있는 컷: {avail} — 그중 하나를 말해주세요.")
             return True
         app.client.files_upload_v2(
             channel=channel, thread_ts=thread_ts, file=c["png"],
             filename=f"still_{_work_safe_name(work)}_s{scene}_cut{cut}.png",
             title=f"씬{scene} 컷{cut} 스틸컷",
-            initial_comment=f"<{work}> 씬{scene} {cut}컷 스틸컷이에요.")
+            initial_comment=(f"<{work}> 씬{scene} {cut}컷 스틸컷이에요"
+                             f"{_still_cut_meta(work, scene, cut, episode)}."))
         return True
     panels = [(c["png"], c["n"], c.get("caption") or f"컷{c['n']}") for c in cuts]
     grid_png = grid.build_grid(panels, cols=4)
@@ -4522,7 +4558,68 @@ def _show_stillcuts(channel, thread_ts, work, episode, scene, cut) -> bool:
         channel=channel, thread_ts=thread_ts, file=grid_png,
         filename=f"stills_{_work_safe_name(work)}_s{scene}.png",
         title=f"씬{scene} 스틸컷 {len(panels)}컷",
-        initial_comment=f"<{work}> 씬{scene} 스틸컷 {len(panels)}컷이에요.")
+        initial_comment=(f"<{work}> 씬{scene} 스틸컷 {len(panels)}컷이에요 "
+                         f"(컷 {', '.join(str(c['n']) for c in cuts)})."))
+    return True
+
+
+def _show_original(channel, thread_ts, work, name) -> bool:
+    """face_ref가 중화 전 백업한 원본 사진(_originals/)을 보여준다(2026-07-21). '이영 원본
+    사진 보여줘'류."""
+    if not name:
+        _reply(channel, thread_ts, "누구/무엇의 원본을 볼지 이름을 알려주세요 — 예: `이영 원본 사진 보여줘`.")
+        return True
+    orig_dir = config.OPENROUTER_REFS_DIR / oi.canon_work(work) / "_originals"
+    e = oi.resolve_element(work, name)
+    cands = [name]
+    if e:
+        cands += [oi._nfc(e.get("display", ""))] + list(e.get("aliases") or [])
+    found = None
+    for cand in cands:
+        if cand and orig_dir.is_dir():
+            for p in orig_dir.glob(f"{cand}.*"):
+                found = p
+                break
+        if found:
+            break
+    if not found:
+        _reply(channel, thread_ts,
+               f"'{name}'의 보관된 원본(_originals)을 찾지 못했어요 — 원본 백업이 있는 참조"
+               "(주로 인물 얼굴 중화본)만 원본을 볼 수 있어요.")
+        return True
+    app.client.files_upload_v2(
+        channel=channel, thread_ts=thread_ts, file=found.read_bytes(),
+        filename=found.name, title=f"{name} 원본",
+        initial_comment=f"「{name}」의 등록 당시 원본 사진이에요.")
+    return True
+
+
+def _show_document(channel, thread_ts, work, episode, kind) -> bool:
+    """텍스트 산출물(상세콘티·씬설계) 표시(★2026-07-21 audit 갭 #2 — '콘티 보여줘'가 생성으로
+    새던 것). 콘티는 저장본을 파일로 올리고, 씬설계는 스레드의 마지막 설계안을 다시 보여준다."""
+    episode = episode or (conti_state.get_episode(thread_ts) or {}).get("episode")
+    k = (kind or "")
+    if "씬설계" in k or "씬 설계" in k or "설계안" in k:
+        msgs = _thread_messages(channel, thread_ts)
+        plan = _last_assistant_with(msgs, ["씬 설계안", "[1단계]"])
+        if plan:
+            _reply(channel, thread_ts, f"📋 이 스레드의 씬 설계안이에요:\n\n{plan}")
+        else:
+            _reply(channel, thread_ts,
+                   f"<{work}> {episode}화 씬 설계안을 이 스레드에서 못 찾았어요 — "
+                   "`[스토리보드] <작품>`으로 만든 뒤 다시 보여드릴 수 있어요.")
+        return True
+    # 콘티(상세콘티) — 저장/노션 회수본을 파일로 표시.
+    try:
+        conti, source = _fetch_external_conti(work, episode)
+    except Exception:
+        conti, source = None, None
+    if not conti:
+        _reply(channel, thread_ts,
+               f"<{work}> {episode}화 상세 콘티를 찾지 못했어요 — 아직 만들지 않았거나 "
+               "노션/스레드에 없어요. `[상세콘티] <작품>`으로 만들 수 있어요.")
+        return True
+    _upload_conti(channel, thread_ts, work, conti, episode=episode)
     return True
 
 
@@ -4563,11 +4660,17 @@ def _show_videos(channel, thread_ts, work, episode, scene, cut, want_compiled=Fa
                + (f" (씬{scene}{f' 컷{cut}' if cut else ''})." if scene else "."))
         return True
     for snum, cnum, path in items[:_SHOW_VIDEO_CAP]:
-        app.client.files_upload_v2(
-            channel=channel, thread_ts=thread_ts, file=str(path),
-            filename=f"video_{_work_safe_name(work)}_s{snum}_cut{cnum}.mp4",
-            title=f"씬{snum} 컷{cnum} 영상",
-            initial_comment=f"<{work}> 씬{snum} {cnum}컷 영상이에요.")
+        try:
+            app.client.files_upload_v2(
+                channel=channel, thread_ts=thread_ts, file=str(path),
+                filename=f"video_{_work_safe_name(work)}_s{snum}_cut{cnum}.mp4",
+                title=f"씬{snum} 컷{cnum} 영상",
+                initial_comment=f"<{work}> 씬{snum} {cnum}컷 영상이에요.")
+        except Exception:
+            log.exception("영상 업로드 실패(대용량 등) → 경로 안내")
+            _reply(channel, thread_ts,
+                   f"⚠️ 씬{snum} 컷{cnum} 영상 업로드에 실패했어요(용량 한도일 수 있어요). "
+                   f"로컬 경로: `{path}`")
     if len(items) > _SHOW_VIDEO_CAP:
         _reply(channel, thread_ts,
                f"…외 {len(items) - _SHOW_VIDEO_CAP}개 더 있어요 — 씬/컷을 지정하면 그것만 보여줄게요.")
@@ -4585,6 +4688,20 @@ def _do_show_media(channel, thread_ts, work=None, episode=None, scene=None, cut=
         _reply(channel, thread_ts, _WORK_NOT_FOUND_MSG)
         return True
     media = _classify_media(kind, scene, cut, name)
+    if media == "trash":
+        items = oi.load_trash(work)
+        if not items:
+            _reply(channel, thread_ts, f"<{work}> 휴지통(삭제된 참조)이 비어 있어요.")
+            return True
+        names = ", ".join(t.get("element", {}).get("display", "?") for t in items)
+        _reply(channel, thread_ts,
+               f"🗑 <{work}> 삭제된 참조 {len(items)}개: {names}\n"
+               "복구하려면 `<이름> 복구해줘`라고 해주세요.")
+        return True
+    if media == "document":
+        return _show_document(channel, thread_ts, work, episode, kind)
+    if media == "original":
+        return _show_original(channel, thread_ts, work, name)
     if media == "video":
         want_compiled = any(w in (kind or "") for w in ("합본", "확정"))
         return _show_videos(channel, thread_ts, work, episode, scene, cut, want_compiled)

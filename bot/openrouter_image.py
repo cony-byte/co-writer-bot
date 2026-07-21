@@ -521,7 +521,9 @@ def delete_element(work: str, *, name: str, etype: str | None = None) -> "tuple[
             return False, f"'{name}' 이름의 {what}를 찾지 못했어요 — 등록된 이름·종류를 확인해 주세요."
         eid = target.get("id")
         display = _nfc(target.get("display", "")) or nm
+        record = dict(target)
         notes = []
+        trashed_dir = trashed_file = None
         # 이미지 바이트는 지우지 않고 _trash/로 이동(복구 가능). fixed-images id 폴더 우선.
         try:
             refs = config.OPENROUTER_REFS_DIR / _canon_work(work)
@@ -535,13 +537,23 @@ def delete_element(work: str, *, name: str, etype: str | None = None) -> "tuple[
                     if dest.exists():
                         dest = trash / f"{eid}_{len(list(trash.iterdir()))}"
                     src.rename(dest)
+                    trashed_dir = dest.name
                     notes.append("이미지 폴더 _trash 이동")
             f = target.get("file")
             if f and (refs / f).is_file():
                 (refs / f).rename(trash / f)
+                trashed_file = f
                 notes.append("로컬 파일 _trash 이동")
         except Exception:
             notes.append("⚠️ 이미지 백업 이동 실패(색인만 제거)")
+        # ★2026-07-21 복구 매니페스트: 색인에서 지우면 이름→id 연결이 끊겨 이름으로 복구할 수
+        # 없다 — 삭제된 엘리먼트 레코드와 trash 위치를 _trash/_manifest.jsonl에 1줄 남긴다.
+        try:
+            (trash / "_manifest.jsonl").open("a", encoding="utf-8").write(
+                json.dumps({"element": record, "dir": trashed_dir, "file": trashed_file},
+                           ensure_ascii=False) + "\n")
+        except Exception:
+            notes.append("⚠️ 복구 매니페스트 기록 실패")
         elems = [e for e in elems if e is not target]
         _save_elements(work, elems)
     tlabel = _ELEM_TYPE_KR.get(target.get("type"), "참조")
@@ -579,8 +591,14 @@ def restore_element(work: str, *, name: str, etype: str | None = None) -> "tuple
             if found:
                 break
         if not found:
-            return False, (f"'{name}'의 보관된 원본(_originals)을 찾지 못했어요 — "
-                           f"원본 백업이 있는 참조(주로 인물 얼굴 중화본)만 되돌릴 수 있어요.")
+            # 원본 백업이 없으면 = 삭제 복구 요청일 수 있다 → _trash 매니페스트에서 되살린다.
+            ok, msg = _restore_from_trash(work, nm)
+            if ok:
+                return True, msg
+            trash_names = [t["element"].get("display", "?") for t in load_trash(work)]
+            hint = (f" 휴지통에 있는 것: {', '.join(trash_names)}" if trash_names else "")
+            return False, (f"'{name}'의 보관된 원본(_originals)도, 삭제 복구본(_trash)도 못 찾았어요."
+                           + hint)
         dest = refs / found.name
         try:
             dest.write_bytes(found.read_bytes())
@@ -591,6 +609,64 @@ def restore_element(work: str, *, name: str, etype: str | None = None) -> "tuple
                          (target.get("type") if target else etype) or "person",
                          filename=dest.name)
     return True, f"↩️ 참조 '{name}'을(를) 등록 당시 원본으로 되돌렸어요."
+
+
+def load_trash(work: str | None) -> list[dict]:
+    """삭제돼 _trash로 옮겨진 참조 목록(_trash/_manifest.jsonl). 복구 가능한 항목들."""
+    if not work:
+        return []
+    mf = config.OPENROUTER_REFS_DIR / _canon_work(work) / "_trash" / "_manifest.jsonl"
+    if not mf.exists():
+        return []
+    out = []
+    for line in mf.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line:
+            try:
+                out.append(json.loads(line))
+            except Exception:
+                continue
+    return out
+
+
+def _restore_from_trash(work: str, name: str) -> "tuple[bool, str]":
+    """_trash로 삭제된 참조를 이름으로 찾아 되살린다 — 이미지 폴더/파일을 원위치로 옮기고
+    elements.json에 레코드를 복원, 매니페스트에서 제거(★2026-07-21, delete_element 짝).
+    주의: 호출자(restore_element)가 이미 _ELEMENTS_LOCK을 보유하므로 여기서 다시 잡지 않는다
+    (비재진입 락 데드락 방지)."""
+    refs = config.OPENROUTER_REFS_DIR / _canon_work(work)
+    trash = refs / "_trash"
+    entries = load_trash(work)
+    idx = next((i for i, t in enumerate(entries)
+                if name in _element_names(t.get("element") or {})), None)
+    if idx is None:
+        return False, ""
+    entry = entries[idx]
+    rec = entry.get("element") or {}
+    eid = rec.get("id")
+    try:
+        if entry.get("dir") and eid and vp_fixed_dir(work):
+            src = trash / entry["dir"]
+            dst = vp_fixed_dir(work) / eid
+            if src.is_dir() and not dst.exists():
+                src.rename(dst)
+        if entry.get("file"):
+            src = trash / entry["file"]
+            if src.is_file() and not (refs / entry["file"]).exists():
+                src.rename(refs / entry["file"])
+    except Exception:
+        pass   # 이미지 원위치 이동 실패해도 색인 복원은 진행(파일은 _trash에 남음)
+    elems = load_elements(work)
+    if not any(e.get("id") == eid for e in elems):
+        elems.append(rec)
+        _save_elements(work, elems)
+    # 매니페스트에서 이 항목 제거
+    remaining = [t for j, t in enumerate(entries) if j != idx]
+    mf = trash / "_manifest.jsonl"
+    mf.write_text("".join(json.dumps(t, ensure_ascii=False) + "\n" for t in remaining),
+                  encoding="utf-8")
+    disp = rec.get("display", name)
+    return True, f"↩️ 삭제했던 참조 '{disp}'을(를) 복구했어요."
 
 
 _GENDER_CARD_RE = re.compile(r"^(?:#{1,3}\s*)?([^\n(]{1,12}?)\s*\(([^)\n]*)\)\s*/", re.M)
