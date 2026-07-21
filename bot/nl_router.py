@@ -1472,7 +1472,11 @@ def execute(
         sb.sb_do_storyboard(channel, thread_ts, rest, stage=2)
         return
     if intent == "conti_rewrite":
-        txt = (f"씬{r.scene} " if r.scene else "") + body
+        # ★2026-07-21: _maybe_conti_rewrite_request는 <작품> 꺾쇠 형식만 작품명으로 인식해서
+        # (SUB_RE) "겨울 하루 1화 콘티 수정해줘"처럼 꺾쇠 없는 맨 텍스트는 자체적으로 작품을
+        # 못 찾고 조용히 실패했다(라우터가 r.work를 이미 정확히 찾았는데도 전달이 안 됨) —
+        # r.work를 꺾쇠로 감싸 앞에 붙여 SUB_RE가 그대로 인식하게 한다.
+        txt = (f"<{r.work}> " if r.work else "") + (f"씬{r.scene} " if r.scene else "") + body
         if not sb._maybe_conti_rewrite_request(channel, thread_ts, txt, event):
             legacy_fallback(event)
         return
