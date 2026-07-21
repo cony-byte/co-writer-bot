@@ -389,6 +389,40 @@ def test_save_videos_executor_downloads_only_videos_in_upload_order():
     assert captured["who"] == "U1"
 
 
+def test_rename_reference_requires_old_and_new_name():
+    spec = tool_registry.get("rename_reference")
+    assert spec is not None and spec.risk == tool_registry.HIGH
+    # missing new_name → guided error naming the missing field
+    error = tool_registry.validate_call(spec, {"old_name": "룩-B"}, _ctx())
+    assert error and "새 이름" in error
+    # both present → passes validation (no attachment needed)
+    assert tool_registry.validate_call(
+        spec, {"kind": "의상", "old_name": "룩-B", "new_name": "룩-A"}, _ctx()
+    ) is None
+
+
+def test_rename_reference_executor_maps_kind_and_delegates():
+    captured = {}
+    fake_sb = types.ModuleType("bot.dispatch_storyboard")
+    fake_sb._REF_TYPE_KW = {"의상": "costume", "인물": "person"}
+
+    def do_rename(channel, thread_ts, work=None, etype=None, old_name=None, new_name=None):
+        captured.update(channel=channel, thread_ts=thread_ts, work=work, etype=etype,
+                        old_name=old_name, new_name=new_name)
+        return True
+
+    fake_sb._do_rename_ref = do_rename
+    ctx = SimpleNamespace(channel="C", thread_ts="T", event={})
+    with patch.dict(sys.modules, {"bot.dispatch_storyboard": fake_sb}):
+        tool_registry._rename_reference(
+            {"kind": "의상", "work": "겨울 하루",
+             "old_name": "유나경 출연자룩-B", "new_name": "유나경 출연자룩-A"}, ctx)
+    assert captured["etype"] == "costume"
+    assert captured["old_name"] == "유나경 출연자룩-B"
+    assert captured["new_name"] == "유나경 출연자룩-A"
+    assert captured["work"] == "겨울 하루"
+
+
 def test_explain_stage_skip_is_low_risk_and_paramless():
     spec = tool_registry.get("explain_stage_skip")
     assert spec is not None

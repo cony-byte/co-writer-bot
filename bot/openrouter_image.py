@@ -405,6 +405,86 @@ def register_element(work: str, display: str, etype: str = "person",
         return cur
 
 
+_ELEM_TYPE_KR = {"person": "인물", "place": "장소", "prop": "소품", "costume": "의상"}
+
+
+def rename_element(work: str, *, old_name: str, new_name: str,
+                   etype: str | None = None, keep_old_alias: bool = True) -> "tuple[bool, str]":
+    """등록된 참조 엘리먼트의 표시 이름(display)을 바꾼다(★2026-07-21 — 기존엔 등록/교체만
+    가능하고 이름 변경 기능이 없었다).
+
+    fixed-images 폴더는 id 기반이라 이미지 연결이 안 끊기고, 로컬 data/refs 폴백은 'file'
+    필드로 조회하므로 display만 바꿔도 생성 시 참조가 그대로 붙는다. 안전을 위해 (a) 옛 이름은
+    기본적으로 alias로 남겨 하위호환(옛 캡션·콘티가 계속 매칭)하고, (b) 레거시 이름 폴더는
+    id 폴더로, 로컬 파일은 새 이름으로 best-effort 이동한다. 새 이름이 다른 엘리먼트와 겹치면
+    막는다(upsert-by-display / tag_name UNIQUE 전제 보호). 반환: (성공, 사용자 안내 메시지)."""
+    old_n = _nfc(old_name).strip()
+    new_n = _nfc(new_name).strip()
+    if not (work and old_n and new_n):
+        return False, "이름 변경에 필요한 정보가 부족해요 (기존 이름·새 이름)."
+    if old_n == new_n:
+        return False, "새 이름이 기존 이름과 같아요."
+    etype = etype if etype in ELEMENT_TYPES else None
+    with _ELEMENTS_LOCK:
+        elems = load_elements(work)
+        target = next((e for e in elems
+                       if (etype is None or e.get("type") == etype)
+                       and old_n in _element_names(e)), None)
+        if target is None:
+            tlabel = _ELEM_TYPE_KR.get(etype)
+            what = f"{tlabel} 참조" if tlabel else "참조"
+            return False, f"'{old_name}' 이름의 {what}를 찾지 못했어요 — 등록된 이름·종류를 확인해 주세요."
+        clash = next((e for e in elems if e is not target and new_n in _element_names(e)), None)
+        if clash is not None:
+            clabel = _ELEM_TYPE_KR.get(clash.get("type"))
+            cwhat = f"{clabel} 참조" if clabel else "참조"
+            return False, (f"이미 다른 {cwhat}가 '{new_name}' 이름을 쓰고 있어요 — "
+                           "다른 이름을 쓰거나 그 참조를 먼저 정리해 주세요.")
+        old_display = _nfc(target.get("display", "")) or old_n
+        target["display"] = new_n
+        aliases = [a for a in (target.get("aliases") or []) if _nfc(a) != new_n]
+        if keep_old_alias and old_display != new_n:
+            aliases = sorted(set(aliases + [old_display]))
+        else:
+            aliases = [a for a in aliases if _nfc(a) != old_display]
+        target["aliases"] = aliases
+
+        notes = []
+        # (a) 레거시 이름 폴더 → id 폴더로 이동(rename-safe 마이그레이션). id 폴더가 이미 있으면 둔다.
+        try:
+            fx = vp_fixed_dir(work)
+            eid = target.get("id")
+            if fx and eid and not str(eid).startswith("file:"):
+                legacy = fx / old_display
+                dest = fx / eid
+                if legacy.is_dir() and not dest.exists():
+                    legacy.rename(dest)
+                    notes.append("이미지 폴더 이동")
+        except Exception:
+            notes.append("⚠️ 이미지 폴더 이동 실패")
+        # (b) 로컬 data/refs 폴백 파일이 옛 이름을 파일명에 박고 있으면 새 이름으로 맞춘다.
+        try:
+            f = target.get("file")
+            if f:
+                refs = config.OPENROUTER_REFS_DIR / _canon_work(work)
+                src = refs / f
+                if src.is_file():
+                    ndest = refs / f"{new_n}{src.suffix}"
+                    if not ndest.exists():
+                        src.rename(ndest)
+                        target["file"] = ndest.name
+                        notes.append("로컬 파일 이동")
+        except Exception:
+            notes.append("⚠️ 로컬 파일 이동 실패")
+
+        _save_elements(work, elems)
+
+    tlabel = _ELEM_TYPE_KR.get(target.get("type"), "참조")
+    extra = f" ({', '.join(notes)})" if notes else ""
+    alias_note = f"\n(옛 이름 '{old_name}'도 계속 인식돼요)" if keep_old_alias else ""
+    return True, f"✅ {tlabel} 이름을 '{old_name}' → '{new_name}'으로 바꿨어요{extra}.{alias_note}"
+
+
 _GENDER_CARD_RE = re.compile(r"^(?:#{1,3}\s*)?([^\n(]{1,12}?)\s*\(([^)\n]*)\)\s*/", re.M)
 
 

@@ -104,8 +104,11 @@ def _system_prompt_static() -> str:
 - '스토리보드 이미지/그리드'는 generate_storyboard_grid, '스틸컷'은
   generate_stillcuts, '상세 콘티'는 generate_detail_conti다.
 - '[피드백]' 또는 '피드백해줘'는 review_script다.
-- '등록/확정'은 register_reference_image(s), 이미 등록된 대상을 '교체/바꿔/수정'은
-  replace_reference_image다.
+- '등록/확정'은 register_reference_image(s), 이미 등록된 대상의 '이미지'를 '교체/바꿔/수정'
+  (새 첨부 이미지로)은 replace_reference_image다.
+- 이미 등록된 참조의 '이름'을 바꾸는 것('A를 B로 바꿔줘', '이름 변경/개명', 첨부 이미지 없음)은
+  rename_reference다. 이미지 교체(replace)와 혼동하지 않는다 — 새 이미지 첨부가 없고 옛 이름과
+  새 이름만 주어지면 rename_reference로 본다.
 - '씬N 스틸컷', '컷N 다시 뽑아', '스토리보드 보고 스틸컷/영상화'는 현재 작업 대상이므로
   작품·회차가 없어도 해당 함수다. '씬N 콘티 수정/바꿔/손봐/다듬어'는 rewrite_conti이며
   구체적 변경 내용이 없어도 원문을 instruction으로 전달한다.
@@ -128,6 +131,8 @@ def _system_prompt_static() -> str:
   * 이미지 3장 첨부 + '씬1 컷1,2,3으로 저장해줘' → save_stillcuts(scene=1, cuts=[1,2,3])
   * 이미지 첨부 + '내가 준 이미지 다시 만들지 말고 그대로 영상으로 만들어줘' →
     save_stillcuts와 generate_video 두 호출(저장이 먼저)
+  * 첨부 없이 '의상 유나경 출연자룩-B를 출연자룩-A로 바꿔줘' →
+    rename_reference(kind=의상, old_name=유나경 출연자룩-B, new_name=유나경 출연자룩-A)
   * mp4 3개 첨부 + '씬1 컷1,2,3 영상으로 저장해줘' → save_videos(scene=1, cuts=[1,2,3])
   * '첨부로 단계 건너뛰려면 뭘 올리면 돼?' 또는 그리드 한 장으로 콘티 없이 스틸컷 요청 →
     explain_stage_skip

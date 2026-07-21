@@ -4364,6 +4364,26 @@ def _maybe_ordered_ref(channel, thread_ts, query, event) -> bool:
     _post_ref_confirm(channel, thread_ts, work, etype, pairs)
     return True
 
+def _do_rename_ref(channel, thread_ts, work=None, etype=None, old_name=None, new_name=None) -> bool:
+    """★2026-07-21: 등록된 참조(인물/의상/장소/소품)의 이름을 바꾼다 — 기존엔 등록/교체만
+    되고 이름 변경 기능이 없었다(사용자 요청). 첨부 이미지 없이 이름만 바꾸며, 실제 처리는
+    oi.rename_element에 위임하고 결과 메시지를 그대로 안내한다(성공/실패 모두 사용자에게 설명)."""
+    if not (old_name and new_name):
+        _reply(channel, thread_ts,
+              "⚠️ 무엇을 무슨 이름으로 바꿀지 알려주세요 — 예: "
+              "`의상 유나경 출연자룩-B를 출연자룩-A로 바꿔줘`.")
+        return True
+    if not work:
+        joined = "\n".join(mm["content"] for mm in _thread_messages(channel, thread_ts))
+        work = _work_from_thread(joined, thread_ts)
+    if not work:
+        _reply(channel, thread_ts, _WORK_NOT_FOUND_MSG)
+        return True
+    work = works.resolve(work) or work
+    _ok, msg = oi.rename_element(work, old_name=old_name, new_name=new_name, etype=etype)
+    _reply(channel, thread_ts, msg)
+    return True
+
 def _do_typed_ref(channel, thread_ts, event, work=None, etype=None, names=None) -> bool:
     """_maybe_typed_ref의 실행부(★2026-07-21 작업2, 트리거/파싱과 분리) — work/etype/names를
     이미 알면(라우터가 r.elements로 이미 확정) 텍스트 재파싱 없이 바로 등록 확정 카드를

@@ -229,6 +229,14 @@ def _reference_many(name: str, args: dict, ctx) -> None:
         _reference(name, merged, ctx)
 
 
+def _rename_reference(args: dict, ctx) -> None:
+    from . import dispatch_storyboard as sb
+    kind = args.get("kind")
+    etype = sb._REF_TYPE_KW.get(str(kind).lower()) if kind else None
+    sb._do_rename_ref(ctx.channel, ctx.thread_ts, work=args.get("work"), etype=etype,
+                      old_name=args.get("old_name"), new_name=args.get("new_name"))
+
+
 def _replace_logo(args: dict, ctx) -> None:
     from . import dispatch_storyboard as sb
     selected = _selected_attachment(args, ctx)
@@ -423,6 +431,7 @@ _USER_LABELS = {
     "generate_reference_image": "참고 이미지 만들기",
     "register_reference_images": "여러 참고 이미지 등록하기",
     "generate_reference_images": "여러 참고 이미지 만들기",
+    "rename_reference": "참고 이미지 이름 바꾸기",
     "replace_logo": "로고 적용하기",
 }
 
@@ -536,6 +545,14 @@ _add("generate_reference_images",
      lambda args, ctx: _reference_many("generate_reference_image", args, ctx),
      lambda args, ctx: _validate_reference_batch(args, ctx, attachments_required=False))
 
+_add("rename_reference",
+     "이미 등록된 참조(인물·의상·장소·소품)의 이름을 새 이름으로 바꾼다. '유나경 출연자룩-B를 출연자룩-A로 바꿔줘', '이 인물 이름 개명해줘'처럼 이름 변경 요청. 새로 등록(register)하거나 이미지를 교체(replace)하는 것과 다르며 첨부 이미지가 필요 없다. kind는 알면 넣고 애매하면 생략한다.",
+     {"work": WORK,
+      "kind": {"type": "string", "enum": ["인물", "의상", "장소", "소품"]},
+      "old_name": {"type": "string", "description": "현재 등록된 이름"},
+      "new_name": {"type": "string", "description": "바꿀 새 이름"}},
+     ["old_name", "new_name"], HIGH, _rename_reference)
+
 _add("replace_logo",
      "첨부 로고를 특정 현재 컷에만 반영하거나 앞으로 쓸 방송·작품 로고 기본 참조로 등록한다. 두 범위를 모두 요청하면 scope별로 두 번 호출한다.",
      {"work": WORK, "episode": EPISODE, "scene": SCENE,
@@ -627,6 +644,7 @@ _ARG_LABELS = {
     "attachment_id": "첨부 이미지", "scope": "적용 범위",
     "cut_number": "컷 번호", "logo_type": "로고 종류", "kind": "이미지 종류",
     "name": "대상 이름", "elements": "등록·생성할 대상",
+    "old_name": "현재 이름", "new_name": "새 이름",
 }
 
 
