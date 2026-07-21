@@ -1489,6 +1489,13 @@ def _apply_element_label_resolution(r: Route, ctx: dict) -> str | None:
     if not name:
         return None
 
+    # LLM이 character 슬롯을 못 채운 실사용 케이스 대비 — 결정적 패턴으로 한 번 더 시도한다.
+    # 이게 없으면 의상 라벨 매칭 자체가 스킵되고, name이 지저분한 원문 그대로 노출/등록된다
+    # (실사용 사고: "1화에 나올 이영 옷 상의는 이 이미지에 있는 거랑 동일하게..." →
+    # character 미채움 → 매칭 스킵 → "이영 옷 상의는 있는 거랑 이미지"로 등록됨).
+    if kind == "costume" and not character:
+        character = _extract_character_for_costume(r.instruction or name)
+
     # 이미 등록된 라벨/별칭과 정확히 일치하면(사용자가 콘티 라벨을 직접 부른 경우)
     # 해석을 건너뛰고 그대로 사용한다.
     try:
