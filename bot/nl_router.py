@@ -10,13 +10,13 @@
    가능한 intent는 전부 기존 브래킷 명령의 정식 문자열로 변환해 재주입한다
    (예: intent=feedback, work=저연프, episode=1 → "[피드백] <저연프> 1화").
    → 핸들러 로직을 하나도 새로 짜지 않고, 브래킷 경로의 테스트 커버리지를 그대로 재사용.
-2. 결정적 경로는 그대로 둔다.
-   dedup / _STOP_RE(앵커드 정확일치) / 도움말 / 재시도 / 브래킷 명령 /
-   pending-state 카드 응답(레코드가 있을 때만 발동하는 *maybe**)은 LLM을 태우지 않는다.
-   라우터는 그 뒤의 "자유 문장 구간"(기존 step 4 자유문장 매처들 + step 5~7)만 대체한다.
-3. 실패 시 무조건 기존 체인으로 폴백.
-   타임아웃(기본 12초) / JSON 파싱 실패 / 백엔드 예외 → legacy_fallback(event) 호출.
-   최악의 경우에도 지금(regex 체인)보다 나빠지지 않는다.
+2. 프로토콜만 결정적으로 처리한다.
+   dedup / Slack 파일 메타데이터 복구 / 명시적 브래킷 명령만 LLM 전에 처리한다.
+   사용자가 직접 쓴 자연어(중단, 도움말, 재개, 카드 답변, 질문, 첨부 이미지 지시)는
+   예외 없이 이 라우터가 먼저 분류한다. 자연어 regex와 LLM이 경쟁하지 않게 한다.
+3. 실패 시 안전 정지한다.
+   타임아웃 / JSON 파싱 실패 / 백엔드 예외 / 미지 intent는 생성·수정 파이프라인이나
+   co-writer freeform으로 폴백하지 않는다. 조회성 안전 핸들러 후 스레드당 1회 안내한다.
 4. 새 메시지는 진행 중 작업을 절대 암묵적으로 죽이지 않는다 (job guard).
    기존 사고: 새 메시지가 job_key=thread_ts 작업을 cancel → 죽은 작업의
    CANCEL_MSG("🛑 중단했어요.")가 사용자 답변을 대체.
@@ -899,17 +899,6 @@ def route(
 
     ctx = _build_context(channel, thread_ts, event)
 
-    deterministic = _deterministic_question_route(query_text, ctx)
-    if deterministic is not None:
-        explicit_work = _resolve_work_ctx(query_text, ctx)
-        if explicit_work:
-            deterministic.work = explicit_work
-        log.info(
-            "nl_router: deterministic question=%s work=%r ep=%r",
-            deterministic.question_type, deterministic.work, deterministic.episode,
-        )
-        return deterministic
-
     system_text = build_system_prompt(ctx)
     t0 = time.time()
     try:
@@ -951,7 +940,9 @@ def route(
         confidence=float(data.get("confidence") or 0),
         raw={**data, "_context": ctx},
     )
-    r = _apply_safety_normalization(r, query_text, ctx)
+    # Router V2: do not reinterpret the LLM intent with another natural-language regex
+    # layer. Runtime safety is enforced by confidence gates, required-slot checks, attachment
+    # checks, job guards, and validated execution handlers instead.
 
     log.info(
         "nl_router: intent=%s work=%r ep=%r conf=%.2f (%.1fs)",
@@ -1088,6 +1079,22 @@ def _maybe_resume_offer_reply(channel: str, thread_ts: str, query: str, handle_f
     _reply(channel, thread_ts, "🔁 이어서 처리할게요…")
     try:
         handle_fn(pending["event"])
+    except Exception:
+        log.exception("resume_offer: 재처리 실패")
+    return True
+
+
+def _resume_failed_offer(channel: str, thread_ts: str, handle_fn) -> bool:
+    """Replay a previously safe-stopped event after the LLM classified the reply as confirm/resume."""
+    with _FAILED_LOCK:
+        pending = _FAILED_EVENTS.get(thread_ts)
+        if not pending or not pending.get("prompted"):
+            return False
+        event = pending["event"]
+        del _FAILED_EVENTS[thread_ts]
+    _reply(channel, thread_ts, "🔁 이어서 처리할게요…")
+    try:
+        handle_fn(event)
     except Exception:
         log.exception("resume_offer: 재처리 실패")
     return True
@@ -1775,12 +1782,31 @@ def execute(
     dispatch_bracket,
     legacy_fallback,
     _depth: int = 0,
+    handle_dispatch=None,
+    combined_help: str | None = None,
 ) -> None:
     """Route를 기존 핸들러 호출로 변환한다."""
     from . import dispatch_cowriter as cw
     from . import dispatch_storyboard as sb
 
+    if r.intent == "help":
+        _reply(channel, thread_ts, combined_help or "도움말을 불러오지 못했어요. `[도움말]`을 입력해주세요.")
+        return
+
     if r.intent == "confirm_previous":
+        # The LLM decides that this is an affirmative reply; existing pending-state handlers
+        # still perform the actual validated transition. No natural-language matcher ran before LLM.
+        for fn in (sb._maybe_ref_edit_reply, sb._maybe_scene_pick_reply,
+                   sb._maybe_stillcut_regen_ask_reply, sb._maybe_element_regen_ask_reply,
+                   sb._maybe_planregen_ask_reply):
+            try:
+                if fn(channel, thread_ts, _q(event.get("text"))):
+                    log.info("nl_router_v2 execute=pending_confirm:%s", fn.__name__)
+                    return
+            except Exception:
+                log.exception("pending confirm handler failed: %s", fn.__name__)
+        if handle_dispatch and _resume_failed_offer(channel, thread_ts, handle_dispatch):
+            return
         prev = _pop_proposal(thread_ts)
         if prev is None:
             _reply(
@@ -1800,6 +1826,8 @@ def execute(
             dispatch_bracket,
             legacy_fallback,
             _depth,
+            handle_dispatch=handle_dispatch,
+            combined_help=combined_help,
         )
         return
 
@@ -1816,6 +1844,14 @@ def execute(
         _remember_proposal(thread_ts, r)
         _reply(channel, thread_ts, r.reply_text or _default_clarify(r))
         return
+
+    # Attachment validation happens after LLM classification, never as a competing
+    # pre-router natural-language regex. It only gates intents that actually require an image.
+    if r.intent in ("element_register", "element_edit", "element_generate"):
+        raw_query = _q(event.get("text"))
+        recover_event_files(channel, thread_ts, event, query_text=raw_query)
+        if preflight_missing_attachment(channel, thread_ts, raw_query, event):
+            return
 
     if r.intent == "answer_question":
         _answer_question(channel, thread_ts, event, r, legacy_fallback)
@@ -1880,6 +1916,8 @@ def execute(
                     dispatch_bracket,
                     legacy_fallback,
                     _depth + 1,
+                    handle_dispatch=handle_dispatch,
+                    combined_help=combined_help,
                 )
         return
 
@@ -1892,6 +1930,8 @@ def execute(
     intent, body = r.intent, _q(r.instruction)
 
     if intent == "resume_interrupted":
+        if handle_dispatch and _resume_failed_offer(channel, thread_ts, handle_dispatch):
+            return
         rec = sb.interrupted_state.get(thread_ts)
         if rec:
             sb.interrupted_state.clear(thread_ts)
