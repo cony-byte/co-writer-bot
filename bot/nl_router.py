@@ -61,7 +61,7 @@ import time
 from dataclasses import dataclass, field
 
 from . import config
-from .nl_router_prompt import INTENT_SPECS, build_system_prompt
+from .nl_router_prompt import ACTION_SPECS, INTENT_SPECS, build_system_prompt
 from .shared.slack_io import _reply, _thread_messages, app, log
 
 ROUTER_BACKEND = os.environ.get(
@@ -134,7 +134,8 @@ class Route:
     instruction: str | None = None
     display_label: str | None = None
     reply_text: str | None = None
-    question_type: str | None = None
+    mode: str = "action"
+    question_type: str | None = None  # legacy compatibility; 새 라우터는 사용하지 않음
     assumptions: list[str] | None = None
     steps: list[dict] | None = None
     needs_clarification: bool = False
@@ -438,7 +439,7 @@ def _load_registered_elements(work: str | None) -> dict[str, list[str]]:
     return result
 
 
-def _build_context(channel: str, thread_ts: str, event: dict) -> dict:
+def _build_context(channel: str, thread_ts: str, event: dict, query_text: str = "") -> dict:
     """라우터 프롬프트에 넣을 스레드 상태 스냅숏."""
     from . import dispatch_storyboard as sb
     from .shared import works
@@ -493,6 +494,45 @@ def _build_context(channel: str, thread_ts: str, event: dict) -> dict:
     # ★2026-07-21 작업1: 스레드 부모(루트) 메시지 텍스트 — 스레드 상단에 작품명만 적어둔 경우
     # (예: 루트가 "저연프")를 이 스레드의 기본 작품으로 쓰기 위한 근거.
     thread_parent_text = ((msgs[0].get("content") if msgs else "") or "")[:_CTX_MSG_MAXLEN]
+
+    # answer 모드는 question_type 없이 LLM이 직접 답하므로, 현재 작품/화의 실제 자료를
+    # 가능한 범위에서 함께 제공한다. 실패해도 라우팅 자체는 계속한다.
+    answer_sources = {}
+    base_ctx = {
+        "channel": channel,
+        "thread_ts": thread_ts,
+        "thread_parent_text": thread_parent_text,
+        "tracked_work": tracked.get("work"),
+        "tracked_episode": tracked.get("episode"),
+        "registered_works": registry,
+    }
+    resolved_work = _resolve_work_ctx(query_text, base_ctx)
+    ep_match = re.search(r"(\d+)\s*화", query_text or "")
+    resolved_episode = int(ep_match.group(1)) if ep_match else tracked.get("episode")
+    if resolved_work:
+        try:
+            from .sheet_bible import SheetBible
+            bible = SheetBible().get(resolved_work) or {}
+            # 바이블 전체를 넘기면 프롬프트가 지나치게 길어지므로 핵심 필드만 제한한다.
+            answer_sources["bible"] = {
+                k: bible.get(k) for k in ("title", "logline", "characters", "places", "props", "progress")
+                if bible.get(k)
+            }
+            if resolved_episode:
+                script = ((bible.get("scripts") or {}).get(f"{resolved_episode}화") or "").strip()
+                if script:
+                    answer_sources["episode_script_excerpt"] = script[:12000]
+        except Exception as exc:
+            log.warning("nl_router answer source bible load failed: %s", exc)
+        if resolved_episode:
+            try:
+                conti, source = sb._fetch_external_conti(resolved_work, resolved_episode)
+                if conti:
+                    answer_sources["detail_conti_excerpt"] = conti[:12000]
+                    answer_sources["detail_conti_source"] = source
+            except Exception as exc:
+                log.warning("nl_router answer source conti load failed: %s", exc)
+
     return {
         "channel": channel,
         "thread_ts": thread_ts,
@@ -509,6 +549,7 @@ def _build_context(channel: str, thread_ts: str, event: dict) -> dict:
             if str(file.get("mimetype", "")).startswith("image/")
         ),
         "attached_file_names": [file.get("name", "") for file in files][:10],
+        "answer_sources": answer_sources,
         "recent_messages": recent,
     }
 
@@ -903,23 +944,11 @@ def route(
     query_text: str,
     event: dict,
 ) -> Route | None:
-    """분류 성공 시 Route, 실패(폴백해야 함) 시 None."""
+    """자유문장을 answer/action/clarify 중 하나로 해석한다."""
     if not ROUTER_ENABLED:
         return None
 
-    ctx = _build_context(channel, thread_ts, event)
-
-    deterministic = _deterministic_question_route(query_text, ctx)
-    if deterministic is not None:
-        explicit_work = _resolve_work_ctx(query_text, ctx)
-        if explicit_work:
-            deterministic.work = explicit_work
-        log.info(
-            "nl_router: deterministic question=%s work=%r ep=%r",
-            deterministic.question_type, deterministic.work, deterministic.episode,
-        )
-        return deterministic
-
+    ctx = _build_context(channel, thread_ts, event, query_text=query_text)
     system_text = build_system_prompt(ctx)
     t0 = time.time()
     try:
@@ -927,58 +956,65 @@ def route(
         data = _extract_json(raw)
     except Exception as exc:
         log.warning(
-            "nl_router 실패(양쪽 백엔드 모두) → safe_stop 경로: %s (%.1fs) | %s",
-            exc,
-            time.time() - t0,
-            _metrics_summary(),
+            "nl_router 실패 → safe_stop 경로: %s (%.1fs) | %s",
+            exc, time.time() - t0, _metrics_summary(),
         )
         return None
 
-    intent = str(data.get("intent") or "").strip()
-    if intent not in INTENT_SPECS:
-        log.warning("nl_router 미지의 intent %r → legacy 폴백", intent)
+    mode = str(data.get("mode") or "").strip().lower()
+    if mode not in {"answer", "action", "clarify"}:
+        log.warning("nl_router 미지의 mode %r → safe_stop", mode)
         return None
 
-    r = Route(
-        intent=intent,
-        work=data.get("work") or None,
-        episode=data.get("episode") if isinstance(data.get("episode"), int) else None,
-        episodes=data.get("episodes") if isinstance(data.get("episodes"), list) else None,
-        scene=data.get("scene") if isinstance(data.get("scene"), int) else None,
-        cuts=data.get("cuts") if isinstance(data.get("cuts"), list) else None,
-        elements=data.get("elements") if isinstance(data.get("elements"), list) else None,
-        instruction=(data.get("instruction") or "").strip() or None,
-        display_label=(data.get("display_label") or "").strip() or None,
-        reply_text=(data.get("reply_text") or "").strip() or None,
-        question_type=(data.get("question_type") or "").strip() or None,
-        assumptions=(
-            data.get("assumptions")
-            if isinstance(data.get("assumptions"), list)
-            else None
-        ),
-        steps=data.get("steps") if isinstance(data.get("steps"), list) else None,
-        needs_clarification=bool(data.get("needs_clarification")),
-        confidence=float(data.get("confidence") or 0),
-        raw={**data, "_context": ctx},
-    )
-    r = _apply_safety_normalization(r, query_text, ctx)
+    if mode == "answer":
+        answer = str(data.get("answer") or "").strip()
+        if not answer:
+            log.warning("nl_router answer 모드인데 answer가 비어 있음 → safe_stop")
+            return None
+        r = Route(
+            intent="answer_question",
+            mode="answer",
+            reply_text=answer,
+            confidence=float(data.get("confidence") or 0.0),
+            raw={**data, "_context": ctx},
+        )
+    elif mode == "clarify":
+        question = str(data.get("question") or "").strip()
+        if not question:
+            question = "정확히 어떤 작업을 원하시는지 한 번만 더 알려주세요."
+        r = Route(
+            intent="clarify",
+            mode="clarify",
+            reply_text=question,
+            confidence=float(data.get("confidence") or 0.0),
+            raw={**data, "_context": ctx},
+        )
+    else:
+        action = str(data.get("action") or "").strip()
+        if action not in ACTION_SPECS:
+            log.warning("nl_router 미허용 action %r → safe_stop", action)
+            return None
+        r = Route(
+            intent=action,
+            mode="action",
+            work=data.get("work") or None,
+            episode=data.get("episode") if isinstance(data.get("episode"), int) else None,
+            episodes=data.get("episodes") if isinstance(data.get("episodes"), list) else None,
+            scene=data.get("scene") if isinstance(data.get("scene"), int) else None,
+            cuts=data.get("cuts") if isinstance(data.get("cuts"), list) else None,
+            elements=data.get("elements") if isinstance(data.get("elements"), list) else None,
+            instruction=(data.get("instruction") or "").strip() or query_text.strip() or None,
+            display_label=(data.get("display_label") or "").strip() or None,
+            assumptions=data.get("assumptions") if isinstance(data.get("assumptions"), list) else None,
+            steps=data.get("steps") if isinstance(data.get("steps"), list) else None,
+            confidence=float(data.get("confidence") or 0.0),
+            raw={**data, "_context": ctx},
+        )
 
     log.info(
-        "nl_router: intent=%s work=%r ep=%r conf=%.2f (%.1fs)",
-        r.intent,
-        r.work,
-        r.episode,
-        r.confidence,
-        time.time() - t0,
+        "nl_router: mode=%s action=%s work=%r ep=%r conf=%.2f (%.1fs)",
+        r.mode, r.intent, r.work, r.episode, r.confidence, time.time() - t0,
     )
-
-    if (
-        r.confidence < 0.55
-        and not r.needs_clarification
-        and r.intent not in ("answer_question", "freeform", "smalltalk")
-    ):
-        r.needs_clarification = True
-        r.reply_text = r.reply_text or _default_clarify(r)
     return r
 
 
@@ -1482,202 +1518,12 @@ def _answer_question(
     r: Route,
     legacy_fallback,
 ) -> None:
-    """LLM이 답변 문장을 만들지 않고, 구조화 상태로 결정적인 답만 생성한다."""
-    ctx = r.raw.get("_context") if isinstance(r.raw, dict) else None
-    if not isinstance(ctx, dict):
+    """question_type 없이 LLM이 현재 상태 자료를 근거로 작성한 답을 전달한다."""
+    answer = (r.reply_text or "").strip()
+    if not answer:
         legacy_fallback(event)
         return
-
-    qtype = r.question_type or "general"
-    work = _resolve_work_ctx(r.work or "", ctx) or _canonical_work(r.work or ctx.get("tracked_work"))
-    episode = r.episode if r.episode is not None else ctx.get("tracked_episode")
-    stage = int(ctx.get("sb_stage") or 0)
-    # 컨텍스트 스냅숏은 질문 직전 등록을 놓칠 수 있으므로 실제 파일을 다시 읽는다.
-    elements = _load_registered_elements(work) if work else {}
-
-    if qtype == "element_reflection_status":
-        if not work:
-            _reply(channel, thread_ts, "현재 스레드에서 확인할 작품이 정해져 있지 않아요. 작품명을 함께 알려주세요.")
-            return
-        targets = []
-        for item in r.elements or []:
-            if not isinstance(item, dict):
-                continue
-            name = str(item.get("name") or "").strip()
-            kind = str(item.get("kind") or "").strip()
-            if name:
-                targets.append((kind, name))
-        if not targets:
-            legacy_fallback(event)
-            return
-
-        def _norm(value: str) -> str:
-            value = re.sub(r"\s+", "", value)
-            for suffix in ("이미지", "참조", "사진"):
-                value = value.replace(suffix, "")
-            return value
-
-        matches = []
-        missing = []
-        for wanted_kind, wanted_name in targets:
-            wanted = _norm(wanted_name)
-            found = []
-            if isinstance(elements, dict):
-                for kind, names in elements.items():
-                    if wanted_kind and wanted_kind not in (str(kind), "?"):
-                        continue
-                    for name in names or []:
-                        actual = str(name).strip()
-                        normalized = _norm(actual)
-                        if wanted and (wanted in normalized or normalized in wanted):
-                            found.append(actual)
-            if found:
-                matches.extend(found)
-            else:
-                missing.append(wanted_name)
-        if matches and not missing:
-            _reply(channel, thread_ts, f"네, <{work}>에 {', '.join(dict.fromkeys(matches))} 참조가 등록되어 있어요.")
-        elif matches:
-            _reply(channel, thread_ts, f"<{work}>에서 {', '.join(dict.fromkeys(matches))}은 확인됐지만, {', '.join(missing)}은 등록 상태를 찾지 못했어요.")
-        else:
-            _reply(channel, thread_ts, f"아직 <{work}>에서 {', '.join(missing)} 참조가 등록된 상태로 확인되지 않아요.")
-        return
-
-    if qtype == "episode_character_costume":
-        if not work:
-            _reply(channel, thread_ts, "어느 작품인지 확인할 수 없어요. 작품명을 함께 알려주세요.")
-            return
-        if episode is None:
-            _reply(channel, thread_ts, "몇 화 의상인지 화 번호를 알려주세요.")
-            return
-        character = ""
-        for item in r.elements or []:
-            if isinstance(item, dict) and str(item.get("kind") or "") in ("인물", "person"):
-                character = str(item.get("name") or "").strip()
-                if character:
-                    break
-        if not character:
-            _reply(channel, thread_ts, "어느 인물의 의상인지 이름을 알려주세요.")
-            return
-        costume, source = _episode_character_costume(work, int(episode), character)
-        if costume:
-            _reply(
-                channel, thread_ts,
-                f"<{work}> {episode}화에서 {character}의 의상은 {costume}예요. "
-                f"({source} 기준)",
-            )
-        else:
-            _reply(channel, thread_ts, source or f"<{work}> {episode}화에서 {character}의 의상을 찾지 못했어요.")
-        return
-
-    if qtype == "episode_required_elements":
-        if not work:
-            _reply(channel, thread_ts, "어느 작품의 화인지 확인할 수 없어요. 작품명을 함께 알려주세요.")
-            return
-        if episode is None:
-            _reply(channel, thread_ts, "몇 화에 필요한 인물인지 화 번호를 알려주세요.")
-            return
-        people, missing, error = _episode_required_people(work, episode)
-        if error:
-            _reply(channel, thread_ts, error)
-            return
-        registered = [name for name in people if name not in missing]
-        lines = [f"<{work}> {episode}화에 등장하는 인물은 {', '.join(people)}예요."]
-        if missing:
-            lines.append("아직 인물 참조 등록이 필요한 대상: " + ", ".join(missing))
-        else:
-            lines.append("등장인물의 인물 참조가 모두 등록되어 있어요.")
-        if registered:
-            lines.append("이미 등록된 대상: " + ", ".join(registered))
-        _reply(channel, thread_ts, "\n".join(lines))
-        return
-
-    if qtype == "registered_elements_status":
-        if not work:
-            _reply(channel, thread_ts, "현재 스레드에서 확인할 작품이 정해져 있지 않아요. 작품명을 함께 알려주세요.")
-            return
-        rows = []
-        if isinstance(elements, dict):
-            for kind, names in elements.items():
-                clean = [str(n) for n in (names or []) if str(n).strip()]
-                if clean:
-                    rows.append(f"• {kind}: {', '.join(clean)}")
-        if rows:
-            _reply(channel, thread_ts, f"현재 <{work}>에 등록된 참조는 다음과 같아요.\n" + "\n".join(rows) + "\n등록 참조는 생성 시 함께 반영되며, 인물과 의상 참조가 충돌하면 결과가 섞일 수 있어요.")
-        else:
-            _reply(channel, thread_ts, f"현재 확인되는 <{work}> 등록 참조가 없어요.")
-        return
-
-    if qtype == "next_step":
-        target = f"<{work}> " if work else ""
-        ep = f"{episode}화 " if episode is not None else ""
-        if stage <= 0:
-            msg = f"다음 단계는 {target}{ep}대본을 기준으로 1단계 씬 설계를 만드는 거예요."
-        elif stage == 1:
-            msg = f"다음 단계는 {target}{ep}씬 설계를 바탕으로 2단계 상세 콘티를 만드는 거예요."
-        else:
-            msg = f"상세 콘티까지 있어요. 다음은 스틸컷 생성이나 콘티 수정으로 진행하면 돼요."
-        _reply(channel, thread_ts, msg)
-        return
-
-    if qtype == "capability":
-        _reply(
-            channel,
-            thread_ts,
-            "이 봇은 대본·개요 생성과 수정, 씬 설계·상세 콘티, 인물/장소/의상/소품 참조 등록 및 생성, 스틸컷·영상화 요청을 처리할 수 있어요.",
-        )
-        return
-
-    if qtype in ("storyboard_image_explanation", "stillcut_explanation", "generation_explanation"):
-        refs = []
-        if isinstance(elements, dict):
-            for kind, names in elements.items():
-                count = len(names or [])
-                if count:
-                    refs.append(f"{kind} {count}개")
-        ref_text = ", ".join(refs) if refs else "확인되는 등록 참조 없음"
-
-        if qtype == "storyboard_image_explanation":
-            _reply(
-                channel,
-                thread_ts,
-                f"스토리보드 이미지는 한 컷만 다시 만드는 스틸컷이 아니라, 상세 콘티의 여러 컷을 한 번에 그리드로 시각화한 결과예요. "
-                f"현재 진행 단계는 {stage}, 참조 상태는 {ref_text}예요. "
-                "그래서 특정 컷의 자세·표정 문제뿐 아니라 상세 콘티의 컷 설명, 컷 순서, 등록 참조의 누락이나 충돌이 전체 그리드에 함께 영향을 줄 수 있어요. "
-                "한 컷만 고치려는 경우에는 해당 씬·컷의 스틸컷 재생성이 더 정확해요.",
-            )
-            return
-
-        if qtype == "stillcut_explanation":
-            _reply(
-                channel,
-                thread_ts,
-                f"스틸컷은 상세 콘티 전체를 그리는 스토리보드 그리드가 아니라, 지정한 씬·컷 한 장을 개별 생성한 결과예요. "
-                f"현재 진행 단계는 {stage}, 참조 상태는 {ref_text}예요. "
-                "해당 컷의 구도·표정·동작 지시와 인물·의상·장소 참조가 직접 영향을 주므로, 문제가 있는 컷 번호와 바꿀 조건을 함께 주면 그 컷만 재생성할 수 있어요.",
-            )
-            return
-
-        _reply(
-            channel,
-            thread_ts,
-            f"현재 스레드 기준으로 생성 단계는 {stage}이고, 참조 상태는 {ref_text}예요. "
-            "어떤 산출물인지 명확하지 않아 일반 생성 상태만 안내했어요. 스토리보드 그리드인지 특정 씬·컷의 스틸컷인지 알려주면 해당 경로 기준으로 설명할게요.",
-        )
-        return
-
-    if qtype == "pipeline_status":
-        target = work or "미지정"
-        ep = str(episode) if episode is not None else "미지정"
-        labels = {0: "시작 전", 1: "씬 설계 완료", 2: "상세 콘티 완료"}
-        _reply(channel, thread_ts, f"현재 작품은 {target}, 화는 {ep}, 진행 단계는 {labels.get(stage, str(stage))}예요.")
-        return
-
-    # 일반 지식 질문은 기존 자유응답 체인으로 넘겨, 라우터가 사실을 지어내지 않게 한다.
-    legacy_fallback(event)
-
-
-_KO_KIND_TO_EN = {"의상": "costume", "장소": "place", "소품": "prop"}
+    _reply(channel, thread_ts, answer)
 
 
 def _apply_element_label_resolution(r: Route, ctx: dict) -> str | None:
@@ -1827,7 +1673,11 @@ def execute(
         _reply(channel, thread_ts, r.reply_text or _default_clarify(r))
         return
 
-    if r.intent == "answer_question":
+    if r.intent == "clarify" or r.mode == "clarify":
+        _reply(channel, thread_ts, r.reply_text or "정확히 어떤 작업을 원하시는지 한 번만 더 알려주세요.")
+        return
+
+    if r.intent == "answer_question" or r.mode == "answer":
         _answer_question(channel, thread_ts, event, r, legacy_fallback)
         return
 
@@ -1849,7 +1699,7 @@ def execute(
         _echo_assumptions(channel, thread_ts, r)
         for step in r.steps[:5]:
             sub = Route(
-                intent=str(step.get("intent") or ""),
+                intent=str(step.get("action") or step.get("intent") or ""),
                 raw=step,
                 work=step.get("work") or r.work,
                 episode=(
