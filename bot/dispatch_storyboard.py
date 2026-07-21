@@ -3798,7 +3798,8 @@ def _reference_generation_prompt(name: str, etype: str, query: str) -> str:
 
 
 def _maybe_element_ref_generate_request(channel, thread_ts, query, event) -> bool:
-    """첨부 이미지를 시각 참조로 새 엘리먼트 후보를 생성한다.
+    """첨부 이미지를 시각 참조로 새 엘리먼트 후보를 생성한다. 트리거 판정만 하고 실행은
+    _do_element_ref_generate에 위임한다(★2026-07-21 작업2).
 
     일반 _maybe_element_gen_request는 첨부가 있으면 등록 경로와 충돌하지 않도록 일부러
     False를 반환한다. 따라서 '이 이미지와 동일하게 재생성'은 이 전용 경로에서 처리한다.
@@ -3812,11 +3813,23 @@ def _maybe_element_ref_generate_request(channel, thread_ts, query, event) -> boo
     ))
     if not (has_ref and has_generate):
         return False
+    return _do_element_ref_generate(channel, thread_ts, query, event)
+
+
+def _do_element_ref_generate(channel, thread_ts, query, event, work=None, name=None, etype=None) -> bool:
+    """_maybe_element_ref_generate_request의 실행부(★2026-07-21 작업2, 트리거 판정과 분리).
+    work/name/etype을 이미 알면(라우터가 r.work/r.elements로 확정) _parse_reference_element_target
+    재파싱 없이 그 값을 그대로 쓴다."""
+    q = query or ""
     imgs = _image_files(event)
     if not imgs:
         return False
-
-    work, episode, name, etype = _parse_reference_element_target(q)
+    episode = None
+    if not (work and name and etype):
+        p_work, episode, p_name, p_etype = _parse_reference_element_target(q)
+        work = work or p_work
+        name = name or p_name
+        etype = etype or p_etype
     if not work:
         joined = "\n".join(m["content"] for m in _thread_messages(channel, thread_ts))
         work = _work_from_thread(joined, thread_ts)
@@ -3924,6 +3937,17 @@ def _maybe_element_gen_request(channel, thread_ts, query, event) -> bool:
             return False
         trailing_context = q[m.end():].strip()
 
+    return _do_element_gen(channel, thread_ts, event, work=work, name=name, etype=etype,
+                           trailing_context=trailing_context)
+
+
+def _do_element_gen(channel, thread_ts, event, work=None, name=None, etype=None,
+                    trailing_context="") -> bool:
+    """_maybe_element_gen_request의 실행부(★2026-07-21 작업2, 트리거/이름파싱과 분리) —
+    라우터가 r.work/r.elements로 이미 name/etype을 확정했을 때 텍스트 재파싱 없이 바로
+    진입한다."""
+    if not name:
+        return False
     if not work:
         joined = "\n".join(mm["content"] for mm in _thread_messages(channel, thread_ts))
         work = _work_from_thread(joined, thread_ts)
@@ -3937,6 +3961,7 @@ def _maybe_element_gen_request(channel, thread_ts, query, event) -> bool:
     _reply(channel, thread_ts, f"🎨 <{work}> {name} 이미지를 AI로 생성할게요…")
     _post_element_candidate(channel, thread_ts, work, name, etype, context=trailing_context)
     return True
+
 
 def _do_typed_element_regen(channel, thread_ts, cmd, rest) -> None:
     """★2026-07-20 "[장소] 대기실 이미지 다시 만들어줘" / "[의상] 정장-A 이미지 다시 만들어줘" —
@@ -4104,22 +4129,13 @@ def _maybe_ordered_ref(channel, thread_ts, query, event) -> bool:
     _post_ref_confirm(channel, thread_ts, work, etype, pairs)
     return True
 
-def _maybe_typed_ref(channel, thread_ts, query, event) -> bool:
-    """`[참조]`도 "이걸로 해줘"도 없이, '장소 <2번 방>'처럼 타입 키워드로 바로 시작하는
-    이미지 첨부 메시지를 등록 시도로 인식한다."""
+def _do_typed_ref(channel, thread_ts, event, work=None, etype=None, names=None) -> bool:
+    """_maybe_typed_ref의 실행부(★2026-07-21 작업2, 트리거/파싱과 분리) — work/etype/names를
+    이미 알면(라우터가 r.elements로 이미 확정) 텍스트 재파싱 없이 바로 등록 확정 카드를
+    띄운다."""
     imgs = _image_files(event)
     if not imgs:
         return False
-    q = query
-    work = None
-    wm = SUB_RE.match(q)          # 맨 앞이 <작품> 태그면 채택(문자열 시작이 '<'일 때만 매치됨)
-    if wm and not _looks_like_mention(wm.group(1).strip()):
-        work = wm.group(1).strip()
-        q = (wm.group(2) or "").strip()
-    toks = q.split()
-    if not toks or toks[0].lower() not in _REF_TYPE_KW:
-        return False               # 타입 키워드로 시작 안 하면 이 흐름 아님
-    etype, names = _parse_ref_command(q)
     if not names:
         return False
     if not work:
@@ -4135,6 +4151,27 @@ def _maybe_typed_ref(channel, thread_ts, query, event) -> bool:
         _reply(channel, thread_ts, err); return True
     _post_ref_confirm(channel, thread_ts, work, etype, pairs)
     return True
+
+
+def _maybe_typed_ref(channel, thread_ts, query, event) -> bool:
+    """`[참조]`도 "이걸로 해줘"도 없이, '장소 <2번 방>'처럼 타입 키워드로 바로 시작하는
+    이미지 첨부 메시지를 등록 시도로 인식한다. 트리거 판정 후 실행은 _do_typed_ref에 위임."""
+    imgs = _image_files(event)
+    if not imgs:
+        return False
+    q = query
+    work = None
+    wm = SUB_RE.match(q)          # 맨 앞이 <작품> 태그면 채택(문자열 시작이 '<'일 때만 매치됨)
+    if wm and not _looks_like_mention(wm.group(1).strip()):
+        work = wm.group(1).strip()
+        q = (wm.group(2) or "").strip()
+    toks = q.split()
+    if not toks or toks[0].lower() not in _REF_TYPE_KW:
+        return False               # 타입 키워드로 시작 안 하면 이 흐름 아님
+    etype, names = _parse_ref_command(q)
+    if not names:
+        return False
+    return _do_typed_ref(channel, thread_ts, event, work=work, etype=etype, names=names)
 
 _PLACE_FEEDBACK_KW_RE = re.compile(r"장소|배경")
 
@@ -4443,6 +4480,13 @@ def _maybe_video_from_last_still(channel, thread_ts, query) -> bool:
     q = query or ""
     if not _VIDEO_FROM_STILL_RE.search(q):
         return False
+    return _do_video_from_last_still(channel, thread_ts, query)
+
+
+def _do_video_from_last_still(channel, thread_ts, query) -> bool:
+    """_maybe_video_from_last_still의 실행부(★2026-07-21 작업2, 트리거 판정과 분리) —
+    라우터가 intent=video를 이미 확정했을 때 _VIDEO_FROM_STILL_RE 재심사 없이 바로 진입."""
+    q = query or ""
     # ★확정된(=컷 원본이 실제로 저장된) 걸 우선 참조 — get_last는 확정 여부 상관없이
     # 생성할 때마다 갱신되므로, 그 뒤에 다른 씬을 확정 없이 한 번 더 생성만 해도
     # "컷별 원본을 못 찾았어요"로 잘못 새는 문제가 있었다(2026-07-14).
@@ -5120,34 +5164,36 @@ _CONTI_REWRITE_RE = re.compile(
     # ★2026-07-21: "내용 수정해줘"/"수정해주세요"처럼 가장 흔한 표현이 빠져있어 실측 사고 —
     # 작품/화 번호까지 정확해도 이 트리거 관문에서부터 막혀 조용히 안전정지로 빠졌다.
     r"|수정\s*(해\s*줘|해\s*주세요|해줄래|할래|하고자|해달라)|바꿔\s*(줘|주세요)"
+    # ★2026-07-21 작업2 회귀: "손봐줘"처럼 구어체로 고쳐달라는 표현도 누락돼 있었다.
+    r"|손\s*봐\s*(줘|주세요|줄래)"
 )
 
-def _maybe_conti_rewrite_request(channel, thread_ts, query, event) -> bool:
-    """"3화 상세 콘티 다시 쓰고 싶어"/"콘티 수정하고 싶어" 같은, 이미 존재하는 콘티를 고치고
-    싶다는 자연어. "가져와"류 동사가 없어 _maybe_conti_fetch는 못 잡는다. 기존 콘티를 먼저
-    노션/로컬에서 찾아 이 스레드로 반영한 뒤, 구체적으로 뭘 바꿀지가 메시지에 없으면 되묻고,
-    있으면 곧장 2단계 수정 흐름(sb_do_storyboard stage=2)에 태운다."""
-    if _is_bare_question(query):
-        return False
+def _do_conti_rewrite(channel, thread_ts, query, event, work=None, episode=None) -> bool:
+    """_maybe_conti_rewrite_request의 실행부(트리거 판정과 분리, ★2026-07-21 작업2) —
+    nl_router.execute()가 intent=conti_rewrite를 이미 확정했을 때 여기로 바로 들어온다.
+    work/episode를 미리 알면(라우터가 이미 resolve_work_ctx로 찾아둔 값) 그걸 그대로 쓰고,
+    없으면(레거시 자유문장 경로) 기존처럼 SUB_RE/스레드 이력에서 직접 찾는다 — 레거시
+    <작품> 꺾쇠 전용 정규식(SUB_RE)이 라우터가 이미 확정한 맨 텍스트 작품명을 재심사하다
+    실패해 조용히 안전정지로 빠지던 사고(실측)를 원천 차단."""
     text, _blocked = _files_text(event)
     if text:
         return False   # 첨부 있으면 _maybe_conti_final이 처리
     q = query or ""
-    if "콘티" not in q or not _CONTI_REWRITE_RE.search(q):
-        return False
-    work, rest_q = None, q
-    wm = SUB_RE.match(q)
-    if wm and not _looks_like_mention(wm.group(1).strip()):
-        work, rest_q = wm.group(1).strip(), wm.group(2).strip()
+    rest_q = q
+    if not work:
+        wm = SUB_RE.match(q)
+        if wm and not _looks_like_mention(wm.group(1).strip()):
+            work, rest_q = wm.group(1).strip(), wm.group(2).strip()
     if not work:
         joined = "\n".join(m["content"] for m in _thread_messages(channel, thread_ts))
         work = _work_from_thread(joined, thread_ts)
     if not work:
         return False   # 작품을 못 찾으면 기존 흐름(대본 못 찾음 안내 등)에 맡긴다
     work = works.resolve(work) or work
-    joined = "\n".join(m["content"] for m in _thread_messages(channel, thread_ts))
-    epm = re.search(r"(\d{1,3})\s*[화회]", q) or re.search(r"(\d{1,3})\s*[화회]", joined)
-    episode = int(epm.group(1)) if epm else (conti_state.get_episode(thread_ts) or {}).get("episode")
+    if not episode:
+        joined = "\n".join(m["content"] for m in _thread_messages(channel, thread_ts))
+        epm = re.search(r"(\d{1,3})\s*[화회]", q) or re.search(r"(\d{1,3})\s*[화회]", joined)
+        episode = int(epm.group(1)) if epm else (conti_state.get_episode(thread_ts) or {}).get("episode")
     content, src = _fetch_external_conti(work, episode)
     if not content:
         return False   # 고칠 기존 콘티가 아예 없으면 "다시 쓰기"가 아니라 새로 만들기 — 기존 흐름에 맡긴다
@@ -5166,6 +5212,19 @@ def _maybe_conti_rewrite_request(channel, thread_ts, query, event) -> bool:
         return True
     sb_do_storyboard(channel, thread_ts, instr, stage=2)
     return True
+
+
+def _maybe_conti_rewrite_request(channel, thread_ts, query, event) -> bool:
+    """"3화 상세 콘티 다시 쓰고 싶어"/"콘티 수정하고 싶어" 같은, 이미 존재하는 콘티를 고치고
+    싶다는 자연어. "가져와"류 동사가 없어 _maybe_conti_fetch는 못 잡는다. 트리거 판정만 하고
+    실제 실행은 _do_conti_rewrite에 위임한다(★2026-07-21 작업2 — 라우터가 intent를 이미
+    확정했을 때는 이 트리거 판정 없이 _do_conti_rewrite를 직접 호출해야 하므로 분리)."""
+    if _is_bare_question(query):
+        return False
+    q = query or ""
+    if "콘티" not in q or not _CONTI_REWRITE_RE.search(q):
+        return False
+    return _do_conti_rewrite(channel, thread_ts, query, event)
 
 _CONTI_EXISTS_TOKEN_RE = r"(?:이미(?!지)|있어|있음|있는데|(?:(?<=\s)|^)있는)"
 

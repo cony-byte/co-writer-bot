@@ -1472,12 +1472,11 @@ def execute(
         sb.sb_do_storyboard(channel, thread_ts, rest, stage=2)
         return
     if intent == "conti_rewrite":
-        # ★2026-07-21: _maybe_conti_rewrite_request는 <작품> 꺾쇠 형식만 작품명으로 인식해서
-        # (SUB_RE) "겨울 하루 1화 콘티 수정해줘"처럼 꺾쇠 없는 맨 텍스트는 자체적으로 작품을
-        # 못 찾고 조용히 실패했다(라우터가 r.work를 이미 정확히 찾았는데도 전달이 안 됨) —
-        # r.work를 꺾쇠로 감싸 앞에 붙여 SUB_RE가 그대로 인식하게 한다.
-        txt = (f"<{r.work}> " if r.work else "") + (f"씬{r.scene} " if r.scene else "") + body
-        if not sb._maybe_conti_rewrite_request(channel, thread_ts, txt, event):
+        # ★2026-07-21 작업2: 트리거 판정(_CONTI_REWRITE_RE 등)을 재심사하지 않고 실행부를
+        # 직접 호출 — 라우터가 이미 확정한 work/episode를 그대로 넘겨서 레거시의 자체
+        # work/episode 재탐색(꺾쇠 전용 SUB_RE 등)에서 실패할 여지를 원천 차단한다.
+        txt = (f"씬{r.scene} " if r.scene else "") + body
+        if not sb._do_conti_rewrite(channel, thread_ts, txt, event, work=r.work, episode=r.episode):
             legacy_fallback(event)
         return
     if intent == "stillcut":
@@ -1490,12 +1489,15 @@ def execute(
         sb._do_stills(channel, thread_ts, rest, feedback=body or None)
         return
     if intent == "video":
-        if not sb._maybe_video_from_last_still(channel, thread_ts, body or _q(event.get("text"))):
+        if not sb._do_video_from_last_still(channel, thread_ts, body or _q(event.get("text"))):
             legacy_fallback(event)
         return
     if intent == "notion_save":
-        if not sb._maybe_notion_save_request(channel, thread_ts, body or _q(event.get("text"))):
-            legacy_fallback(event)
+        # ★2026-07-21 작업2: _maybe_notion_save_request는 이미 트리거 판정만 하고 실행은
+        # _do_save_conti에 위임하는 구조였다(_NOTION_SAVE_NL_RE 재심사 불필요) — 그 실행부를
+        # 바로 호출. _do_save_conti는 bool을 반환하지 않고 실패 시 자체적으로 안내 메시지를
+        # 보내므로 legacy_fallback 분기가 필요 없다.
+        sb._do_save_conti(channel, thread_ts, rest=body or _q(event.get("text")))
         return
 
     if intent in ("element_register", "element_edit"):
@@ -1510,8 +1512,11 @@ def execute(
                 by_kind.setdefault(el.get("kind", "인물"), []).append(n)
         kinds = list(by_kind)
         kind = kinds[0]
-        txt = f"{kind} {', '.join(by_kind[kind])}"
-        if not sb._maybe_typed_ref(channel, thread_ts, txt, event):
+        # ★2026-07-21 작업2: r.elements로 이미 확정된 이름/타입을 텍스트로 재조립해 트리거
+        # 정규식(_REF_TYPE_KW 시작 검사 등)을 다시 태우지 않고 실행부를 직접 호출.
+        # kind는 라우터 스키마의 한글 라벨("인물" 등)이라 sb._REF_TYPE_KW로 정규화한다.
+        etype = sb._REF_TYPE_KW.get(kind.lower(), "person")
+        if not sb._do_typed_ref(channel, thread_ts, event, work=r.work, etype=etype, names=by_kind[kind]):
             legacy_fallback(event)
         elif len(kinds) > 1:
             _reply(channel, thread_ts,
@@ -1519,8 +1524,21 @@ def execute(
         return
     if intent == "element_generate":
         query = body or _q(event.get("text"))
+        # ★2026-07-21 작업2: 단일 elements(대부분의 실사용 케이스)면 라우터가 이미 확정한
+        # work/name/etype으로 텍스트 재파싱 없이 바로 실행부를 호출 — 여러 개면(예: "옷+배경
+        # 여러 개 생성") 기존 다중 파싱 텍스트 경로를 그대로 쓴다(아직 elements별 개별 실행
+        # 배선이 없음, 작업2 범위 밖).
+        single = r.elements[0] if r.elements and len(r.elements) == 1 else None
+        single_name = (single.get("name") or "").strip() if single else None
+        single_etype = sb._REF_TYPE_KW.get((single.get("kind") or "").lower(), "person") if single else None
         # 첨부 참조 재생성은 일반 생성 핸들러보다 먼저 처리한다. 일반 핸들러는
         # 첨부가 있으면 등록 경로와 충돌하지 않도록 False를 반환하기 때문이다.
+        if single_name and sb._do_element_ref_generate(channel, thread_ts, query, event,
+                                                        work=r.work, name=single_name, etype=single_etype):
+            return
+        if single_name and sb._do_element_gen(channel, thread_ts, event,
+                                              work=r.work, name=single_name, etype=single_etype):
+            return
         if sb._maybe_element_ref_generate_request(channel, thread_ts, query, event):
             return
         if not sb._maybe_element_gen_request(channel, thread_ts, query, event):
