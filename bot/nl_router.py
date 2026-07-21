@@ -540,6 +540,25 @@ def _build_context(channel: str, thread_ts: str, event: dict, query_text: str = 
                     answer_sources["detail_conti_source"] = source
             except Exception as exc:
                 log.warning("nl_router answer source conti load failed: %s", exc)
+            # ★2026-07-21 근본 수정(실측 반복 사고): "1화 스틸컷 있어?"류 생성물 존재/개수
+            # 질문에 봇이 매번 "아직 생성 안 됨"으로 오답 — answer_sources가 대본·콘티 '원문'만
+            # 주고 실제 '생성물 상태'(스틸컷/영상/합본이 디스크에 있는지)를 안 줘서 LLM이 근거
+            # 없이 추측했다. vp_store.preview_episode_outputs가 실제 outputs 디렉터리를 스캔해
+            # 그 화의 스틸컷 씬/영상/합본을 돌려주므로(값싼 glob), 그 요약을 컨텍스트에 실어
+            # LLM이 사실로 답하게 한다(프롬프트 규칙과 함께 — tool_router._system_prompt_static).
+            try:
+                outputs = sb.vp_store.preview_episode_outputs(_canonical_work(resolved_work), resolved_episode)
+                if outputs is not None:
+                    answer_sources["generated_artifacts"] = {
+                        "episode": resolved_episode,
+                        "stillcut_scenes": outputs.get("still_scenes") or [],
+                        "video_file_count": len(outputs.get("video_files") or []),
+                        "compiled": bool(outputs.get("compiled_files")),
+                        "_note": "실제 저장된 생성물 기준(디스크 스캔). stillcut_scenes가 있으면 "
+                                 "그 씬 스틸컷은 이미 생성·저장된 것.",
+                    }
+            except Exception as exc:
+                log.warning("nl_router answer source artifacts load failed: %s", exc)
 
     return {
         "channel": channel,

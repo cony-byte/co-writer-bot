@@ -2,6 +2,25 @@
   "_doc": "tool_router 회귀 코퍼스 — 실사용에서 실제로 오라우팅이 났던 발화들. python -m tests.test_tool_router --live 로 실행. expected 키: type/type_oneof(answer|clarification|tool_call|tool_calls), tool/tool_oneof/forbid_tool(첫 실행 호출 기준), forbid_tools_anywhere(모든 호출에서 금지), calls_min, args.work/episode/scene/cuts/kind 정확일치, args.attachment_id_required(true면 비어있지 않아야), args.instruction_contains",
   "cases": [
     {
+      "id": "stillcut-exists-status",
+      "text": "1화 상세콘티랑 스틸컷 있어?",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "sb_stage": 2,
+        "registered_works": {"저는 연프 출연진이 아닌데요 !": ["저연프"]},
+        "answer_sources": {
+          "detail_conti_excerpt": "씬1 몽타주 (이영 나레이션) / 씬2 범인은 바로 저놈 / 씬3 촬영 큐 사인",
+          "generated_artifacts": {"episode": 1, "stillcut_scenes": ["씬1", "씬2", "씬3", "씬4", "씬5", "씬6", "씬7"], "video_file_count": 0, "compiled": false, "_note": "실제 저장된 생성물 기준(디스크 스캔)"}
+        }
+      },
+      "expected": {
+        "type": "answer",
+        "answer_not_contains": ["스틸컷은 아직", "스틸컷이 아직", "스틸컷은 아직 생성", "스틸컷은 생성되지 않"]
+      },
+      "incident": "2026-07-21 실사용(cony): 1화 스틸컷이 다 있는데 '아직 생성 안 됨'으로 오답 — answer_sources가 대본/콘티 원문만 주고 생성물 상태(generated_artifacts) 부재가 근본 원인. context에 실제 아웃풋 디스크 스캔 주입 + 프롬프트 규칙(생성물 존재는 generated_artifacts만 근거)."
+    },
+    {
       "id": "multi-scene-video",
       "text": "저연프 씬5, 씬6을 영상화해줘",
       "ctx": {

@@ -99,6 +99,14 @@ def _check(expected: dict, decision) -> list[str]:
         and args_exp["instruction_contains"] not in (args.get("instruction") or "")
     ):
         errs.append(f"args.instruction must contain {args_exp['instruction_contains']!r}")
+
+    # answer 모드 답변 내용 회귀 가드: 특정 오답 문구가 나오면 실패(예: 스틸컷이 실제로
+    # 있는데 "아직 생성 안 됨"이라 답하는 사고). 자유 텍스트라 '반드시 포함' 대신 '금지 문구
+    # 부재'로만 검사해 플레이키를 피한다.
+    text = decision.text or ""
+    for bad in expected.get("answer_not_contains", []):
+        if bad in text:
+            errs.append(f"answer must not contain {bad!r} (got: {text[:120]!r})")
     return errs
 
 
@@ -115,13 +123,16 @@ def main() -> int:
     parser.add_argument("--id", help="특정 케이스만")
     parser.add_argument("--retries", type=int, default=1,
                         help="실패 케이스 재시도 횟수(백엔드 일시 오류 대비, 기본 1)")
+    parser.add_argument("--corpus", default=None,
+                        help="평가할 코퍼스 JSON 경로(기본: tool_router_corpus.json)")
     args = parser.parse_args()
 
     if not args.live:
         print("오프라인 모드 없음 — --live 로 실행하세요 (라우터는 LLM 호출이 본체입니다).")
         return 2
 
-    cases = json.loads(CORPUS.read_text(encoding="utf-8"))["cases"]
+    corpus_path = Path(args.corpus) if args.corpus else CORPUS
+    cases = json.loads(corpus_path.read_text(encoding="utf-8"))["cases"]
     if args.id:
         cases = [case for case in cases if case["id"] == args.id]
         if not cases:
