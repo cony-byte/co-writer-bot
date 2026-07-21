@@ -5074,21 +5074,15 @@ def _do_video_from_last_still(channel, thread_ts, query, work=None, scene=None, 
     episode = (conti_state.get_episode(thread_ts) or {}).get("episode")
     cuts = vp_store.load_latest_cuts(work, scene_num, episode=episode)
     if not cuts:
-        # ★2026-07-21 후속: "컷별 원본을 못 찾았어요"만으로는 왜 없는지(그리드는 애초에 디스크에
-        # 저장 안 되는 구조라 확정 절차를 안 거치면 컷 파일 자체가 없음) 안 보여서 사용자가
-        # "그리드를 이미 확정했는데 왜?"라고 헷갈렸다(실측) — 이 작품에 프로젝트 폴더 자체가
-        # 있는지로 원인을 구분해 구체적인 다음 행동을 안내한다.
-        if not vp_store.available(work):
-            _reply(channel, thread_ts,
-                  f"⚠️ <{work}>은 아직 컷별 원본이 저장된 적이 없어요 — 스토리보드 그리드(한 장에 "
-                  "여러 컷을 합친 이미지)는 미리보기용이라 그 자체가 디스크에 저장되는 게 아니에요. "
-                  f"`[스틸컷] <{work}> 씬{scene_num}`으로 그 씬의 컷을 만들고, 뜬 카드에서 "
-                  "「✅ 확정 저장」을 눌러 컷별 파일로 저장한 뒤 다시 영상화를 요청해주세요.")
-        else:
-            _reply(channel, thread_ts,
-                  f"⚠️ <{work}> 씬{scene_num}은 아직 컷별로 확정 저장된 적이 없어요 — "
-                  f"`[스틸컷] <{work}> 씬{scene_num}`으로 만든 뒤, 뜬 카드에서 「✅ 확정 저장」을 "
-                  "눌러야 컷 파일이 저장되고 영상화할 수 있어요.")
+        # ★2026-07-21 로드맵14/16: 막다른 안내 대신 스틸을 자동 생성해 이어준다 — 콘티만 있고
+        # 스틸을 확정 저장한 적 없는 씬을 영상화 요청하면(라이브 "7씬 첫 컷 영상화" 실패), 그
+        # 씬 스틸컷을 바로 만들어 확정 카드를 띄운다. 「✅ 확정 저장」하면 기존 흐름대로 영상화
+        # 드롭다운으로 이어진다 — 확정 게이트는 비용 안전상 유지(자동으로 영상까지 밀지 않음).
+        # (콘티/프로젝트가 아예 없으면 _do_stills가 자체적으로 안내하고 멈춘다.)
+        _reply(channel, thread_ts,
+              f"🎬 <{work}> 씬{scene_num}은 아직 컷별 스틸이 확정 저장돼 있지 않아, 먼저 스틸컷을 "
+              "만들어 드릴게요 — 뜬 카드에서 「✅ 확정 저장」을 누르면 영상화로 이어집니다.")
+        _do_stills(channel, thread_ts, f"{work} 씬{scene_num}".strip())
         return True
     title = f"스틸컷 씬{scene_num}" if scene_num else "스틸컷"
     # ★2026-07-21: 라우터가 확정한 컷 목록 — 텍스트 컷 파싱(범위/콤마/단일)보다 우선.
