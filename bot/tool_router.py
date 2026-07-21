@@ -144,6 +144,9 @@ def _system_prompt_static() -> str:
 - '방금 거/아까 만든 거/그거'처럼 시간 참조는 직전 산출물을 가리킨다 — 그 대상에 맞는
   show_media(또는 해당 작업)로 이어간다.
 - '참조 삭제/지워줘'는 delete_reference, '원본으로 되돌려줘/방금 지운 거 복구'는 restore_reference다.
+- 생성된 스틸컷·영상 삭제는 범위로 구분: 씬/컷 단위('7씬 3컷 스틸컷 삭제', '씬2 영상 지워줘')는
+  delete_media, 화 전체('3화 아웃풋 초기화/전부 삭제')는 reset_episode_outputs, 등록 참조 이미지
+  삭제는 delete_reference. 혼동 금지.
 - 텍스트 산출물(개요·로그라인·줄거리·대본·인물 설정/캐릭터 시트·씬 설계·상세 콘티·특정 씬/컷
   내용)에 대한 '뭐야/뭐더라/어떻게 돼 있더라/보여줘/요약해서 보여줘/정리해줘'는 새로 생성하지
   말고, answer_sources(bible·episode_script_excerpt·detail_conti_excerpt·generated_artifacts)의

@@ -5082,6 +5082,82 @@ def _act_preflight_cancel(ack, body):
     _disable_buttons(body, "취소했어요 — 생성 안 했어요.")
 
 
+_PENDING_DELETE_MEDIA: dict[str, dict] = {}   # 확인 카드 ts -> {work, episode, scene, cut, still, video}
+
+
+def _delete_media_confirm_blocks():
+    return [{"type": "actions", "elements": [
+        {"type": "button", "text": {"type": "plain_text", "text": "⚠️ 삭제"},
+         "style": "danger", "action_id": "delete_media_confirm"},
+        {"type": "button", "text": {"type": "plain_text", "text": "취소"},
+         "action_id": "delete_media_cancel"},
+    ]}]
+
+
+def _do_delete_media(channel, thread_ts, work=None, episode=None, scene=None, cut=None, kind=None) -> bool:
+    """생성된 스틸컷/영상을 씬(/컷) 단위로 삭제한다(★2026-07-21 — 기존엔 화 전체
+    reset_episode_outputs만 있었다). 파괴적이므로 danger 버튼 확인 후에만 실행하고, 파일은
+    outputs/_trash/로 옮겨 복구 가능하게 둔다."""
+    work = _resolve_show_work(channel, thread_ts, work)
+    if not work:
+        _reply(channel, thread_ts, _WORK_NOT_FOUND_MSG)
+        return True
+    episode = episode or (conti_state.get_episode(thread_ts) or {}).get("episode")
+    if scene is None:
+        _reply(channel, thread_ts,
+               "어느 씬(컷)의 무엇을 지울지 알려주세요 — 예: `7씬 3컷 스틸컷 삭제`, `씬2 영상 삭제`. "
+               "(화 전체를 지우려면 `[화초기화] <작품> N화`.)")
+        return True
+    k = kind or ""
+    is_still = any(w in k for w in ("스틸", "컷", "이미지", "스토리보드", "still", "그리드"))
+    is_video = any(w in k for w in ("영상", "동영상", "비디오", "video", "합본", "클립"))
+    want_still, want_video = (is_still, is_video) if (is_still or is_video) else (True, True)
+    found = vp_store.scan_scene_media(work, episode, scene, cut)
+    n_still = len(found["stills"]) if want_still else 0
+    n_video = len(found["videos"]) if want_video else 0
+    if n_still == 0 and n_video == 0:
+        _reply(channel, thread_ts,
+               f"<{work}> {episode}화 씬{scene}{f' 컷{cut}' if cut else ''}에 지울 "
+               f"{'스틸컷/영상' if want_still and want_video else ('스틸컷' if want_still else '영상')}이 없어요.")
+        return True
+    where = f"씬{scene}" + (f" 컷{cut}" if cut else "")
+    parts = ([f"스틸컷 {n_still}개"] if n_still else []) + ([f"영상 {n_video}개"] if n_video else [])
+    text = (f"⚠️ <{work}> {episode}화 {where}의 {', '.join(parts)}을(를) 삭제할까요? "
+            "(파일은 _trash로 옮겨져 복구 가능해요.)")
+    resp = app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text,
+                                       blocks=_with_text_block(text, _delete_media_confirm_blocks()))
+    _PENDING_DELETE_MEDIA[resp["ts"]] = {"work": work, "episode": episode, "scene": scene,
+                                         "cut": cut, "still": want_still, "video": want_video}
+    return True
+
+
+@app.action("delete_media_confirm")
+def _act_delete_media_confirm(ack, body):
+    ack()
+    ch, tts = _action_ctx(body)
+    p = _PENDING_DELETE_MEDIA.pop(body["message"]["ts"], None)
+    if not p:
+        _disable_buttons(body, "⚠️ 만료된 요청이에요.")
+        return
+    _disable_buttons(body, "🗑 삭제 중…")
+    moved = vp_store.trash_scene_media(p["work"], p["episode"], p["scene"], p["cut"],
+                                       still=p["still"], video=p["video"])
+    ns, nv = len(moved["stills"]), len(moved["videos"])
+    parts = ([f"스틸컷 {ns}개"] if ns else []) + ([f"영상 {nv}개"] if nv else [])
+    cut_label = f" 컷{p['cut']}" if p["cut"] else ""
+    summary = ", ".join(parts) or "해당 파일 없음"
+    app.client.chat_postMessage(
+        channel=ch, thread_ts=tts,
+        text=(f"✅ <{p['work']}> {p['episode']}화 씬{p['scene']}{cut_label} — "
+              f"{summary} 삭제 완료 (_trash에 보관, 복구 가능)."))
+
+
+@app.action("delete_media_cancel")
+def _act_delete_media_cancel(ack, body):
+    ack()
+    _disable_buttons(body, "취소했어요 — 아무것도 안 지웠어요.")
+
+
 def _do_typed_ref(channel, thread_ts, event, work=None, etype=None, names=None) -> bool:
     """_maybe_typed_ref의 실행부(★2026-07-21 작업2, 트리거/파싱과 분리) — work/etype/names를
     이미 알면(라우터가 r.elements로 이미 확정) 텍스트 재파싱 없이 바로 등록 확정 카드를

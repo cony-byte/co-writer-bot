@@ -288,6 +288,13 @@ def _still_variant(args: dict, ctx) -> None:
                          change=args.get("change"), episode=args.get("episode"))
 
 
+def _delete_media(args: dict, ctx) -> None:
+    from . import dispatch_storyboard as sb
+    sb._do_delete_media(ctx.channel, ctx.thread_ts, work=args.get("work"),
+                        episode=args.get("episode"), scene=args.get("scene"),
+                        cut=args.get("cut_number"), kind=args.get("kind"))
+
+
 def _check_cut_seconds(args: dict, ctx) -> None:
     from . import dispatch_storyboard as sb
     sb._do_check_cut_seconds(ctx.channel, ctx.thread_ts, work=args.get("work"),
@@ -647,6 +654,13 @@ _add("still_variant",
       "cut_number": {"type": "integer", "minimum": 1, "description": "바꿀 컷 번호"},
       "change": {"type": "string", "description": "바꿀 내용(예: 표정을 미소로)"}},
      ["scene", "cut_number", "change"], HIGH, _still_variant)
+
+_add("delete_media",
+     "생성된 스틸컷/영상을 씬(또는 특정 컷) 단위로 삭제한다. '7씬 3컷 스틸컷 삭제', '씬2 영상 지워줘', '씬5 스틸컷·영상 다 지워줘'처럼 개별 산출물 삭제 요청. 화 전체 삭제(reset_episode_outputs)나 참조 이미지 삭제(delete_reference)와 다르다. 확인 버튼 후 _trash로 옮겨 복구 가능. kind로 스틸컷/영상 구분(생략 시 둘 다), cut_number 생략 시 그 씬 전체.",
+     {"work": WORK, "episode": EPISODE, "scene": SCENE,
+      "cut_number": {"type": "integer", "minimum": 1, "description": "특정 컷만 지울 때"},
+      "kind": {"type": "string", "description": "스틸컷/영상 등 지울 종류 힌트(생략 시 둘 다)"}},
+     ["scene"], HIGH, _delete_media)
 
 _add("check_cut_seconds",
      "콘티의 컷 초수 합계가 씬 헤더의 목표 초수와 맞는지 검증해 보고한다. '컷 초수 합 맞는지 확인해줘', '씬2 몇 초야'처럼 시간 예산 검증 요청. 씬별로 [N초] 비트를 합산해 목표와 비교(±1초 이내면 OK)한다. scene을 주면 그 씬만 검증한다.",
