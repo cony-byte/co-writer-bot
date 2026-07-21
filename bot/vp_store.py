@@ -486,6 +486,17 @@ def load_latest_cuts(work: str, scene_num: int | None,
         meta = list(meta.values())
     out = [{**m, "png": p.read_bytes()}
            for m in meta if (p := scene_dir / f"cut{m['n']}.png").exists()]
+    # ★2026-07-21 meta ↔ 디스크 정합성 체크(읽을 때마다): meta.json이 모르는 cut{n}.png가
+    # 디스크에 있으면(수동 추가 / 일부만 재생성해 meta가 안 갱신된 경우) 그대로 편입한다.
+    # meta에 있던 컷은 캡션 등 메타를 유지하고, 고아 PNG는 파일명에서 복구한 최소 컷으로 채운다.
+    # PNG가 사라진 meta 항목은 위 컴프리헨션에서 이미 제외됨 → 결과는 항상 실제 파일과 일치.
+    known = {m.get("n") for m in out}
+    for p in sorted(scene_dir.glob("*.png")):
+        m = _CUT_PNG_RE.match(p.name)
+        if m and int(m.group(1)) not in known:
+            n = int(m.group(1))
+            out.append({"n": n, "caption": "", "png": p.read_bytes()})
+            log.info("load_latest_cuts: meta에 없는 cut%d.png 편입(%s)", n, scene_dir)
     if not out:
         return None
     return sorted(out, key=lambda m: m["n"])
