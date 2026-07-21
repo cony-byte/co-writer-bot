@@ -34,8 +34,7 @@ from bot import sb_prompts as prompts
 from bot.shared import works
 from bot import openrouter_image as oi
 from bot import higgsfield_image as hf
-from bot import higgsfield_video as hf_video_higgsfield  # 폐기 안 함 — 문제 생기면 되돌릴 백업
-from bot import openrouter_video as hf_video  # 2026-07-13부터 실제 영상화 백엔드(seedance 2.0 fast)
+from bot import openrouter_video as hf_video  # 2026-07-13부터 실제 영상화 백엔드(seedance 2.0)
 from bot import storyboard_grid as grid
 from bot import vp_store
 from bot import video_index
