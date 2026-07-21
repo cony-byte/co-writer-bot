@@ -1092,32 +1092,53 @@ def drain_pending(thread_ts: str, handle_fn) -> None:
             log.exception("drain_pending: queued event 처리 실패")
 
 
-# ★2026-07-21 작업③: safe_stop으로 조용히 버려지던 발화를 스레드당 최근 1건만 보관해뒀다가,
-# 다음에 이 스레드에서 라우팅이 정상 성공하면 "아까 못 처리한 요청 이어서 할까요?"를 딱 한 번
-# 제안한다. 자동으로 재실행하지 않는다(안전 정지 사유가 아직 남아있을 수 있으므로) — 사용자가
-# 긍정으로 답할 때만 dispatch.py의 resume 핸들러가 저장된 event를 다시 전체 파이프라인에 넣는다.
-_FAILED_LOCK = threading.Lock()
-_FAILED_EVENTS: dict[str, dict] = {}   # thread_ts -> {"event":..., "query":..., "prompted": bool}
+# ★2026-07-21 작업③, 2026-07-21 개편: safe_stop으로 조용히 버려지던 발화를 스레드당 최근
+# 1건만 보관해뒀다가, 다음에 이 스레드에서 라우팅이 정상 성공하면 "아까 못 처리한 요청
+# 이어서 할까요?"를 딱 한 번 제안한다. 자동으로 재실행하지 않는다(안전 정지 사유가 아직
+# 남아있을 수 있으므로) — 사용자가 긍정으로 답할 때만 dispatch.py의 resume 핸들러가 저장된
+# event를 다시 전체 파이프라인에 넣는다.
+#
+# PendingManager로 통일(상태머신 waiting→consuming→completed/failed + request_id 중복
+# 실행 방지 + TTL) — 예전엔 bool "prompted" 하나로만 게이트해서: (1) 같은 이벤트가 두 번
+# 들어와도 막을 방법이 없었고, (2) 재실행이 다시 실패하면 execute() 안의 safe_stop 경로가
+# stash_failed_event를 또 호출해 같은 kind로 재저장 → 다음 성공 라우팅 때 또 제안 → 무한
+# 재시도 루프가 될 수 있었다(재실행 실패를 "완료"와 구분 못 함). 이제 재실행 이벤트에는
+# _cowriter_replay=True 표시를 남기고, 그 표시가 있는 이벤트의 실패는 재저장하지 않는다.
+from . import pending_manager as _pm
+
+_RESUME_MANAGER = _pm.PendingManager()
+_RESUME_KIND = "resume_offer"
 
 _RESUME_YES_RE = re.compile(r"^\s*(응|어|네|넹|넵|그래|좋아|좋아요|이어서\s*해줘?|해줘)\s*[.!~]*\s*$")
 
 
 def stash_failed_event(thread_ts: str, event: dict, query_text: str) -> None:
-    with _FAILED_LOCK:
-        _FAILED_EVENTS[thread_ts] = {"event": event, "query": query_text, "prompted": False}
+    # 재실행 자체가 실패한 경우엔 다시 pending으로 저장하지 않는다(무한루프 방지) — 이건
+    # "이번엔 진짜 처음 실패한 발화"일 때만 새 제안 대상으로 만든다.
+    if event.get("_cowriter_replay"):
+        log.info("resume_offer: 재실행 실패 — 재저장하지 않음 thread=%s", thread_ts)
+        return
+    request_id = event.get("client_msg_id") or event.get("event_ts") or event.get("ts")
+    _RESUME_MANAGER.create(
+        thread_ts, _RESUME_KIND,
+        {"event": event, "query": query_text, "prompted": False},
+        request_id=f"stash:{request_id}",
+    )
 
 
 def offer_resume_if_pending(channel: str, thread_ts: str, current_event: dict) -> None:
     """라우팅이 방금 정상 성공했을 때 dispatch.py가 호출 — 대기 중인 실패 발화가 있고 아직
-    제안 안 했으면 1회만 물어본다."""
-    with _FAILED_LOCK:
-        pending = _FAILED_EVENTS.get(thread_ts)
-        if not pending or pending["prompted"] or pending["event"] is current_event:
-            return
-        pending["prompted"] = True
+    제안 안 했으면 1회만 물어본다(peek만 — 여기선 아직 소비하지 않는다, 소비는 사용자가
+    실제로 긍정 답변했을 때 _maybe_resume_offer_reply에서)."""
+    rec = _RESUME_MANAGER.peek(thread_ts, _RESUME_KIND)
+    if rec is None or rec.status != _pm.WAITING:
+        return
+    if rec.payload.get("prompted") or rec.payload["event"] is current_event:
+        return
+    rec.payload["prompted"] = True
     _reply(
         channel, thread_ts,
-        f"📌 아까 처리하지 못한 요청이 있어요 — \"{pending['query']}\" 이어서 할까요? "
+        f"📌 아까 처리하지 못한 요청이 있어요 — \"{rec.payload['query']}\" 이어서 할까요? "
         '("응"이라고 답해주시면 다시 처리할게요)',
     )
 
@@ -1126,16 +1147,21 @@ def _maybe_resume_offer_reply(channel: str, thread_ts: str, query: str, handle_f
     """대기 중인 실패 발화 제안에 대한 긍정 답변만 결정적으로 잡아 재실행한다."""
     if not _RESUME_YES_RE.match(query):
         return False
-    with _FAILED_LOCK:
-        pending = _FAILED_EVENTS.get(thread_ts)
-        if not pending or not pending["prompted"]:
-            return False
-        del _FAILED_EVENTS[thread_ts]
+    peeked = _RESUME_MANAGER.peek(thread_ts, _RESUME_KIND)
+    if peeked is None or not peeked.payload.get("prompted"):
+        return False
+    rec = _RESUME_MANAGER.consume(thread_ts, _RESUME_KIND)
+    if rec is None:
+        return False
     _reply(channel, thread_ts, "🔁 이어서 처리할게요…")
+    replay_event = dict(rec.payload["event"])
+    replay_event["_cowriter_replay"] = True  # 이 재실행이 또 실패해도 재저장 금지
     try:
-        handle_fn(pending["event"])
+        handle_fn(replay_event)
+        _RESUME_MANAGER.complete(thread_ts, _RESUME_KIND)
     except Exception:
         log.exception("resume_offer: 재처리 실패")
+        _RESUME_MANAGER.fail(thread_ts, _RESUME_KIND, error="handle_fn 예외")
     return True
 
 
