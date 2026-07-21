@@ -326,6 +326,48 @@ def save_video(work: str, *, scene_num: int | None, cut_num: int | None, url: st
     return str(dest)
 
 
+def save_video_bytes(work: str, *, scene_num: int | None, cut_num: int | None, data: bytes,
+                     episode: int | str | None = None, prompt_summary: str = "",
+                     application: str = "attached-video", requested_by: str | None = None,
+                     cost: float = 0.0) -> str | None:
+    """★2026-07-21: 사용자가 첨부한 완성 영상(mp4 bytes)을 재생성 없이 그대로 그 컷의
+    영상으로 저장한다 — save_video가 URL을 받아 다운로드하는 것과 달리 바이트를 바로 쓴다.
+    save_video와 동일한 파일명 규칙(video_s{씬}_cut{컷}_{uuid8}.mp4, 화별 폴더)을 써서
+    video_index.list_episode_videos가 스캔해 합본(compile_episode)에 그대로 물린다
+    (같은 컷에 봇 생성본이 이미 있어도 mtime 최신이 이 첨부본이라 자동으로 이게 정본이 된다).
+    반환: 저장된 로컬 절대경로(str). 프로젝트를 못 찾으면 None."""
+    proj = oi.vp_project_dir(work)
+    if not proj:
+        log.error(f"영상(첨부) 저장 실패 — vp_project_dir('{work}')가 None(프로젝트 폴더를 못 찾음)")
+        return None
+    if not data:
+        log.error("영상(첨부) 저장 실패 — 빈 데이터")
+        return None
+    out_dir = proj / "outputs" / "videos" / _episode_dir_name(episode)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    fname = f"video_s{scene_num or 0}_cut{cut_num or 0}_{uuid.uuid4().hex[:8]}.mp4"
+    dest = out_dir / fname
+    try:
+        dest.write_bytes(data)
+    except Exception:
+        log.exception("영상(첨부) 로컬 저장 실패")
+        return None
+    rel = f"outputs/videos/{_episode_dir_name(episode)}/{fname}"
+
+    if vp_db is not None:
+        try:
+            con = vp_db.connect(proj)
+            gid = vp_db.log_generation(
+                con, prompt=prompt_summary or "첨부 영상 직접 저장(재생성 없음)", kind="video",
+                application=application, requested_by=requested_by,
+                scene=(f"씬{scene_num}" if scene_num else None))
+            vp_db.update_generation(con, gid, status="promoted", output_path=rel, cost=cost)
+            con.close()
+        except Exception:
+            log.exception("visual.db 기록 실패(파일은 정상 저장됨)")
+    return str(dest)
+
+
 def find_existing_video(work: str, scene_num: int | None, cut_num: int | None,
                         episode: int | str | None = None) -> str | None:
     """이 씬·컷의 영상이 이미 outputs/videos/<화>/에 저장돼있으면 그 로컬 경로를 반환(없으면 None).

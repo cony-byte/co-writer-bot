@@ -322,6 +322,81 @@ def test_save_stillcuts_executor_downloads_all_images_in_upload_order():
     assert captured["who"] == "U1"
 
 
+def test_save_videos_requires_a_video_attachment_and_skips_non_videos():
+    spec = tool_registry.get("save_videos")
+    assert spec is not None and spec.risk == tool_registry.HIGH
+    assert tool_registry.validate_call(spec, {"scene": 1, "cuts": [1]}, _ctx())
+    # an image present but no video → still an error
+    error = tool_registry.validate_call(
+        spec, {"scene": 1}, _ctx([{"id": "F1", "mimetype": "image/png"}])
+    )
+    assert error and "영상" in error
+    # one real video → passes
+    assert tool_registry.validate_call(
+        spec, {"scene": 1, "cuts": [1]},
+        _ctx([{"id": "F1", "mimetype": "video/mp4"}]),
+    ) is None
+
+
+def test_save_videos_executor_downloads_only_videos_in_upload_order():
+    captured = {}
+    fake_sb = types.ModuleType("bot.dispatch_storyboard")
+
+    def do_save(channel, thread_ts, videos, *, work=None, scene_num=None,
+                cut_nums=None, episode=None, instruction=None, who=None):
+        captured.update(videos=videos, work=work, scene_num=scene_num,
+                        cut_nums=cut_nums, episode=episode, who=who)
+        return True
+
+    fake_sb._do_save_videos_from_attachments = do_save
+    ctx = SimpleNamespace(
+        channel="C", thread_ts="T",
+        event={"user": "U1", "files": [
+            {"id": "A", "mimetype": "video/mp4", "url_private": "https://s.test/A"},
+            {"id": "B", "mimetype": "image/png", "url_private": "https://s.test/B"},
+            {"id": "C", "mimetype": "video/quicktime", "url_private_download": "https://s.test/C"},
+        ]},
+    )
+    downloaded = []
+
+    class Response:
+        def __init__(self, data):
+            self._data = data
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+        def read(self):
+            return self._data
+
+    def urlopen(request, timeout):
+        downloaded.append(request.full_url)
+        return Response(b"mp4-" + request.full_url[-1:].encode())
+
+    with patch.dict(sys.modules, {"bot.dispatch_storyboard": fake_sb}), \
+            patch.object(tool_registry.urllib.request, "urlopen", side_effect=urlopen):
+        tool_registry._sb("save_videos", {
+            "work": "겨울 하루", "episode": 1, "scene": 1, "cuts": [1, 2],
+        }, ctx)
+
+    # only the two videos are downloaded, in order; the image is skipped
+    assert downloaded == ["https://s.test/A", "https://s.test/C"]
+    assert [data for data, _mime in captured["videos"]] == [b"mp4-A", b"mp4-C"]
+    assert captured["scene_num"] == 1 and captured["cut_nums"] == [1, 2]
+    assert captured["who"] == "U1"
+
+
+def test_explain_stage_skip_is_low_risk_and_paramless():
+    spec = tool_registry.get("explain_stage_skip")
+    assert spec is not None
+    assert spec.risk == tool_registry.LOW
+    assert spec.parameters["properties"] == {}
+    assert tool_registry.validate_call(spec, {}, _ctx()) is None
+
+
 if __name__ == "__main__":
     tests = [value for name, value in globals().copy().items() if name.startswith("test_")]
     for test in tests:

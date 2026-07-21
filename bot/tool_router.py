@@ -118,6 +118,9 @@ def _system_prompt_static() -> str:
   * 이미지 3장 첨부 + '씬1 컷1,2,3으로 저장해줘' → save_stillcuts(scene=1, cuts=[1,2,3])
   * 이미지 첨부 + '내가 준 이미지 다시 만들지 말고 그대로 영상으로 만들어줘' →
     save_stillcuts와 generate_video 두 호출(저장이 먼저)
+  * mp4 3개 첨부 + '씬1 컷1,2,3 영상으로 저장해줘' → save_videos(scene=1, cuts=[1,2,3])
+  * '첨부로 단계 건너뛰려면 뭘 올리면 돼?' 또는 그리드 한 장으로 콘티 없이 스틸컷 요청 →
+    explain_stage_skip
   * 현재 스틸컷 출력 직후 '남자만 빼' → generate_stillcuts 또는 rewrite_conti
   * 현재 씬4 컷2 영상화, 나머지는 스틸컷 → generate_video와 generate_stillcuts 두 호출
   * '노션에 대본과 콘티가 있으니 스토리보드 이미지 다시 만들어' → URL과 '동기화'라는
@@ -137,6 +140,13 @@ def _system_prompt_static() -> str:
   개별 attachment_id를 나열할 필요가 없다.
 - 첨부 이미지를 '재생성하지 말고/그대로' 저장한 뒤 이어서 영상으로 만들라는 한 문장은
   save_stillcuts와 generate_video를 그 순서로 두 번 호출한다.
+- 첨부된 완성 영상(mp4) '자체'를 그 씬 컷의 영상으로 저장하라는 요청('이 영상 그대로 저장',
+  '내가 만든 영상 넣어줘', '씬N 컷1,2,3 영상으로 저장')은 save_videos다. 봇이 새로 만드는
+  generate_video와 정반대이며, 첨부 영상이 그 컷의 영상이 되고 이후 합본에 그대로 쓰인다.
+  여러 개면 업로드 순서대로 컷에 매핑되므로 개별 첨부 ID를 나열할 필요가 없다.
+- '첨부로 단계를 건너뛰는 법/어떤 파일을 첨부하면 되는지' 같은 방법 질문, 또는 지원되지 않는
+  건너뛰기(예: 스토리보드 그리드 한 장을 콘티 없이 그대로 스틸컷으로 저장하라는 요청)에는
+  explain_stage_skip을 호출한다. 그리드는 구도 참조로만 쓰이고 그 자체가 씬으로 저장되지 않는다.
 - 노션 URL 자체 또는 '동기화' 요청만 sync_notion이다. '노션에 있는 자료를 확인해서
   스토리보드 이미지를 만들어'는 sync가 아니라 generate_storyboard_grid다.
 - URL 끝이 말줄임표로 표시돼도 사용자가 동기화를 명시했으면 sync_notion을 호출한다.

@@ -4945,6 +4945,87 @@ def _do_save_stills_from_attachments(channel, thread_ts, images, *, work=None,
                         "cuts": cuts, "scene_seconds": None})
     return True
 
+def _do_save_videos_from_attachments(channel, thread_ts, videos, *, work=None,
+                                     scene_num=None, cut_nums=None, episode=None,
+                                     instruction=None, who=None) -> bool:
+    """★2026-07-21: 첨부한 완성 영상(mp4)을 재생성 없이 그대로 그 씬 컷의 영상으로 저장한다 —
+    스틸컷 첨부 저장(_do_save_stills_from_attachments)의 영상판. save_video가 쓰는 파일명
+    규칙(video_s{씬}_cut{컷}_..mp4, 화별 폴더)으로 써서, 영상 단계를 통째로 건너뛰고 바로
+    합본(compile_episode → video_index.list_episode_videos 스캔)으로 이어갈 수 있게 한다.
+    videos는 (mp4_bytes, mimetype)를 업로드 순서대로 받고, cut_nums가 있으면 1:1, 없으면
+    1..N으로 매핑한다(스틸컷 저장과 동일한 사용자 확정 규칙)."""
+    if not videos:
+        _reply(channel, thread_ts, "저장할 영상을 찾지 못했어요 — 저장할 mp4를 메시지에 첨부해 주세요.")
+        return True
+    if not work:
+        info = still_state.get_confirmed(thread_ts) or still_state.get_last(thread_ts)
+        if info:
+            work = info["work"]
+        else:
+            work, _, _, _ = _resolve_work_bible(channel, thread_ts, instruction or "")
+    if not work:
+        _reply(channel, thread_ts,
+              "⚠️ 어느 작품인지 못 찾았어요 — `<작품명>`을 붙여서 다시 말해주세요. "
+              "예: `<겨울 하루> 씬1 컷1,2,3 영상으로 저장해줘`(+ mp4 첨부).")
+        return True
+    if scene_num is None:
+        _reply(channel, thread_ts,
+              f"⚠️ 어느 씬으로 저장할지 알려주세요 — 예: `<{work}> 씬1 컷1,2,3 영상으로 저장해줘`.")
+        return True
+    if episode is not None:
+        conti_state.set_episode(thread_ts, work, int(episode))
+    else:
+        episode = (conti_state.get_episode(thread_ts) or {}).get("episode")
+
+    nums = [int(n) for n in (cut_nums or [])] or list(range(1, len(videos) + 1))
+    pairs = list(zip(videos, nums))
+    dropped_vids = len(videos) - len(pairs)
+    dropped_nums = len(nums) - len(pairs)
+
+    vp_store.ensure_project(work)
+    saved = []
+    for (data, _mime), n in pairs:
+        rel = vp_store.save_video_bytes(work, scene_num=scene_num, cut_num=n, data=data,
+                                        episode=episode, requested_by=who,
+                                        prompt_summary="첨부 영상 직접 저장(재생성 없음)")
+        if rel:
+            saved.append(n)
+    if not saved:
+        _reply(channel, thread_ts, "⚠️ 저장에 실패했어요 (작품 프로젝트 폴더를 못 찾았어요).")
+        return True
+
+    label = ",".join(str(n) for n in saved)
+    ep_txt = f"{episode}화 " if episode else ""
+    msg = (f"✅ 첨부 영상 {len(saved)}개를 재생성 없이 그대로 <{work}> {ep_txt}씬{scene_num} "
+           f"컷{label} 영상으로 저장했어요.\n"
+           f"이제 `합본` 또는 \"{ep_txt}회차 영상 합쳐줘\"로 회차 합본을 만들 수 있어요.")
+    if dropped_vids > 0:
+        msg += f"\n⚠️ 컷 번호({len(nums)}개)보다 첨부 영상이 많아 뒤 {dropped_vids}개는 저장하지 않았어요."
+    if dropped_nums > 0:
+        msg += f"\n⚠️ 첨부 영상({len(videos)}개)보다 컷 번호가 많아 뒤 {dropped_nums}개는 건너뛰었어요."
+    _reply(channel, thread_ts, msg)
+    return True
+
+_STAGE_SKIP_HELP = (
+    "📎 *첨부로 제작 단계 건너뛰기* — 각 단계 결과물을 직접 첨부하면 앞 단계를 건너뛸 수 있어요.\n"
+    "• *상세 콘티*(txt) 첨부 + \"이 콘티로 확정\" → 씬설계 건너뛰고 스틸컷부터\n"
+    "• *스틸컷 이미지* 첨부 + \"씬1 컷1,2,3으로 저장해줘\" → 스틸컷 단계 건너뛰고 영상부터\n"
+    "• *영상*(mp4) 첨부 + \"씬1 컷1,2,3 영상으로 저장해줘\" → 영상 단계 건너뛰고 합본부터\n"
+    "• *대본*(txt) 첨부/붙여넣기 + \"이걸로 콘티 만들어\" → 씬설계·콘티 자동 진행\n"
+    "\n"
+    "아직 안 되는 것:\n"
+    "• *스토리보드 그리드* 이미지는 '구도 참조'로만 쓰여요(여러 컷이 한 장에 합쳐진 그리드 "
+    "자체가 하나의 씬으로 저장되진 않아요). 컷을 *개별 이미지로* 첨부해 \"씬N 컷1,2,3으로 "
+    "저장해줘\"라고 하면 스틸컷 단계를 건너뛸 수 있어요.\n"
+    "• 첨부는 *그 메시지에* 올려주세요 — 이전 메시지에 올린 파일은 다시 못 불러와요."
+)
+
+def _do_stage_skip_help(channel, thread_ts) -> bool:
+    """★2026-07-21: '첨부로 단계 건너뛰기'가 뭐가 되고 뭐가 안 되는지 한 번에 안내. 지원되는
+    조합이 명확하지 않거나 사용자가 방법을 물을 때 라우터가 호출한다(조용히 실패하지 않게)."""
+    _reply(channel, thread_ts, _STAGE_SKIP_HELP)
+    return True
+
 # renamed from _do_ref (name collision with the other bot's function of the same name, different behavior)
 def sb_do_ref(channel, thread_ts, rest, event):
     """[참조] <작품> [인물|장소|소품] 이름[,이름2] + 이미지 첨부 → 이름/타입 확정 카드를 띄우고,
