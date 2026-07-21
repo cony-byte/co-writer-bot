@@ -1,0 +1,528 @@
+# -*- coding: utf-8 -*-
+"""Natural-language callable tool registry.
+
+The model can name only functions declared here.  Validation and risk policy are
+code-owned; model confidence and model-supplied confirmation flags are ignored.
+Adapters call the existing, battle-tested domain functions directly while the
+large dispatch modules are migrated into smaller services over time.
+"""
+from __future__ import annotations
+
+import base64
+import re
+import urllib.request
+from dataclasses import dataclass
+from typing import Callable
+
+
+LOW = "low"
+HIGH = "high"
+
+
+@dataclass(frozen=True)
+class ToolSpec:
+    name: str
+    description: str
+    parameters: dict
+    risk: str
+    executor: Callable
+    validator: Callable | None = None
+
+    def api_schema(self) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.parameters,
+            },
+        }
+
+
+def _object(properties: dict, required: list[str] | None = None) -> dict:
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": required or [],
+        "additionalProperties": False,
+    }
+
+
+WORK = {"type": "string", "description": "등록된 정식 작품명"}
+EPISODE = {"type": "integer", "minimum": 1}
+INSTRUCTION = {"type": "string", "description": "사용자 요청의 제약을 보존한 작업 지시"}
+SCENE = {"type": "integer", "minimum": 1}
+CUTS = {"type": "array", "items": {"type": "integer", "minimum": 1}, "maxItems": 50}
+EPISODES = {"type": "array", "items": {"type": "integer", "minimum": 1}, "maxItems": 50}
+ATTACHMENT_ID = {
+    "type": "string",
+    "description": "현재 Slack 메시지에 실제로 첨부된 이미지 파일 ID",
+}
+
+
+def _rest(args: dict, *, include_scene: bool = False, include_cuts: bool = False) -> str:
+    parts = []
+    if args.get("work"):
+        parts.append(f"<{args['work']}>")
+    if args.get("episode") is not None:
+        parts.append(f"{args['episode']}화")
+    if args.get("episodes"):
+        parts.append(",".join(str(n) for n in args["episodes"]) + "화")
+    if include_scene and args.get("scene") is not None:
+        parts.append(f"씬{args['scene']}")
+    if include_cuts and args.get("cuts"):
+        parts.append("컷" + ",".join(str(n) for n in args["cuts"]))
+    if args.get("instruction"):
+        parts.append(args["instruction"])
+    return " ".join(parts)
+
+
+def _cw(name: str, args: dict, ctx) -> None:
+    from . import dispatch_cowriter as cw
+    channel, thread_ts = ctx.channel, ctx.thread_ts
+    rest = _rest(args)
+    if name == "generate_script":
+        cw._do_generate(channel, thread_ts, rest)
+    elif name == "revise_script":
+        cw._do_revise(channel, thread_ts, args.get("instruction") or "")
+    elif name == "edit_plan":
+        cw._do_plan(channel, thread_ts, rest, in_thread=True)
+    elif name == "review_script":
+        cw._do_feedback(channel, thread_ts, rest, mode="both")
+    elif name == "evaluate_fun":
+        cw._do_feedback(channel, thread_ts, rest, mode="fun")
+    elif name == "evaluate_logic":
+        cw._do_feedback(channel, thread_ts, rest, mode="logic")
+    elif name == "research_trends":
+        cw._do_trend(channel, thread_ts, rest)
+    elif name == "suggest_ideas":
+        cw._do_idea(channel, thread_ts, rest)
+    elif name == "sync_notion":
+        cw._do_sync(channel, thread_ts, rest)
+    elif name == "register_work_alias":
+        cw._do_alias(channel, thread_ts, rest)
+    elif name == "convert_script_format":
+        cw._do_convert(channel, thread_ts, rest)
+
+
+def _sb(name: str, args: dict, ctx) -> None:
+    from . import dispatch_storyboard as sb
+    channel, thread_ts, event = ctx.channel, ctx.thread_ts, ctx.event
+    rest = _rest(args, include_scene=True, include_cuts=True)
+    if name == "generate_scene_design":
+        sb.sb_do_storyboard(channel, thread_ts, rest, stage=1)
+    elif name == "generate_detail_conti":
+        sb.sb_do_storyboard(channel, thread_ts, rest, stage=2)
+    elif name == "rewrite_conti":
+        ok = sb._do_conti_rewrite(channel, thread_ts, args.get("instruction") or "", event,
+                                  work=args.get("work"), episode=args.get("episode"),
+                                  scene=args.get("scene"))
+        if not ok:
+            raise ValueError("수정할 콘티를 찾지 못했습니다")
+    elif name == "generate_storyboard_grid":
+        sb._do_images(channel, thread_ts, rest)
+    elif name == "generate_stillcuts":
+        ref_data_url = (_attachment_data_url(args, ctx)
+                        if args.get("attachment_id") else None)
+        sb._do_stills(channel, thread_ts, rest, feedback=args.get("instruction"),
+                      ref_data_url=ref_data_url)
+    elif name == "generate_video":
+        ok = sb._do_video_from_last_still(channel, thread_ts,
+                                          args.get("instruction") or "영상으로 만들어줘",
+                                          work=args.get("work"))
+        if not ok:
+            raise ValueError("영상화할 스틸컷을 찾지 못했습니다")
+    elif name == "compile_episode":
+        sb._do_compile(channel, thread_ts, rest)
+    elif name == "run_autopilot":
+        sb._do_autopilot(channel, thread_ts, rest)
+    elif name == "show_episode_status":
+        sb._do_episode_status(channel, thread_ts, rest)
+    elif name == "change_visual_style":
+        sb._do_style(channel, thread_ts, rest)
+    elif name == "finalize_conti":
+        sb._do_conti_final(channel, thread_ts, rest, event)
+    elif name == "save_conti_to_notion":
+        sb._do_save_conti(channel, thread_ts, rest=rest)
+    elif name == "reset_episode_outputs":
+        sb._do_reset_episode(channel, thread_ts, rest)
+    elif name == "export_file":
+        sb.sb_do_export(channel, thread_ts, rest)
+    elif name == "cancel_current_job":
+        sb._CANCEL.add(thread_ts)
+        sb.generator.cancel_prefix(thread_ts)
+        sb.job_ledger.finish_by_thread(thread_ts)
+        sb.interrupted_state.clear(thread_ts)
+    elif name == "resume_interrupted_job":
+        record = sb.interrupted_state.get(thread_ts)
+        if not record:
+            raise ValueError("재개할 작업이 없습니다")
+        sb.interrupted_state.clear(thread_ts)
+        sb.sb_do_storyboard(channel, thread_ts, record["rest"],
+                            stage=1 if record["kind"] == "plan" else 2)
+
+
+def _reference(name: str, args: dict, ctx) -> None:
+    from . import dispatch_storyboard as sb
+    kind = args["kind"]
+    etype = sb._REF_TYPE_KW.get(kind.lower(), "person")
+    display = args["name"]
+    event = dict(ctx.event)
+    if args.get("attachment_id"):
+        event["files"] = [
+            file for file in (ctx.event.get("files") or [])
+            if str(file.get("id") or "") == str(args["attachment_id"])
+        ]
+    if name in ("register_reference_image", "replace_reference_image"):
+        if not sb._do_typed_ref(ctx.channel, ctx.thread_ts, event,
+                                work=args.get("work"), etype=etype, names=[display]):
+            raise ValueError("첨부 이미지를 등록하지 못했습니다")
+        return
+    query = args.get("instruction") or f"{display} 이미지 생성해줘"
+    if sb._do_element_ref_generate(ctx.channel, ctx.thread_ts, query, event,
+                                   work=args.get("work"), name=display, etype=etype):
+        return
+    if not sb._do_element_gen(ctx.channel, ctx.thread_ts, event,
+                              work=args.get("work"), name=display, etype=etype):
+        raise ValueError("참조 이미지를 생성하지 못했습니다")
+
+
+def _reference_many(name: str, args: dict, ctx) -> None:
+    counts = {}
+    for element in args["elements"]:
+        key = (element.get("kind"), element.get("name"))
+        counts[key] = counts.get(key, 0) + 1
+    for element in args["elements"]:
+        merged = {"work": args.get("work"), **element}
+        key = (element.get("kind"), element.get("name"))
+        if name == "generate_reference_image" and counts.get(key, 0) > 1:
+            # Multiple age/look variants of one character must not overwrite the same
+            # reference label. The user-authored instruction becomes the distinct label.
+            merged["name"] = str(element.get("instruction") or "").strip()
+        _reference(name, merged, ctx)
+
+
+def _replace_logo(args: dict, ctx) -> None:
+    from . import dispatch_storyboard as sb
+    selected = _selected_attachment(args, ctx)
+    label = "방송 로고" if args["logo_type"] == "broadcast_logo" else "작품 로고"
+    if args["scope"] == "future_default":
+        if not sb._do_typed_ref(ctx.channel, ctx.thread_ts,
+                                {"files": [selected]}, work=args.get("work"),
+                                etype="prop", names=[label]):
+            raise ValueError("로고 기본 참조를 등록하지 못했습니다")
+        return
+    ref_data_url = _attachment_data_url(args, ctx)
+    rest = _rest(args, include_scene=True, include_cuts=False)
+    rest = f"{rest} 컷{args['cut_number']}".strip()
+    instruction = args.get("instruction") or f"컷{args['cut_number']}의 {label}를 첨부 이미지로 교체"
+    sb._do_stills(ctx.channel, ctx.thread_ts, rest, feedback=instruction,
+                  ref_data_url=ref_data_url)
+
+
+def _validate_attachment(args: dict, ctx) -> str | None:
+    attachment_id = args.get("attachment_id")
+    files = ctx.event.get("files") or []
+    by_id = {str(f.get("id") or ""): f for f in files}
+    if not attachment_id:
+        return "첨부 이미지가 필요해요."
+    selected = by_id.get(str(attachment_id))
+    if selected is None:
+        return "선택한 첨부 이미지를 현재 메시지에서 찾지 못했어요. 이미지를 다시 첨부해 주세요."
+    if not str(selected.get("mimetype") or "").startswith("image/"):
+        return "참조 등록에는 이미지 첨부가 필요해요."
+    return None
+
+
+def _selected_attachment(args: dict, ctx) -> dict:
+    attachment_id = str(args.get("attachment_id") or "")
+    for file in (ctx.event.get("files") or []):
+        if str(file.get("id") or "") == attachment_id:
+            return file
+    raise ValueError("선택한 첨부 이미지를 현재 메시지에서 찾지 못했어요.")
+
+
+def _attachment_data_url(args: dict, ctx) -> str:
+    """Download only the already-validated current-event Slack image."""
+    from . import config
+    selected = _selected_attachment(args, ctx)
+    url = selected.get("url_private_download") or selected.get("url_private")
+    if not url:
+        raise ValueError("첨부 이미지 원본 URL을 찾지 못했습니다")
+    request = urllib.request.Request(
+        url, headers={"Authorization": f"Bearer {config.SLACK_BOT_TOKEN}"}
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        data = response.read()
+    if not data:
+        raise ValueError("첨부 이미지 원본이 비어 있습니다")
+    mimetype = str(selected.get("mimetype") or "image/png")
+    return f"data:{mimetype};base64,{base64.b64encode(data).decode('ascii')}"
+
+
+def _validate_optional_attachment(args: dict, ctx) -> str | None:
+    return _validate_attachment(args, ctx) if args.get("attachment_id") else None
+
+
+def _validate_reference_batch(args: dict, ctx, *, attachments_required: bool) -> str | None:
+    seen = set()
+    base_counts = {}
+    for element in args.get("elements") or []:
+        base = (element.get("kind"), element.get("name"))
+        base_counts[base] = base_counts.get(base, 0) + 1
+    for index, element in enumerate(args.get("elements") or []):
+        base = (element.get("kind"), element.get("name"))
+        instruction = str(element.get("instruction") or "").strip()
+        key = base if attachments_required else (*base, instruction)
+        if key in seen:
+            return f"elements[{index}]에 중복 대상이 있어요: {key[1]}"
+        seen.add(key)
+        if not attachments_required and base_counts[base] > 1 and not instruction:
+            return f"elements[{index}]의 버전별 생성 지시가 필요해요: {base[1]}"
+        if attachments_required or element.get("attachment_id"):
+            error = _validate_attachment(element, ctx)
+            if error:
+                return f"elements[{index}]: {error}"
+    return None
+
+
+def _validate_replace_logo(args: dict, ctx) -> str | None:
+    error = _validate_attachment(args, ctx)
+    if error:
+        return error
+    if args.get("scope") == "current_cut" and not args.get("cut_number"):
+        return "현재 컷의 로고를 바꾸려면 컷 번호가 필요해요."
+    return None
+
+
+def _validate_resume(_args: dict, ctx) -> str | None:
+    context = getattr(ctx, "context", None) or {}
+    return None if context.get("interrupted_job") else "재개할 중단 작업이 없어요."
+
+
+def _register(spec: ToolSpec) -> ToolSpec:
+    TOOLS[spec.name] = spec
+    return spec
+
+
+TOOLS: dict[str, ToolSpec] = {}
+
+
+def _add(name, desc, props, required, risk, executor, validator=None):
+    _register(ToolSpec(name, desc, _object(props, required), risk, executor, validator))
+
+
+_writing = {
+    "generate_script": ("작품의 로그라인, 개요, 줄거리, 대본, 인물 외모·비주얼 스펙, "
+                        "룩앤필 또는 캐릭터 시트 같은 창작 텍스트를 생성한다."),
+    "revise_script": "현재 스레드의 기존 대본이나 초안을 수정한다.",
+    "edit_plan": "작품 기획안을 생성하거나 수정한다.",
+    "review_script": "대본의 재미와 개연성을 함께 검토한다.",
+    "evaluate_fun": "대본의 재미와 몰입도를 평가한다.",
+    "evaluate_logic": "대본의 개연성과 논리를 평가한다.",
+    "research_trends": "등록된 레퍼런스 데이터에서 트렌드를 조사한다.",
+    "suggest_ideas": "작품 또는 일반 창작 아이디어를 제안한다.",
+    "sync_notion": "사용자가 노션 URL을 주거나 '동기화'라고 명시했을 때만 그 자료를 동기화한다. 노션에 있는 자료를 참고해 다른 결과를 만들라는 요청에는 쓰지 않는다.",
+    "register_work_alias": "사용자가 작품의 새 별칭·약칭을 추가해 달라고 명시했을 때만 등록한다. 방송명·프로그램명·로고 이름 고정에는 쓰지 않는다.",
+    "convert_script_format": "대본 형식을 다른 포맷으로 변환한다.",
+}
+for _name, _desc in _writing.items():
+    _risk = HIGH if _name in ("sync_notion", "register_work_alias") else LOW
+    _add(_name, _desc, {"work": WORK, "episode": EPISODE, "episodes": EPISODES,
+                        "instruction": INSTRUCTION},
+         ["instruction"], _risk, lambda args, ctx, n=_name: _cw(n, args, ctx))
+
+_storyboard = {
+    "generate_scene_design": ("대본을 장면 단위 1단계 씬 설계로 변환한다. 상세 콘티나 이미지 생성이 아니다.", LOW),
+    "generate_detail_conti": ("씬 설계나 대본을 컷 단위 상세 콘티 텍스트로 변환한다. scene을 생략하면 회차 전체다.", LOW),
+    "rewrite_conti": ("기존 상세 콘티의 지정 범위를 수정한다. '수정/바꿔/손봐/다듬어'라는 원문 자체가 instruction이므로 추가 수정 방향을 묻지 않는다.", HIGH),
+    "generate_storyboard_grid": ("상세 콘티를 여러 컷이 배치된 스토리보드 이미지 또는 그리드 이미지로 생성한다. 스틸컷 생성과 다르다.", HIGH),
+    "generate_stillcuts": ("현재 스토리보드의 지정 씬·컷 또는 최근 스틸컷을 생성·재생성한다. 현재 메시지의 첨부 스토리보드를 그대로 참고하라는 요청이면 attachment_id를 반드시 포함한다. 활성 스레드에서는 작품·회차가 없어도 호출한다.", HIGH),
+    "generate_video": ("현재 스토리보드나 최근 스틸컷의 지정 씬·컷을 영상으로 생성한다. 활성 스레드에서는 작품·회차가 없어도 호출한다.", HIGH),
+    "compile_episode": ("생성된 영상들을 회차 합본으로 만든다.", HIGH),
+    "run_autopilot": ("여러 제작 단계를 자동으로 연속 실행한다.", HIGH),
+    "show_episode_status": ("작품 회차의 현재 제작 진행상황을 조회한다.", LOW),
+    "change_visual_style": ("작품의 이후 이미지 생성 스타일 기본값을 변경한다.", HIGH),
+    "finalize_conti": ("사용자가 콘티 자체를 최종본으로 저장·확정해 달라고 명시했을 때만 확정한다. 다른 작업의 전제로 '확정했어'라고 설명한 경우에는 쓰지 않는다.", HIGH),
+    "save_conti_to_notion": ("현재 상세 콘티를 작품 노션에 저장한다.", HIGH),
+    "reset_episode_outputs": ("지정 회차의 생성 결과를 초기화한다.", HIGH),
+    "export_file": ("현재 결과를 파일로 내보낸다.", LOW),
+}
+for _name, (_desc, _risk) in _storyboard.items():
+    _required = [] if _name not in ("export_file",) else ["instruction"]
+    if _name in ("generate_scene_design", "generate_detail_conti", "compile_episode",
+                 "run_autopilot", "show_episode_status", "reset_episode_outputs"):
+        _required = ["episode"]
+    if _name == "rewrite_conti":
+        _required = ["instruction"]
+    _props = {"work": WORK, "episode": EPISODE, "scene": SCENE, "cuts": CUTS,
+              "instruction": INSTRUCTION}
+    _validator = None
+    if _name == "generate_stillcuts":
+        _props["attachment_id"] = ATTACHMENT_ID
+        _validator = _validate_optional_attachment
+    _add(_name, _desc,
+         _props,
+         _required,
+         _risk, lambda args, ctx, n=_name: _sb(n, args, ctx), _validator)
+
+_add("cancel_current_job", "현재 스레드에서 실행 중인 작업을 중단한다.", {}, [], HIGH,
+     lambda args, ctx: _sb("cancel_current_job", args, ctx))
+_add("resume_interrupted_job", "재개 버튼에서만 현재 스레드의 중단된 직전 작업을 재개한다. 자연어 긍정에는 호출하지 않는다.", {}, [], HIGH,
+     lambda args, ctx: _sb("resume_interrupted_job", args, ctx), _validate_resume)
+
+_ref_props = {
+    "work": WORK,
+    "episode": EPISODE,
+    # 로고는 일반 소품 참조로 오등록하지 않고 아래 replace_logo 전용 tool이 처리한다.
+    "kind": {"type": "string", "enum": ["인물", "의상", "장소", "소품"]},
+    "name": {"type": "string"},
+    "attachment_id": ATTACHMENT_ID,
+    "instruction": INSTRUCTION,
+}
+_add("register_reference_image", "사용자가 등록·확정이라고 말한 첨부 이미지 한 장을 인물, 의상, 장소 또는 소품 참조로 새로 등록한다.",
+     _ref_props, ["kind", "name", "attachment_id"], HIGH,
+     lambda args, ctx: _reference("register_reference_image", args, ctx), _validate_attachment)
+_add("replace_reference_image", "사용자가 교체·바꾸기·수정이라고 말한 기존 참조 이미지 한 장을 현재 첨부 이미지로 교체한다. 단순 등록에는 쓰지 않는다.",
+     _ref_props, ["kind", "name", "attachment_id"], HIGH,
+     lambda args, ctx: _reference("replace_reference_image", args, ctx), _validate_attachment)
+_add("generate_reference_image", "인물, 의상, 장소 또는 소품의 새 참조 이미지를 생성한다. 외형을 텍스트 지시로 바꾸는 재생성도 포함한다.",
+     _ref_props, ["kind", "name"], HIGH,
+     lambda args, ctx: _reference("generate_reference_image", args, ctx),
+     _validate_optional_attachment)
+
+_ref_item = _object({
+    "kind": _ref_props["kind"], "name": _ref_props["name"],
+    "attachment_id": _ref_props["attachment_id"], "instruction": INSTRUCTION,
+}, ["kind", "name"])
+_ref_items = {"type": "array", "items": _ref_item, "minItems": 1, "maxItems": 20}
+_add("register_reference_images",
+     "첨부 이미지 여러 장을 순서에 맞춰 여러 인물·의상·장소·소품 참조로 일괄 등록한다.",
+     {"work": WORK, "elements": _ref_items}, ["elements"], HIGH,
+     lambda args, ctx: _reference_many("register_reference_image", args, ctx),
+     lambda args, ctx: _validate_reference_batch(args, ctx, attachments_required=True))
+_add("generate_reference_images",
+     "여러 인물·의상·장소·소품의 참조 이미지를 일괄 생성한다.",
+     {"work": WORK, "elements": _ref_items}, ["elements"], HIGH,
+     lambda args, ctx: _reference_many("generate_reference_image", args, ctx),
+     lambda args, ctx: _validate_reference_batch(args, ctx, attachments_required=False))
+
+_add("replace_logo",
+     "첨부 로고를 특정 현재 컷에만 반영하거나 앞으로 쓸 방송·작품 로고 기본 참조로 등록한다. 두 범위를 모두 요청하면 scope별로 두 번 호출한다.",
+     {"work": WORK, "episode": EPISODE, "scene": SCENE,
+      "scope": {"type": "string", "enum": ["current_cut", "future_default"]},
+      "cut_number": {"type": "integer", "minimum": 1},
+      "logo_type": {"type": "string", "enum": ["broadcast_logo", "work_logo"]},
+      "attachment_id": {"type": "string"}, "instruction": INSTRUCTION},
+     ["scope", "logo_type", "attachment_id"], HIGH, _replace_logo,
+     _validate_replace_logo)
+
+
+def api_tools() -> list[dict]:
+    return [spec.api_schema() for spec in TOOLS.values()]
+
+
+def get(name: str) -> ToolSpec | None:
+    return TOOLS.get(name)
+
+
+def hydrate_arguments(spec: ToolSpec, args: dict, context: dict | None) -> dict:
+    """Fill only trusted thread defaults; never invent a model argument."""
+    hydrated = dict(args or {})
+    context = context or {}
+    defaults = context.get("resolved_defaults") or {}
+    if "work" in spec.parameters.get("properties", {}) and not hydrated.get("work"):
+        if defaults.get("work"):
+            hydrated["work"] = defaults["work"]
+    if "episode" in spec.parameters.get("properties", {}) and hydrated.get("episode") is None:
+        if defaults.get("episode") is not None:
+            hydrated["episode"] = defaults["episode"]
+        else:
+            match = re.search(r"(?<!\d)(\d{1,3})\s*[화회]", str(context.get("_user_query") or ""))
+            if match:
+                hydrated["episode"] = int(match.group(1))
+    if spec.name == "replace_logo" and hydrated.get("scope") == "current_cut" \
+            and hydrated.get("cut_number") is None:
+        query = str(context.get("_user_query") or "")
+        match = re.search(r"(?<!\d)(\d{1,3})\s*컷", query)
+        if match:
+            hydrated["cut_number"] = int(match.group(1))
+        elif re.search(r"(?:맨\s*)?첫\s*컷", query):
+            hydrated["cut_number"] = 1
+    required = spec.parameters.get("required", [])
+    if "attachment_id" in required and not hydrated.get("attachment_id"):
+        images = [item for item in (context.get("attachments") or [])
+                  if str(item.get("mimetype") or "").startswith("image/")]
+        if len(images) == 1 and images[0].get("id"):
+            hydrated["attachment_id"] = str(images[0]["id"])
+    if spec.name == "generate_stillcuts" and not hydrated.get("attachment_id"):
+        images = [item for item in (context.get("attachments") or [])
+                  if str(item.get("mimetype") or "").startswith("image/")]
+        query = str(context.get("_user_query") or "")
+        if (len(images) == 1 and images[0].get("id")
+                and re.search(
+                    r"첨부|이\s*(?:이미지|사진|스토리보드)|스토리보드.{0,12}그대로|그대로.{0,12}스틸컷",
+                    query, re.I)):
+            hydrated["attachment_id"] = str(images[0]["id"])
+    return hydrated
+
+
+def validate_schema(schema: dict, value, path: str = "arguments") -> str | None:
+    expected = schema.get("type")
+    if expected == "object":
+        if not isinstance(value, dict):
+            return f"{path}는 객체여야 합니다."
+        for key in schema.get("required", []):
+            if key not in value or value[key] in (None, ""):
+                return f"{key} 값이 필요해요."
+        if schema.get("additionalProperties") is False:
+            unknown = set(value) - set(schema.get("properties", {}))
+            if unknown:
+                return f"지원하지 않는 인자예요: {', '.join(sorted(unknown))}"
+        for key, child in schema.get("properties", {}).items():
+            if key in value and value[key] is not None:
+                error = validate_schema(child, value[key], f"{path}.{key}")
+                if error:
+                    return error
+    elif expected == "string" and not isinstance(value, str):
+        return f"{path}는 문자열이어야 합니다."
+    elif expected == "integer" and (not isinstance(value, int) or isinstance(value, bool)):
+        return f"{path}는 정수여야 합니다."
+    elif expected == "array":
+        if not isinstance(value, list):
+            return f"{path}는 배열이어야 합니다."
+        if len(value) > schema.get("maxItems", len(value)):
+            return f"{path} 항목이 너무 많아요."
+        if len(value) < schema.get("minItems", 0):
+            return f"{path} 항목이 부족해요."
+        for index, item in enumerate(value):
+            error = validate_schema(schema.get("items", {}), item, f"{path}[{index}]")
+            if error:
+                return error
+    if "enum" in schema and value not in schema["enum"]:
+        return f"{path} 값은 {schema['enum']} 중 하나여야 합니다."
+    if isinstance(value, int) and "minimum" in schema and value < schema["minimum"]:
+        return f"{path} 값은 {schema['minimum']} 이상이어야 합니다."
+    return None
+
+
+def validate_call(spec: ToolSpec, args: dict, ctx) -> str | None:
+    error = validate_schema(spec.parameters, args)
+    if error:
+        return error
+    work = args.get("work")
+    context = getattr(ctx, "context", None) or {}
+    registry = context.get("registered_works") or {}
+    if work and isinstance(registry, dict) and registry and spec.name != "sync_notion":
+        canonical = work if work in registry else None
+        if canonical is None:
+            for registered, aliases in registry.items():
+                if work in (aliases or []):
+                    canonical = registered
+                    break
+        if canonical is None:
+            return f"등록되지 않은 작품명이에요: {work}. 먼저 작품을 동기화해 주세요."
+        args["work"] = canonical
+    if spec.validator:
+        return spec.validator(args, ctx)
+    return None

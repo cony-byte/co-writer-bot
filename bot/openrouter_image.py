@@ -52,6 +52,43 @@ def chat(system: str, user: str, *, model: str | None = None, timeout: int = 240
     return (data.get("choices") or [{}])[0].get("message", {}).get("content", "") or ""
 
 
+def tool_chat(system: str, user: str, tools: list[dict], *,
+              model: str | None = None, timeout: int = 30) -> dict:
+    """OpenRouter native function calling.
+
+    Returns the provider's assistant message unchanged so the caller can inspect
+    ``tool_calls``. Plain model text is never interpreted as an executable action.
+    A compound user request may return multiple declared calls; their array order is
+    preserved and the caller validates the complete plan before anything runs.
+    """
+    if not config.OPENROUTER_API_KEY:
+        raise RuntimeError("OPENROUTER_API_KEY 미설정")
+    payload = {
+        "model": model or getattr(config, "OPENROUTER_LLM_MODEL", "anthropic/claude-sonnet-4.5"),
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "tools": tools,
+        "tool_choice": "required",
+        "parallel_tool_calls": True,
+    }
+    req = urllib.request.Request(
+        _CHAT_URL, data=json.dumps(payload).encode("utf-8"),
+        headers={"Authorization": f"Bearer {config.OPENROUTER_API_KEY}",
+                 "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")[:300]
+        raise RuntimeError(f"OpenRouter tool-call 오류 {exc.code}: {detail}") from exc
+    choices = data.get("choices") or []
+    if not choices:
+        raise RuntimeError("OpenRouter tool-call 응답에 choices가 없습니다")
+    return choices[0].get("message") or {}
+
+
 def vision_check(png: bytes, ref_urls: list[str], question: str, *,
                  model: str | None = None, timeout: int = 60) -> str:
     """★2026-07-15(자동주행 이미지/영상 일관성 후검사): chat()과 같은 OpenRouter chat/completions

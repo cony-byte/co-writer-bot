@@ -63,6 +63,8 @@ from bot import config
 from bot import dispatch_cowriter as cw
 from bot import dispatch_storyboard as sb
 from bot import nl_router
+from bot import tool_router
+from bot import tool_router_slack
 from bot.shared import works
 from bot.shared.files import _files_text
 from bot.shared.slack_io import app, log, _reply, _thread_messages, _clean, BOT_USER_ID
@@ -406,42 +408,34 @@ def _handle_dispatch(event: dict) -> None:
         _dispatch_bracket_command(channel, thread_ts, query, event, m, in_thread)
         return
 
-    # pending-state 카드 응답 (레코드 게이트라 안전 — LLM 안 태움)
-    for fn in (sb._maybe_ref_edit_reply, sb._maybe_scene_pick_reply,
-               sb._maybe_stillcut_regen_ask_reply, sb._maybe_element_regen_ask_reply,
-               sb._maybe_planregen_ask_reply):
-        if fn(channel, thread_ts, query):
-            log.info("route=deterministic:pending:%s", fn.__name__)
-            return
-
-    # ★2026-07-21 작업③: "아까 처리 못한 요청 이어서 할까요?" 제안에 대한 긍정 답변 —
-    # 레코드 게이트(제안이 실제로 나가 있었을 때만 발동)라 안전, LLM 안 태움.
-    if nl_router._maybe_resume_offer_reply(channel, thread_ts, query, _handle_dispatch):
-        log.info("route=deterministic:resume_offer")
-        return
+    # 레거시 pending matcher는 "응/네/그걸로" 같은 자연어를 실행 승인으로 소비한다.
+    # Native router가 켜진 동안에는 절대 호출하지 않고, 정확한 pending_id가 담긴 Slack
+    # action payload만 tool_router_slack이 소비한다. 킬스위치 롤백 때만 예전 동작을 보존한다.
+    if not tool_router.ENABLED:
+        for fn in (sb._maybe_ref_edit_reply, sb._maybe_scene_pick_reply,
+                   sb._maybe_stillcut_regen_ask_reply, sb._maybe_element_regen_ask_reply,
+                   sb._maybe_planregen_ask_reply):
+            if fn(channel, thread_ts, query):
+                log.info("route=deterministic:pending:%s", fn.__name__)
+                return
 
     # 파일 메타데이터 복구만 코드로 수행한다. 첨부의 의미(등록/교체/재생성)는
     # 자연어 라우터가 answer/action/clarify로 판단한다.
     nl_router.recover_event_files(channel, thread_ts, event, query_text=query)
 
-    # ★ LLM 라우터. 성공 시 execute. execute 내부의 미해결 폴백(work/episode 못 잡음 등)도
-    # 파이프라인 매처가 아니라 _safe_fallback(읽기전용+안전정지)으로 보낸다 → 오발 실행 원천 차단.
+    # Native tool-calling router. The model chooses an allowed function directly;
+    # schema/risk validation and confirmation are owned by code, not model output.
     try:
-        r = nl_router.route(channel, thread_ts, query, event)
-        if r is not None:
-            log.info("route=nl_router:intent=%s conf=%.2f", r.intent, r.confidence)
-            nl_router.offer_resume_if_pending(channel, thread_ts, event)
-            nl_router.execute(
-                channel, thread_ts, event, r,
-                dispatch_bracket=_run_bracket_text,
-                legacy_fallback=lambda ev: _safe_fallback(channel, thread_ts, query, ev),
-            )
+        decision = tool_router.decide(channel, thread_ts, query, event)
+        if decision is not None:
+            log.info("route=tool_router:type=%s tool=%s", decision.type, decision.tool)
+            tool_router_slack.execute(channel, thread_ts, event, decision)
             return
     except Exception:
-        log.exception("nl_router 실행 예외 → 안전 정지")
+        log.exception("tool_router 실행 예외 → 안전 정지")
 
-    # 여기 도달 = route()가 None(킬스위치 / 백엔드 실패·타임아웃 / 미지 intent) 또는 execute 예외.
-    if not nl_router.ROUTER_ENABLED:
+    # 여기 도달 = tool call 생성 실패(킬스위치 / 백엔드 실패·타임아웃 / 잘못된 응답) 또는 실행 예외.
+    if not tool_router.ENABLED:
         # 킬스위치(COWRITER_ROUTER_ENABLED=0): 의도적으로 라우터를 끈 것 → 예전 전체 체인 유지.
         log.info("route=killswitch_legacy")
         _legacy_freeform_chain(channel, thread_ts, query, event, in_thread)
