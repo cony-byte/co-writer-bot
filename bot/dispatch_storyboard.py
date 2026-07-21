@@ -3405,7 +3405,16 @@ _BEAT_TAG_RE = re.compile(r"\[\d+(?:\.\d+)?\s*초\]")
 
 _AUTO_CUT_RE = re.compile(r"적당히|알아서|자동으로|자동\s*컷")
 
-_DIALOGUE_HAS_QUOTE_RE = re.compile(r"'[^']{2,}'")
+# ★2026-07-21: 기존엔 작은따옴표 '...'만 대사로 인식했는데, 콘티 대사는 큰따옴표 "..."나
+# 모서리 괄호(「」/『』), 굽은 따옴표를 쓰는 경우가 많아 대사가 있는데도 _cut_has_dialogue가
+# False가 돼 영상 오디오(대사)가 꺼지는 문제가 있었다(사용자 실측 — 콘티가 "..." 형식). 흔한
+# 대사 따옴표 계열을 모두 인식하도록 넓힌다.
+_DIALOGUE_HAS_QUOTE_RE = re.compile(
+    r"'[^']{2,}'"
+    r'|"[^"]{2,}"'
+    r"|[‘“][^’”]{2,}[’”]"
+    r"|[「『][^」』]{2,}[」』]"
+)
 
 def _cut_has_dialogue(cut: dict) -> bool:
     return bool(_DIALOGUE_HAS_QUOTE_RE.search(cut.get("caption") or ""))
@@ -4892,6 +4901,62 @@ def _do_video_from_last_still(channel, thread_ts, query, work=None) -> bool:
                                             "scene_seconds": None})
     return True
 
+def _conti_cut_meta_for_scene(channel, thread_ts, work, scene_num, episode) -> dict | None:
+    """★2026-07-21: 첨부 스틸/영상을 저장할 때 그 씬의 확정·스레드 콘티를 찾아 비트([N초])별로
+    쪼개 컷별 메타({caption, scene_text, characters, places, props})를 만든다. 컷 번호로
+    1:1 매칭해 붙이기 위함 — 안 그러면 저장된 컷에 대사·동작·인물이 비어서 영상화 때
+    _cut_has_dialogue가 False가 돼 오디오(대사)가 꺼지고, 모션 프롬프트에 콘티 내용이 안
+    실려 화풍만 과하게 적용되는(만화풍 드리프트) 문제가 있었다(사용자 실측). LLM 없이 비트=컷
+    원칙으로 결정적 매핑. 콘티를 못 찾으면 None."""
+    try:
+        msgs = _thread_messages(channel, thread_ts)
+        conti = _thread_or_saved_conti(channel, thread_ts, msgs, work, episode, announce=False)
+    except Exception:
+        conti = None
+    if not conti:
+        return None
+    scene = next((s for s in _split_scenes(conti) if s[0] == scene_num), None)
+    if not scene:
+        return None
+    _num, _hdr, body = scene
+    # 비트 태그 [N초]로 컷 분할 — 태그 앞 preamble(등장/공간 등 씬 공통 설명)은 각 컷에 함께
+    # 붙여 맥락을 유지한다. 비트가 없으면(옛 콘티) 씬 전체를 컷 1개로 본다.
+    bm = list(re.finditer(r"\[(\d+(?:\.\d+)?)\s*초\]", body))
+    preamble = body[:bm[0].start()].strip() if bm else ""
+    beats = []
+    if bm:
+        for i, m in enumerate(bm):
+            start = m.end()
+            end = bm[i + 1].start() if i + 1 < len(bm) else len(body)
+            beats.append(body[start:end].strip())
+    else:
+        beats = [body.strip()]
+    elems = oi.load_elements(work)
+    def _scan(text):
+        chars, places, props = [], [], []
+        for e in elems:
+            disp = oi._nfc(e.get("display", ""))
+            if not disp:
+                continue
+            names = [n for n in oi._element_names(e) if n and len(n) >= 2]
+            if any(n in text for n in names):
+                t = e.get("type")
+                if t == "place":
+                    places.append(disp)
+                elif t == "prop":
+                    props.append(disp)
+                else:                      # person·costume → 언급으로 넣어 참조 태그가 붙게
+                    chars.append(disp)
+        return chars, places, props
+    out = {}
+    for i, beat in enumerate(beats, start=1):
+        full = (f"{preamble}\n{beat}".strip() if preamble else beat)
+        chars, places, props = _scan(full)
+        out[i] = {"caption": full[:600], "scene_text": full[:1200], "prompt": "",
+                  "characters": chars, "places": places, "props": props}
+    return out
+
+
 def _do_save_stills_from_attachments(channel, thread_ts, images, *, work=None,
                                      scene_num=None, cut_nums=None, episode=None,
                                      instruction=None, who=None) -> bool:
@@ -4934,11 +4999,22 @@ def _do_save_stills_from_attachments(channel, thread_ts, images, *, work=None,
     dropped_imgs = len(images) - len(pairs)
     dropped_nums = len(nums) - len(pairs)
 
-    cuts = [{"n": n, "png": png,
-             "caption": (instruction or "").strip() or f"컷{n} (첨부 저장)",
-             "prompt": "첨부 이미지 직접 저장(재생성 없음)",
-             "characters": [], "places": [], "props": [], "scene_text": ""}
-            for (png, _mime), n in pairs]
+    # ★2026-07-21: 그 씬 콘티를 비트별로 쪼개 컷 메타(대사·동작·인물)를 채운다 — 안 채우면
+    # 영상화 때 대사(오디오)가 꺼지고 콘티 내용이 모션에 안 실려 화풍만 과적용된다(사용자 실측:
+    # "영상이 만화풍, 대사도 안 함"). 콘티가 없으면(cut_meta=None) 예전처럼 최소 메타로 저장.
+    cut_meta = _conti_cut_meta_for_scene(channel, thread_ts, work, scene_num, episode)
+    cuts = []
+    for (png, _mime), n in pairs:
+        m = (cut_meta or {}).get(n) or {}
+        cuts.append({
+            "n": n, "png": png,
+            "caption": m.get("caption") or (instruction or "").strip() or f"컷{n} (첨부 저장)",
+            "prompt": m.get("prompt", ""),
+            "characters": m.get("characters", []),
+            "places": m.get("places", []),
+            "props": m.get("props", []),
+            "scene_text": m.get("scene_text", ""),
+        })
 
     vp_store.ensure_project(work)
     rel = vp_store.save_still(work, scene_num=scene_num,
@@ -4952,6 +5028,11 @@ def _do_save_stills_from_attachments(channel, thread_ts, images, *, work=None,
     ep_txt = f"{episode}화 " if episode else ""
     msg = (f"✅ 첨부 이미지 {len(cuts)}장을 재생성 없이 그대로 <{work}> {ep_txt}씬{scene_num} "
            f"컷{label}으로 저장했어요 — `{rel}`.")
+    if cut_meta:
+        msg += "\n📝 이 씬 콘티의 대사·동작·인물을 컷별로 함께 붙였어요 (영상화 시 대사 립싱크·참조 반영)."
+    else:
+        msg += ("\n⚠️ 이 씬의 확정 콘티를 못 찾아 대사·동작 없이 저장했어요 — 영상화 시 대사가 "
+                "안 나올 수 있어요. 콘티를 먼저 확정(또는 스레드에 있게)한 뒤 저장하면 대사까지 반영돼요.")
     if dropped_imgs > 0:
         msg += f"\n⚠️ 컷 번호({len(nums)}개)보다 첨부 이미지가 많아 뒤 {dropped_imgs}장은 저장하지 않았어요."
     if dropped_nums > 0:
