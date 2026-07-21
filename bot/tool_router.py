@@ -98,6 +98,11 @@ def _system_prompt_static() -> str:
   않는다. registered_elements에 있지만 이번 화 대본에는 이름이 없는 대상은 "등록 안 된"
   목록에 넣지 말고, 필요하면 별도로 "등록은 돼 있지만 이 화에는 등장하지 않음"이라고 구분해서
   언급한다. "등록 안 된 인물"류 목록에는 registered_elements에 실제로 없는 이름만 넣는다.
+- 등록 여부·상태 조회 질문(예: "등록 안 된 게 뭐야", "지금 상태 어때")은 매번 그 시점의
+  context.registered_elements/registered_works 등 현재 자료로 처음부터 다시 판단한다.
+  recent_messages에 같은 질문과 너의 이전 답이 이미 있어도(사용자가 반복해서 다시 물어본
+  경우 포함) 그 이전 답을 참고하거나 베끼지 않는다 — 다시 묻는다는 것 자체가 그새 등록
+  상태가 바뀌었을 수 있다는 뜻이므로, 이전 답과 다르더라도 지금 context가 맞다.
 - 한 문장에 서로 다른 작업이 명시되면 필요한 실행 함수를 사용자 문장 순서대로 모두 호출한다.
 - context.resolved_defaults에 값이 있으면 그것은 코드가 검증한 현재 작품/회차다. 사용자가
   다른 값을 명시하지 않은 한 그 값을 사용하고 다시 묻지 않는다.
@@ -247,6 +252,57 @@ def _resolved_context(context: dict) -> dict:
     return enriched
 
 
+_UNREGISTERED_QUERY_RE = re.compile(r"(등록\s*안\s*된|미등록).{0,12}(인물|장소|의상|소품)", re.S)
+
+
+def _deterministic_unregistered_answer(query: str, context: dict) -> "Decision | None":
+    """★2026-07-21 실측 사고: "등록 안 된 인물/장소/의상 있어?" 질문에 LLM이 매번 답을
+    다르게 하거나(temperature=0 고정 후에도), 같은 스레드에서 반복 질문하면 자기 이전
+    오답을 그대로 베끼는 문제가 프롬프트 지시 3차례로도 안 고쳐졌다 — LLM에게 registered_
+    elements JSON을 보여주고 "대조해서 판단해라"라고 맡기는 방식 자체가 이 질문 유형에는
+    신뢰할 수 없다고 판단, 아예 LLM 판단을 안 거치고 코드로 직접 계산한다(_warn_unregistered_
+    elements와 동일한 추출+oi.resolve_element 대조 로직 재사용 — 이미 그쪽에서 검증된 방식).
+    이름 후보 추출만 LLM(짧은 단일 호출)에 맡기고, "등록 여부" 최종 판정은 100% 코드다."""
+    if not _UNREGISTERED_QUERY_RE.search(query or ""):
+        return None
+    work = (context.get("resolved_defaults") or {}).get("work")
+    episode = (context.get("resolved_defaults") or {}).get("episode")
+    if not work:
+        return None
+    sources = context.get("answer_sources") or {}
+    conti = sources.get("detail_conti_excerpt") or sources.get("episode_script_excerpt")
+    if not conti:
+        return None
+    from . import dispatch_storyboard as sb
+    from . import sb_prompts as prompts
+    try:
+        raw = oi.chat(prompts.element_extract_system(sb._place_categories(work)),
+                     prompts.element_extract_user(conti), timeout=60)
+        obj = sb._parse_json_object(raw)
+    except Exception:
+        log.exception("결정적 등록여부 조회: 후보 추출 실패 — LLM 자유응답으로 폴백")
+        return None
+    chars = [c.strip() for c in (obj.get("characters") or []) if isinstance(c, str) and c.strip()]
+    places = [c.strip() for c in (obj.get("places") or []) if isinstance(c, str) and c.strip()]
+    costumes = [c.strip(" ,") for c in (obj.get("costumes") or []) if isinstance(c, str) and c.strip(" ,")]
+    props = [c.strip(" ,") for c in (obj.get("props") or []) if isinstance(c, str) and c.strip(" ,")]
+    new_chars = [c for c in dict.fromkeys(chars) if not oi.resolve_element(work, c)]
+    new_places = [c for c in dict.fromkeys(places) if not oi.resolve_element(work, c)]
+    new_costumes = [c for c in dict.fromkeys(costumes) if not oi.resolve_element(work, c)]
+    new_props = [c for c in dict.fromkeys(props) if not oi.resolve_element(work, c)]
+    ep_label = f"{episode}화 " if episode else ""
+    parts = [
+        f"현재 <{work}> {ep_label}기준:",
+        "**등록 안 된 인물**\n" + ("\n".join(f"- {c}" for c in new_chars) or "없음 — 모두 등록돼 있어요."),
+        "**등록 안 된 장소**\n" + ("\n".join(f"- {c}" for c in new_places) or "없음 — 모두 등록돼 있어요."),
+        "**등록 안 된 의상**\n" + ("\n".join(f"- {c}" for c in new_costumes) or "없음 — 모두 등록돼 있어요."),
+    ]
+    if new_props:
+        parts.append("**등록 안 된 소품**\n" + "\n".join(f"- {c}" for c in new_props))
+    return Decision(type="answer", text="\n\n".join(parts),
+                    raw={"deterministic": True, "context": context})
+
+
 def decide_from_context(query: str, context: dict, *, model: str | None = None,
                         timeout: int | None = None) -> Decision:
     """Return one answer/clarification/tool_call decision without Slack I/O.
@@ -256,6 +312,9 @@ def decide_from_context(query: str, context: dict, *, model: str | None = None,
     """
     context = _resolved_context(context)
     context["_user_query"] = query
+    deterministic = _deterministic_unregistered_answer(query, context)
+    if deterministic is not None:
+        return deterministic
     # Button-only invariant: a short natural acknowledgement never reaches the model
     # and therefore can never become an executable or resume call.
     if _SHORT_ACK_RE.fullmatch(query or ""):

@@ -640,10 +640,15 @@ def resolve_element(work: str | None, mention: str) -> dict | None:
     # 있는 공백이 오는 경우가 드물어(대개 성+직함/성+이름 사이 관례적 공백), 공백 제거 버전으로도
     # 한 번 더 비교 — _notion_character_gender 등에서 이미 쓰던 것과 같은 방식(공백 스트립)을
     # 여기 핵심 매칭 함수에도 적용한다.
-    mention_nospace = mention.replace(" ", "")
-    for e in elems:                                   # ① 정확/별칭 일치(공백 무시 포함)
+    # ★2026-07-21: "촬영장-대기 공간"(LLM 추출 표기, 하이픈)과 "촬영장 대기 공간"(등록 표기,
+    # 공백)처럼 '대분류-소분류' 장소명에서 구분자가 하이픈이냐 공백이냐만 다른 경우도 같은
+    # 대상으로 봐야 하는데, 공백만 제거하면 하이픈이 남아 여전히 안 맞았다("등록 안 된 장소"
+    # 오탐 실측) — 하이픈도 같이 제거해 비교한다.
+    _strip = lambda s: s.replace(" ", "").replace("-", "")
+    mention_nospace = _strip(mention)
+    for e in elems:                                   # ① 정확/별칭 일치(공백·하이픈 무시 포함)
         names = _element_names(e)
-        if mention in names or mention_nospace in {n.replace(" ", "") for n in names}:
+        if mention in names or mention_nospace in {_strip(n) for n in names}:
             return e
     mention_has_ts = _has_time_suffix(mention)
     cat_counts: dict[str, int] = {}
