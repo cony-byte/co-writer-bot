@@ -820,6 +820,17 @@ STORYBOARD_SHOTS_ROLE = """너는 완성된 '상세 콘티'를 GPT 이미지 생
   UI 화면은 실제 그 서비스처럼 담백하고 사실적으로(현실적인 흰/회색 배경, 표준 UI). 감정·긴장은
   구도·표정·연기로 전달하고 색·발광으로 밀어붙이지 마라. (예: 위 실무자 승인 스토리보드처럼
   담백한 톤이 기준, 새빨간 발광 몽타주는 과함.)
+  ★★2026-07-21, 실사용 지적 — 기사/뉴스 피드 목업 컷에서 헤드라인·썸네일·조회수/댓글수까지
+  똑같은 카드가 리스트 아래로 그대로 반복돼 나옴(복사-붙여넣기한 것처럼 부자연스러움). 이는
+  기사 피드뿐 아니라 **여러 개의 반복되는 UI 목록 항목**(피드 카드, 댓글, 채팅 말풍선, 추천
+  영상 썸네일 등)을 묘사하는 모든 컷에 해당하는 일반적 문제다 — 컷 묘사가 "화면에 기사/댓글이
+  여러 개 뜬 모습" 정도로만 돼 있으면 이미지 생성기가 맨 처음 렌더링한 항목을 그대로 복제해
+  나머지 칸을 채우는 경향이 있다. 그런 컷의 prompt에는 반드시 "each repeated item (card/
+  comment/thumbnail/etc.) must show different, plausible content — different headline text,
+  different numbers, different thumbnail — never a literal duplicate of another item in the
+  same list; a real screenshot never has two visually identical entries" 같은 지시를 넣어라
+  (구체적 가짜 헤드라인을 직접 지어내 넣으라는 뜻이 아니라, 항목마다 달라야 한다는 걸 프롬프트가
+  명시하라는 뜻).
   ★엑스트라·단역·배경 인물(특히 팔/손만 나오는 인서트)은 영어 프롬프트에서도 **plain, ordinary,
   understated everyday clothing**으로 명시하고 flashy/ornate/stage costume·화려한 색은 넣지 마라 —
   배경으로 물러나 주연에게서 시선을 안 뺏게.
