@@ -280,6 +280,19 @@ def _restore_reference(args: dict, ctx) -> None:
                        name=args.get("name"), etype=etype)
 
 
+def _still_variant(args: dict, ctx) -> None:
+    from . import dispatch_storyboard as sb
+    sb._do_still_variant(ctx.channel, ctx.thread_ts, work=args.get("work"),
+                         scene=args.get("scene"), cut_number=args.get("cut_number"),
+                         change=args.get("change"), episode=args.get("episode"))
+
+
+def _check_cut_seconds(args: dict, ctx) -> None:
+    from . import dispatch_storyboard as sb
+    sb._do_check_cut_seconds(ctx.channel, ctx.thread_ts, work=args.get("work"),
+                             episode=args.get("episode"), scene=args.get("scene"))
+
+
 def _replace_logo(args: dict, ctx) -> None:
     from . import dispatch_storyboard as sb
     selected = _selected_attachment(args, ctx)
@@ -624,6 +637,18 @@ _add("restore_reference",
       "kind": {"type": "string", "enum": ["인물", "의상", "장소", "소품"]},
       "name": {"type": "string", "description": "되돌릴 참조 이름"}},
      ["name"], HIGH, _restore_reference)
+
+_add("still_variant",
+     "이미 만든 특정 컷의 스틸컷을 구도·의상은 그대로 두고 일부(주로 표정)만 바꿔 재생성한다. '컷4 그대로인데 표정만 웃게 바꿔', '이 컷 구도 유지하고 표정만 바꿔줘'처럼 한 컷의 부분 수정 요청. 씬·컷 번호와 바꿀 내용(change)이 필요하다. 새 스틸컷 전체 생성과 다르다.",
+     {"work": WORK, "episode": EPISODE, "scene": SCENE,
+      "cut_number": {"type": "integer", "minimum": 1, "description": "바꿀 컷 번호"},
+      "change": {"type": "string", "description": "바꿀 내용(예: 표정을 미소로)"}},
+     ["scene", "cut_number", "change"], HIGH, _still_variant)
+
+_add("check_cut_seconds",
+     "콘티의 컷 초수 합계가 씬 헤더의 목표 초수와 맞는지 검증해 보고한다. '컷 초수 합 맞는지 확인해줘', '씬2 몇 초야'처럼 시간 예산 검증 요청. 씬별로 [N초] 비트를 합산해 목표와 비교(±1초 이내면 OK)한다. scene을 주면 그 씬만 검증한다.",
+     {"work": WORK, "episode": EPISODE, "scene": SCENE},
+     [], LOW, _check_cut_seconds)
 
 _add("replace_logo",
      "첨부 로고를 특정 현재 컷에만 반영하거나 앞으로 쓸 방송·작품 로고 기본 참조로 등록한다. 두 범위를 모두 요청하면 scope별로 두 번 호출한다.",

@@ -4522,6 +4522,110 @@ def _do_restore_ref(channel, thread_ts, work=None, name=None, etype=None) -> boo
     return True
 
 
+def _do_still_variant(channel, thread_ts, work=None, scene=None, cut_number=None,
+                      change=None, episode=None) -> bool:
+    """이미 만든 한 컷의 스틸을 구도·의상은 그대로 두고 일부(주로 표정)만 바꿔 재생성한다
+    (★2026-07-21 로드맵 5 — 인페인팅 없이 img2img로 부분 수정). 원본 컷 PNG를 마지막 참조로
+    넣어 구도를 잠그고(_render_cuts의 composition-lock과 동일 기법), 변경 지시만 반영한다.
+    원본은 .orig.bak로 백업돼 되돌릴 수 있다."""
+    if not (scene and cut_number and change):
+        _reply(channel, thread_ts,
+               "어느 씬 몇 컷을 어떻게 바꿀지 알려주세요 — 예: `7씬 4컷 표정만 웃는 얼굴로 바꿔`.")
+        return True
+    work = _resolve_show_work(channel, thread_ts, work)
+    if not work:
+        _reply(channel, thread_ts, _WORK_NOT_FOUND_MSG)
+        return True
+    episode = episode or (conti_state.get_episode(thread_ts) or {}).get("episode")
+    cuts = vp_store.load_latest_cuts(work, scene, episode=episode)
+    cut = next((c for c in (cuts or []) if c.get("n") == cut_number), None)
+    if not cut or not cut.get("png"):
+        _reply(channel, thread_ts,
+               f"씬{scene} {cut_number}컷의 확정 스틸컷을 찾지 못했어요 — 먼저 그 씬 스틸컷을 "
+               f"만들어 「✅ 확정 저장」해 주세요.")
+        return True
+    src_png = cut["png"]
+    shot = {"prompt": cut.get("prompt"), "caption": cut.get("caption"),
+            "characters": list(cut.get("characters") or []),
+            "places": list(cut.get("places") or []), "props": list(cut.get("props") or [])}
+    ref_entries = oi.shot_ref_entries(work, shot)
+    refs = [u for _role, u, *_ in ref_entries] + [oi.png_data_url(src_png)]  # 원본=마지막=구도 잠금
+    base = shot.get("prompt") or shot.get("caption") or ""
+    prompt = (f"{base}, {_style_for_work(work)}. 변경 지시(한국어): {change}. "
+              "CRITICAL: Match the EXACT camera angle, composition, framing, character blocking, "
+              "costume, hairstyle, location and lighting of the LAST reference image. Change ONLY "
+              "what the 변경 지시 specifies (typically the facial expression). Keep everything else "
+              "identical to the reference.")
+    role_block = oi.reference_priority_block(ref_entries)
+    if role_block:
+        prompt = f"{prompt}\n\n{role_block}"
+    _reply(channel, thread_ts,
+           f"🎨 씬{scene} {cut_number}컷을 재생성 중이에요 (구도·의상 유지, 변경: {change})…")
+    try:
+        png, _cost = oi.generate(prompt, aspect_ratio=STILL_ASPECT, refs=refs)
+    except Exception:
+        log.exception("still_variant 생성 실패")
+        _reply(channel, thread_ts, "재생성에 실패했어요 — 잠시 후 다시 시도해 주세요.")
+        return True
+    vp_store.overwrite_still_with_backup(work, scene_num=scene, cut_num=cut_number,
+                                         episode=episode, new_png=png, original_png=src_png)
+    app.client.files_upload_v2(
+        channel=channel, thread_ts=thread_ts, file=png,
+        filename=f"still_{_work_safe_name(work)}_s{scene}_cut{cut_number}.png",
+        title=f"씬{scene} 컷{cut_number} (변형)",
+        initial_comment=(f"씬{scene} {cut_number}컷을 '{change}'로 재생성했어요 — 구도·의상은 유지. "
+                         f"원본은 백업돼 '원본으로 되돌려줘'로 복구할 수 있어요."))
+    return True
+
+
+_SCENE_HDR_RE = re.compile(r"^\s*■\s*씬\s*(\d+)[^\n]*", re.M)
+
+
+def _do_check_cut_seconds(channel, thread_ts, work=None, episode=None, scene=None) -> bool:
+    """콘티의 컷 초수 합계를 씬 헤더 목표와 대조해 보고한다(★2026-07-21 로드맵 4 — LLM이
+    산수를 틀리므로 코드로 검증). 씬별로 '[N초]' 비트를 합산해 헤더의 'N초' 목표와 비교."""
+    work = _resolve_show_work(channel, thread_ts, work)
+    if not work:
+        _reply(channel, thread_ts, _WORK_NOT_FOUND_MSG)
+        return True
+    episode = episode or (conti_state.get_episode(thread_ts) or {}).get("episode")
+    try:
+        conti, _source = _fetch_external_conti(work, episode)
+    except Exception:
+        conti = None
+    if not conti:
+        _reply(channel, thread_ts,
+               f"<{work}> {episode}화 콘티를 찾지 못했어요 — 먼저 콘티가 있어야 초수를 검증할 수 있어요.")
+        return True
+    heads = list(_SCENE_HDR_RE.finditer(conti))
+    if not heads:
+        _reply(channel, thread_ts, "콘티에서 씬 헤더(`■ 씬N · N초 …`)를 찾지 못했어요.")
+        return True
+    lines = []
+    for i, m in enumerate(heads):
+        snum = int(m.group(1))
+        if scene and snum != scene:
+            continue
+        hdr = m.group(0)
+        body = conti[m.end(): heads[i + 1].start() if i + 1 < len(heads) else len(conti)]
+        tgt_m = re.search(r"(\d+(?:\.\d+)?)\s*초", hdr)
+        target = float(tgt_m.group(1)) if tgt_m else None
+        beats = _BEAT_TAG_RE.findall(body)
+        secs = sum(float(re.search(r"[\d.]+", b).group()) for b in beats)
+        if target is None:
+            lines.append(f"· 씬{snum}: 컷 {len(beats)}개 합 {secs:g}초 (헤더에 목표 초수 표기 없음)")
+        else:
+            diff = secs - target
+            mark = "✅" if abs(diff) <= 1 else "⚠️"
+            lines.append(f"{mark} 씬{snum}: 목표 {target:g}초 / 컷합 {secs:g}초 "
+                         f"(컷 {len(beats)}개, 차이 {diff:+g}초)")
+    if not lines:
+        _reply(channel, thread_ts, f"씬{scene}을(를) 콘티에서 찾지 못했어요.")
+        return True
+    _reply(channel, thread_ts, "🕒 컷 초수 검증 (±1초 이내면 OK)\n" + "\n".join(lines))
+    return True
+
+
 def _do_typed_ref(channel, thread_ts, event, work=None, etype=None, names=None) -> bool:
     """_maybe_typed_ref의 실행부(★2026-07-21 작업2, 트리거/파싱과 분리) — work/etype/names를
     이미 알면(라우터가 r.elements로 이미 확정) 텍스트 재파싱 없이 바로 등록 확정 카드를
