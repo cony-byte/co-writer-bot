@@ -109,7 +109,9 @@ def _api_route(system_text: str, prompt: str) -> str:
     client = anthropic.Anthropic()
     resp = client.messages.create(
         model=ROUTER_MODEL or "claude-haiku-4-5",
-        max_tokens=800,
+        # ★2026-07-21: 복합 요청(steps 여러 개 + elements 여러 개)이 800 토큰에서 JSON이 중간에
+        # 끊겨 파싱 실패로 이어지는 실측 사고(compound-register-then-still) — 여유를 둔다.
+        max_tokens=1200,
         system=system_text,
         messages=[{"role": "user", "content": prompt}],
         timeout=ROUTER_TIMEOUT,
@@ -1749,8 +1751,11 @@ def execute(
         sb.sb_do_storyboard(channel, thread_ts, rest, stage=2)
         return
     if intent == "conti_rewrite":
+        # ★2026-07-21 작업2: 트리거 판정(_CONTI_REWRITE_RE 등)을 재심사하지 않고 실행부를
+        # 직접 호출 — 라우터가 이미 확정한 work/episode를 그대로 넘겨서 레거시의 자체
+        # work/episode 재탐색(꺾쇠 전용 SUB_RE 등)에서 실패할 여지를 원천 차단한다.
         txt = (f"씬{r.scene} " if r.scene else "") + body
-        if not sb._maybe_conti_rewrite_request(channel, thread_ts, txt, event):
+        if not sb._do_conti_rewrite(channel, thread_ts, txt, event, work=r.work, episode=r.episode):
             legacy_fallback(event)
         return
     if intent == "stillcut":
@@ -1763,12 +1768,15 @@ def execute(
         sb._do_stills(channel, thread_ts, rest, feedback=body or None)
         return
     if intent == "video":
-        if not sb._maybe_video_from_last_still(channel, thread_ts, body or _q(event.get("text"))):
+        if not sb._do_video_from_last_still(channel, thread_ts, body or _q(event.get("text"))):
             legacy_fallback(event)
         return
     if intent == "notion_save":
-        if not sb._maybe_notion_save_request(channel, thread_ts, body or _q(event.get("text"))):
-            legacy_fallback(event)
+        # ★2026-07-21 작업2: _maybe_notion_save_request는 이미 트리거 판정만 하고 실행은
+        # _do_save_conti에 위임하는 구조였다(_NOTION_SAVE_NL_RE 재심사 불필요) — 그 실행부를
+        # 바로 호출. _do_save_conti는 bool을 반환하지 않고 실패 시 자체적으로 안내 메시지를
+        # 보내므로 legacy_fallback 분기가 필요 없다.
+        sb._do_save_conti(channel, thread_ts, rest=body or _q(event.get("text")))
         return
 
     if intent in ("element_register", "element_edit"):
@@ -1788,8 +1796,11 @@ def execute(
                 by_kind.setdefault(el.get("kind", "인물"), []).append(n)
         kinds = list(by_kind)
         kind = kinds[0]
-        txt = f"{kind} {', '.join(by_kind[kind])}"
-        if not sb._maybe_typed_ref(channel, thread_ts, txt, event):
+        # ★2026-07-21 작업2: r.elements로 이미 확정된 이름/타입을 텍스트로 재조립해 트리거
+        # 정규식(_REF_TYPE_KW 시작 검사 등)을 다시 태우지 않고 실행부를 직접 호출.
+        # kind는 라우터 스키마의 한글 라벨("인물" 등)이라 sb._REF_TYPE_KW로 정규화한다.
+        etype = sb._REF_TYPE_KW.get(kind.lower(), "person")
+        if not sb._do_typed_ref(channel, thread_ts, event, work=r.work, etype=etype, names=by_kind[kind]):
             legacy_fallback(event)
         else:
             if len(kinds) > 1:
@@ -1800,23 +1811,42 @@ def execute(
         return
     if intent == "element_generate":
         query = body or _q(event.get("text"))
-        # 첨부 참조 재생성은 일반 생성 핸들러보다 먼저 처리한다. 일반 핸들러는
-        # 첨부가 있으면 등록 경로와 충돌하지 않도록 False를 반환하기 때문이다.
-        # display_label은 사용자 노출용(확인 메시지/후보 카드/등록명)으로만 넘긴다 —
-        # query(=instruction 원문)는 생성 프롬프트 내부용으로 그대로 유지한다.
+        # ★2026-07-21 작업2: r.elements 전부를 트리거 정규식 재심사 없이 개별 실행 —
+        # 라우터가 이미 확정한 work/name/etype을 그대로 쓴다(1개든 여러 개든 동일 배선).
+        # 첨부 참조 재생성(_do_element_ref_generate)을 먼저 시도하고, 첨부가 없거나
+        # 실패하면 순수 생성(_do_element_gen)으로 넘어간다 — 기존 두 핸들러의 우선순위와 동일.
+        # display_label/register_alias는 대상이 하나로 좁혀졌을 때만 유효하므로(둘 다
+        # _apply_element_label_resolution이 elements 길이 1일 때만 세팅) 그 경우에만 name을
+        # 덮어써 사용자 노출/등록명에 raw instruction 파생 이름이 아니라 이걸 쓴다.
         register_alias = None
+        single_label = None
         if r.elements and len(r.elements) == 1:
             register_alias = r.elements[0].get("register_alias")
-        if sb._maybe_element_ref_generate_request(
-            channel, thread_ts, query, event,
-            display_label=r.display_label, extra_alias=register_alias,
-        ):
-            if note:
-                _reply(channel, thread_ts, note)
+            single_label = r.display_label
+
+        names = [(el.get("name") or "").strip() for el in (r.elements or [])]
+        names = [n for n in names if n]
+        if not names:
+            _reply(channel, thread_ts,
+                   "생성할 인물/장소/의상/소품 이름을 못 찾았어요 — 예: `인물 김신우 이미지 생성해줘`")
             return
-        if not sb._maybe_element_gen_request(
-            channel, thread_ts, query, event, display_label=r.display_label
-        ):
+        any_done = False
+        for el in r.elements:
+            name = (el.get("name") or "").strip()
+            if not name:
+                continue
+            if single_label:
+                name = single_label
+            etype = sb._REF_TYPE_KW.get((el.get("kind") or "").lower(), "person")
+            if sb._do_element_ref_generate(channel, thread_ts, query, event,
+                                           work=r.work, name=name, etype=etype,
+                                           extra_alias=register_alias):
+                any_done = True
+                continue
+            if sb._do_element_gen(channel, thread_ts, event, work=r.work, name=name, etype=etype,
+                                  extra_alias=register_alias):
+                any_done = True
+        if not any_done:
             legacy_fallback(event)
         elif note:
             _reply(channel, thread_ts, note)
@@ -1848,7 +1878,7 @@ def execute(
         if r.reply_text:
             _reply(channel, thread_ts, r.reply_text)
         else:
-            sb._maybe_thread_status(channel, thread_ts, _q(event.get("text")))
+            sb._do_thread_status(channel, thread_ts)
         return
 
     log.warning("nl_router: intent %s 실행 매핑 없음 → legacy 폴백", intent)

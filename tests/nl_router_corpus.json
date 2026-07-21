@@ -732,6 +732,45 @@
       "incident": "사고2: 별칭 표기 등록현황 질문 work canon 해석"
     },
     {
+      "id": "rewrite-verb-suffix-1",
+      "text": "씬2 콘티 수정해줘. 리안이 문 앞에서 잠깐 멈추는 동작 추가해줘.",
+      "ctx": {
+        "sb_stage": 2,
+        "tracked_episode": 1
+      },
+      "expected": {
+        "intent": "conti_rewrite",
+        "scene": 2
+      },
+      "incident": "작업2 회귀 — _CONTI_REWRITE_RE에 \"수정해줘\" 어미가 빠져 트리거 관문에서부터 거부되던 사고 재발 방지"
+    },
+    {
+      "id": "rewrite-verb-suffix-2",
+      "text": "씬2 콘티 바꿔줘. 리안이 문 앞에서 잠깐 멈추는 동작 추가해줘.",
+      "ctx": {
+        "sb_stage": 2,
+        "tracked_episode": 1
+      },
+      "expected": {
+        "intent": "conti_rewrite",
+        "scene": 2
+      },
+      "incident": "작업2 회귀 — \"바꿔줘\" 어미 인식"
+    },
+    {
+      "id": "rewrite-verb-suffix-3",
+      "text": "씬2 콘티 손봐줘. 리안이 문 앞에서 잠깐 멈추는 동작 추가해줘.",
+      "ctx": {
+        "sb_stage": 2,
+        "tracked_episode": 1
+      },
+      "expected": {
+        "intent": "conti_rewrite",
+        "scene": 2
+      },
+      "incident": "작업2 회귀 — \"손봐줘\" 같은 구어체 표현도 라우터 분류/실행 배선 검증"
+    },
+    {
       "id": "display-label-clean",
       "text": "이영 PD룩은 이 이미지에 있는 상의 디자인이랑 색깔 똑같이 맞춰서 재생성해줘",
       "ctx": {
@@ -783,7 +822,10 @@
         }
       },
       "expected": {
-        "intent_oneof": ["element_edit", "element_generate"],
+        "intent_oneof": [
+          "element_edit",
+          "element_generate"
+        ],
         "episode": 1,
         "element_character": "이영",
         "element_part": "상의"
