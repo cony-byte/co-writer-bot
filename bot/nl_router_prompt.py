@@ -70,7 +70,7 @@ RULES = r"""
 R1. 질문 ≠ 지시. 정보를 묻는 문장은 answer_question이며 파이프라인을 실행하지 않는다. answer_question에서는 reply_text를 만들지 말고 question_type만 분류한다. 특정 등록물이 실제 반영됐는지 묻는 “교복 이미지도 반영했어?”류는 element_reflection_status이며, elements에 확인 대상을 넣는다. “1화에 등록할 인물 누구누구 있지?”처럼 특정 화에 필요한 인물/참조 대상을 묻는 질문은 episode_required_elements로 분류하고 episode를 반드시 채운다. 이는 현재 등록 목록만 묻는 registered_elements_status와 다르다. “스토리보드 이미지/그리드/전체 이미지” 결과 질문은 storyboard_image_explanation, “스틸컷/특정 컷/씬N 컷N 이미지” 결과 질문은 stillcut_explanation이다.
 R2. 화 번호는 메시지에 명시된 ‘N화’ 또는 tracked_episode로만 채운다. 타겟층 숫자는 화 번호가 아니다. 메시지에 화 번호가 없더라도 현재 스레드가 특정 화를 추적 중이고 사용자가 “이미 있는 대본/상세 콘티를 확인해 스토리보드 다시”라고 하면 tracked_episode를 사용해 바로 진행한다.
 R3. 봇 자신의 출력은 입력이 아니다. 평가/변환 원문은 role=작가 메시지에서만 찾는다.
-R4. 첨부 이미지의 역할을 동사로 구분한다. 첨부 + “등록/등록해줘/이거야/각각/순서대로”는 무조건 element_register이며, 최근 봇 메시지에 대본·콘티·화 번호가 있어도 현재 등록 요청보다 우선할 수 없다. 종류가 생략된 사람 이름 + 인물 사진(예: “김신우 등록해줘”)은 인물 등록으로 본다. 첨부 + “교체/바꿔”는 element_edit, 첨부 + “동일하게/참고해서/재생성/새로 만들어”는 첨부를 시각 참조로 쓰는 element_generate다. ‘이미지’라는 단어만으로 스토리보드 이미지로 보내지 않는다.
+R4. 첨부 이미지의 역할을 동사로 구분한다. 첨부 + “등록/등록해줘/이거야/각각/순서대로/이걸로 확정/이거로 확정”은 무조건 element_register이며, 최근 봇 메시지에 대본·콘티·화 번호가 있어도 현재 등록 요청보다 우선할 수 없다. 종류가 생략된 사람 이름 + 인물 사진(예: “김신우 등록해줘”)은 인물 등록으로 본다. 첨부 + “교체/바꿔”는 element_edit, 첨부 + “동일하게/참고해서/재생성/새로 만들어”는 첨부를 시각 참조로 쓰는 element_generate다. ‘이미지’라는 단어만으로 스토리보드 이미지로 보내지 않는다.
 R5. elements.name은 조사·접속사를 제거한 고유명만 유지한다. 쉼표·줄바꿈 나열과 첨부 순서를 image_index 0부터 정확히 연결한다. 괄호 설명(예: 여자 교복(엑스트라용))은 이름의 일부이므로 보존한다.
 R6. 상세 콘티 전체 생성은 detail_conti, 완성된 상세 콘티의 씬/컷 구도·표정·동작 수정은 conti_rewrite, 직전 대본/개요 수정·확장은 script_revise다. conti_rewrite에서는 “말고/빼고/큰 움직임 없이” 같은 부정·연출 조건을 원문 그대로 instruction에 보존한다.
 R7. 취소는 명시적일 때만 cancel_job이다.
@@ -115,6 +115,15 @@ FEW_SHOTS: list[tuple[str, dict]] = [
                 {"kind": "의상", "name": "여자 교복(엑스트라용)", "image_index": 2},
             ],
             "confidence": 0.92,
+        },
+    ),
+    (
+        "맨 첫 컷에 나오는 방송 로고는 이거니까 이거로 확정해",
+        {
+            "intent": "element_register",
+            "elements": [{"kind": "소품", "name": "방송 로고", "image_index": 0}],
+            "instruction": "맨 첫 컷(1번 컷)에 등장하는 방송 로고로 확정 등록",
+            "confidence": 0.9,
         },
     ),
     (

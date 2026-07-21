@@ -26,10 +26,17 @@
 
 환경변수
 
-COWRITER_ROUTER_BACKEND   "agent"(기본, Claude Code 구독 재사용) | "api"
+COWRITER_ROUTER_BACKEND   "auto"(기본, 2026-07-21) | "agent" | "api"
+                          auto = agent 우선 시도 → 실패(타임아웃/예외/파싱실패)하면 그
+                          자리에서 1회만 api(claude-haiku-4-5, 8초 타임아웃)로 재시도한 뒤에만
+                          safe_stop으로 넘어간다. agent/api를 명시하면 폴백 없이 그 백엔드만 쓴다.
 COWRITER_ROUTER_MODEL     agent: 미지정 시 Claude Code 기본 모델 / api: 기본 claude-haiku-4-5
 COWRITER_ROUTER_TIMEOUT   초 단위, 기본 12 (라우팅은 빨라야 하므로 생성용 150초와 별도)
+COWRITER_ROUTER_FALLBACK_TIMEOUT  auto 모드에서 2차 api 백엔드 타임아웃(초), 기본 8
 COWRITER_ROUTER_ENABLED   "1"(기본) | "0" — 0이면 무조건 legacy_fallback (킬스위치)
+ANTHROPIC_API_KEY         auto/api 백엔드가 쓰는 anthropic SDK 키 — 라우터 폴백 분류 호출에만
+                          쓰이고(요금이 저렴한 haiku, 짧은 프롬프트), 실제 생성(대본/이미지/영상)
+                          호출은 기존 agent(Claude Code 구독)로 그대로 유지돼 과금이 분리된다.
 """
 
 from __future__ import annotations
@@ -49,11 +56,52 @@ from .shared.slack_io import _reply, _thread_messages, app, log
 
 ROUTER_BACKEND = os.environ.get(
     "COWRITER_ROUTER_BACKEND",
-    os.environ.get("COWRITER_BACKEND", "agent"),
+    os.environ.get("COWRITER_BACKEND", "auto"),
 )
 ROUTER_MODEL = os.environ.get("COWRITER_ROUTER_MODEL", "")
 ROUTER_TIMEOUT = int(os.environ.get("COWRITER_ROUTER_TIMEOUT", "12"))
+ROUTER_FALLBACK_TIMEOUT = int(os.environ.get("COWRITER_ROUTER_FALLBACK_TIMEOUT", "8"))
 ROUTER_ENABLED = os.environ.get("COWRITER_ROUTER_ENABLED", "1") == "1"
+
+# ★2026-07-21 작업: 백엔드별 성공/실패/지연 계측 — safe_stop 발생률을 로그로 추적하기 위함.
+# 프로세스 재시작 때마다 리셋되는 누적 카운터(프로세스 수명 = 로그 tail 기준 "오늘")라
+# 별도 날짜 버킷 없이도 launchd 재기동 주기(하루 미만) 안에서는 "하루 단위" 근사로 충분하다.
+_METRICS_LOCK = threading.Lock()
+_METRICS = {
+    "agent": {"ok": 0, "fail": 0, "latency_sum": 0.0},
+    "api": {"ok": 0, "fail": 0, "latency_sum": 0.0},
+    "safe_stop": 0,
+}
+
+
+def _record_metric(backend: str, ok: bool, latency: float) -> dict:
+    with _METRICS_LOCK:
+        m = _METRICS[backend]
+        m["ok" if ok else "fail"] += 1
+        m["latency_sum"] += latency
+        return {k: dict(v) if isinstance(v, dict) else v for k, v in _METRICS.items()}
+
+
+def record_safe_stop() -> int:
+    """safe_stop(안전 정지) 발생 시 dispatch.py의 _safe_fallback에서 호출 — 누적 건수 반환."""
+    with _METRICS_LOCK:
+        _METRICS["safe_stop"] += 1
+        return _METRICS["safe_stop"]
+
+
+def _metrics_summary() -> str:
+    with _METRICS_LOCK:
+        a, p, s = _METRICS["agent"], _METRICS["api"], _METRICS["safe_stop"]
+
+        def _avg(m):
+            n = m["ok"] + m["fail"]
+            return (m["latency_sum"] / n) if n else 0.0
+
+        return (
+            f"agent(ok={a['ok']},fail={a['fail']},avg={_avg(a):.1f}s) "
+            f"api(ok={p['ok']},fail={p['fail']},avg={_avg(p):.1f}s) "
+            f"safe_stop_cum={s}"
+        )
 
 # 스레드 이력에서 라우터 컨텍스트로 넘길 최근 메시지 수
 _CTX_MESSAGES = 12
@@ -104,7 +152,7 @@ async def _agent_route(system_text: str, prompt: str) -> str:
     return await asyncio.wait_for(_run(), timeout=ROUTER_TIMEOUT)
 
 
-def _api_route(system_text: str, prompt: str) -> str:
+def _api_route(system_text: str, prompt: str, timeout: int | None = None) -> str:
     import anthropic
 
     client = anthropic.Anthropic()
@@ -115,7 +163,7 @@ def _api_route(system_text: str, prompt: str) -> str:
         max_tokens=1200,
         system=system_text,
         messages=[{"role": "user", "content": prompt}],
-        timeout=ROUTER_TIMEOUT,
+        timeout=timeout if timeout is not None else ROUTER_TIMEOUT,
     )
     return "".join(
         block.text
@@ -125,9 +173,47 @@ def _api_route(system_text: str, prompt: str) -> str:
 
 
 def _call_backend(system_text: str, prompt: str) -> str:
+    """★2026-07-21 이중화: auto 모드에선 1차 백엔드(agent) 실패 시 그 자리에서 즉시
+    2차 백엔드(api, haiku, 짧은 타임아웃)로 1회만 재시도한 뒤에만 예외를 올려 safe_stop으로
+    보낸다 — 지금까지는 agent 타임아웃/예외 하나로 바로 safe_stop이었다. agent/api를 명시
+    지정하면(킬스위치성 강제 고정) 폴백 없이 그 백엔드만 쓴다."""
     if ROUTER_BACKEND == "api":
-        return _api_route(system_text, prompt)
-    return asyncio.run(_agent_route(system_text, prompt))
+        t0 = time.time()
+        try:
+            out = _api_route(system_text, prompt)
+            _record_metric("api", True, time.time() - t0)
+            return out
+        except Exception:
+            _record_metric("api", False, time.time() - t0)
+            raise
+    if ROUTER_BACKEND == "agent":
+        t0 = time.time()
+        try:
+            out = asyncio.run(_agent_route(system_text, prompt))
+            _record_metric("agent", True, time.time() - t0)
+            return out
+        except Exception:
+            _record_metric("agent", False, time.time() - t0)
+            raise
+
+    # auto
+    t0 = time.time()
+    try:
+        out = asyncio.run(_agent_route(system_text, prompt))
+        _record_metric("agent", True, time.time() - t0)
+        return out
+    except Exception as agent_exc:
+        _record_metric("agent", False, time.time() - t0)
+        log.warning("nl_router: agent 백엔드 실패 → api 백엔드로 1회 폴백: %s", agent_exc)
+        t1 = time.time()
+        try:
+            out = _api_route(system_text, prompt, timeout=ROUTER_FALLBACK_TIMEOUT)
+            _record_metric("api", True, time.time() - t1)
+            return out
+        except Exception as api_exc:
+            _record_metric("api", False, time.time() - t1)
+            log.warning("nl_router: api 폴백도 실패 → safe_stop 경로로: %s", api_exc)
+            raise
 
 
 def _extract_json(text: str) -> dict:
@@ -796,9 +882,10 @@ def route(
         data = _extract_json(raw)
     except Exception as exc:
         log.warning(
-            "nl_router 실패 → legacy 폴백: %s (%.1fs)",
+            "nl_router 실패(양쪽 백엔드 모두) → safe_stop 경로: %s (%.1fs) | %s",
             exc,
             time.time() - t0,
+            _metrics_summary(),
         )
         return None
 
@@ -922,6 +1009,53 @@ def drain_pending(thread_ts: str, handle_fn) -> None:
             handle_fn(event)
         except Exception:
             log.exception("drain_pending: queued event 처리 실패")
+
+
+# ★2026-07-21 작업③: safe_stop으로 조용히 버려지던 발화를 스레드당 최근 1건만 보관해뒀다가,
+# 다음에 이 스레드에서 라우팅이 정상 성공하면 "아까 못 처리한 요청 이어서 할까요?"를 딱 한 번
+# 제안한다. 자동으로 재실행하지 않는다(안전 정지 사유가 아직 남아있을 수 있으므로) — 사용자가
+# 긍정으로 답할 때만 dispatch.py의 resume 핸들러가 저장된 event를 다시 전체 파이프라인에 넣는다.
+_FAILED_LOCK = threading.Lock()
+_FAILED_EVENTS: dict[str, dict] = {}   # thread_ts -> {"event":..., "query":..., "prompted": bool}
+
+_RESUME_YES_RE = re.compile(r"^\s*(응|어|네|넹|넵|그래|좋아|좋아요|이어서\s*해줘?|해줘)\s*[.!~]*\s*$")
+
+
+def stash_failed_event(thread_ts: str, event: dict, query_text: str) -> None:
+    with _FAILED_LOCK:
+        _FAILED_EVENTS[thread_ts] = {"event": event, "query": query_text, "prompted": False}
+
+
+def offer_resume_if_pending(channel: str, thread_ts: str, current_event: dict) -> None:
+    """라우팅이 방금 정상 성공했을 때 dispatch.py가 호출 — 대기 중인 실패 발화가 있고 아직
+    제안 안 했으면 1회만 물어본다."""
+    with _FAILED_LOCK:
+        pending = _FAILED_EVENTS.get(thread_ts)
+        if not pending or pending["prompted"] or pending["event"] is current_event:
+            return
+        pending["prompted"] = True
+    _reply(
+        channel, thread_ts,
+        f"📌 아까 처리하지 못한 요청이 있어요 — \"{pending['query']}\" 이어서 할까요? "
+        '("응"이라고 답해주시면 다시 처리할게요)',
+    )
+
+
+def _maybe_resume_offer_reply(channel: str, thread_ts: str, query: str, handle_fn) -> bool:
+    """대기 중인 실패 발화 제안에 대한 긍정 답변만 결정적으로 잡아 재실행한다."""
+    if not _RESUME_YES_RE.match(query):
+        return False
+    with _FAILED_LOCK:
+        pending = _FAILED_EVENTS.get(thread_ts)
+        if not pending or not pending["prompted"]:
+            return False
+        del _FAILED_EVENTS[thread_ts]
+    _reply(channel, thread_ts, "🔁 이어서 처리할게요…")
+    try:
+        handle_fn(pending["event"])
+    except Exception:
+        log.exception("resume_offer: 재처리 실패")
+    return True
 
 
 def _q(value: str | None) -> str:
