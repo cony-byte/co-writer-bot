@@ -2490,6 +2490,13 @@ def _do_images(channel, thread_ts, rest):
     if not conti:
         _reply(channel, thread_ts, "먼저 `[스토리보드] <작품>`로 씬 설계·상세 콘티를 만든 뒤, 이 스레드에서 `[이미지]`를 쳐주세요.")
         return
+    # ★2026-07-21 참조 검증 게이트: 그리드도 시각 생성이라 미등록 인물 참조가 있으면 확인받는다
+    # (에피소드 전체 콘티 기준). '그래도 생성'의 세션 스킵이 (thread,work) 단위라 이후 스틸컷도
+    # 재확인 없이 진행된다(한 번만 확인).
+    if _ref_preflight_gate(channel, thread_ts, work, episode, None, None,
+                           {"kind": "images", "channel": channel, "thread_ts": thread_ts, "rest": rest},
+                           utterance=rest):
+        return
     # ★2026-07-15, "그림체가 너무 달라졌어" 버그: 이 그리드 경로만 style_suffix 없이 호출돼서
     # STILL_STYLE(세미리얼 지정)이 하나도 안 붙었다 — [스틸컷] 경로만 스타일이 고정되고 이
     # [이미지] 그리드 경로는 모델 기본값에 맡겨져 매번 다른 화풍(사진/애니메 등)으로 나왔다.
