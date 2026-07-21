@@ -186,7 +186,8 @@ def _sb(name: str, args: dict, ctx) -> None:
     elif name == "show_episode_status":
         sb._do_episode_status(channel, thread_ts, rest)
     elif name == "change_visual_style":
-        sb._do_style(channel, thread_ts, rest)
+        # 전용 style 슬롯을 rest에 추가로 싣는다(instruction은 _rest가 이미 포함 — 중복 방지).
+        sb._do_style(channel, thread_ts, f"{rest} {args.get('style') or ''}".strip())
     elif name == "finalize_conti":
         sb._do_conti_final(channel, thread_ts, rest, event)
     elif name == "save_conti_to_notion":
@@ -537,7 +538,7 @@ _storyboard = {
     "compile_episode": ("생성된 영상들을 회차 합본으로 만든다.", HIGH),
     "run_autopilot": ("여러 제작 단계를 자동으로 연속 실행한다.", HIGH),
     "show_episode_status": ("작품 회차의 현재 제작 진행상황을 조회한다.", LOW),
-    "change_visual_style": ("작품의 이후 이미지 생성 스타일 기본값을 변경한다.", HIGH),
+    "change_visual_style": ("작품의 이후 이미지·영상 생성 스타일(화풍)을 변경한다. '겨울 하루 2D 애니메이션 스타일로 해줘', '이 작품 실사풍으로 바꿔줘'처럼. 바꿀 스타일명을 반드시 style 인자에 넣는다('실사풍' 또는 '2D 애니메이션').", HIGH),
     "finalize_conti": ("사용자가 콘티 자체를 최종본으로 저장·확정해 달라고 명시했을 때만 확정한다. 다른 작업의 전제로 '확정했어'라고 설명한 경우에는 쓰지 않는다.", HIGH),
     "save_conti_to_notion": ("현재 상세 콘티를 작품 노션에 저장한다.", HIGH),
     "reset_episode_outputs": ("지정 회차의 생성 결과를 초기화한다.", HIGH),
@@ -564,6 +565,11 @@ for _name, (_desc, _risk) in _storyboard.items():
             "description": "사용자가 노션에 이미 첨부해둔 스토리보드 이미지를 구도 참조로 쓰라고 한 경우 true",
         }
         _validator = _validate_optional_attachment
+    if _name == "change_visual_style":
+        # ★2026-07-21: 스타일명을 담을 명시 슬롯 — 없으면 '겨울 하루 2D 애니메이션 스타일로 해줘'
+        # 에서 스타일 텍스트가 _do_style까지 안 가 파싱 실패했다(_rest는 instruction만 실음).
+        _props["style"] = {"type": "string",
+                           "description": "바꿀 스타일: '실사풍'(리얼리스틱) 또는 '2D 애니메이션'"}
     if _name == "save_stillcuts":
         _validator = _validate_save_stillcuts
     if _name == "save_videos":
