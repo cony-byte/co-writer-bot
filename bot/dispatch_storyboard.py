@@ -4361,9 +4361,17 @@ def _maybe_list_works(channel, thread_ts, query) -> bool:
 
 def _maybe_thread_status(channel, thread_ts, query) -> bool:
     """(C6, 2026-07-13) "지금 몇 단계야?"/"이 스레드 무슨 작품이야?" — 이 스레드의 작품·화·단계·
-    콘티확정 여부를 알려준다."""
+    콘티확정 여부를 알려준다. 트리거 판정만 하고 실행은 _do_thread_status에 위임
+    (★2026-07-21 작업2)."""
     if not _THREAD_STATUS_RE.search(query or ""):
         return False
+    return _do_thread_status(channel, thread_ts)
+
+
+def _do_thread_status(channel, thread_ts) -> bool:
+    """_maybe_thread_status의 실행부(★2026-07-21 작업2, 트리거 판정과 분리) — 라우터가
+    intent=work_status/list_works/thread_status를 이미 확정했을 때 _THREAD_STATUS_RE
+    재심사 없이 바로 진입한다."""
     msgs = _thread_messages(channel, thread_ts)
     joined = "\n".join(m["content"] for m in msgs)
     work = _work_from_thread(joined, thread_ts)

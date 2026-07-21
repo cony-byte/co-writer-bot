@@ -1524,24 +1524,29 @@ def execute(
         return
     if intent == "element_generate":
         query = body or _q(event.get("text"))
-        # ★2026-07-21 작업2: 단일 elements(대부분의 실사용 케이스)면 라우터가 이미 확정한
-        # work/name/etype으로 텍스트 재파싱 없이 바로 실행부를 호출 — 여러 개면(예: "옷+배경
-        # 여러 개 생성") 기존 다중 파싱 텍스트 경로를 그대로 쓴다(아직 elements별 개별 실행
-        # 배선이 없음, 작업2 범위 밖).
-        single = r.elements[0] if r.elements and len(r.elements) == 1 else None
-        single_name = (single.get("name") or "").strip() if single else None
-        single_etype = sb._REF_TYPE_KW.get((single.get("kind") or "").lower(), "person") if single else None
-        # 첨부 참조 재생성은 일반 생성 핸들러보다 먼저 처리한다. 일반 핸들러는
-        # 첨부가 있으면 등록 경로와 충돌하지 않도록 False를 반환하기 때문이다.
-        if single_name and sb._do_element_ref_generate(channel, thread_ts, query, event,
-                                                        work=r.work, name=single_name, etype=single_etype):
+        # ★2026-07-21 작업2: r.elements 전부를 트리거 정규식 재심사 없이 개별 실행 —
+        # 라우터가 이미 확정한 work/name/etype을 그대로 쓴다(1개든 여러 개든 동일 배선).
+        # 첨부 참조 재생성(_do_element_ref_generate)을 먼저 시도하고, 첨부가 없거나
+        # 실패하면 순수 생성(_do_element_gen)으로 넘어간다 — 기존 두 핸들러의 우선순위와 동일.
+        names = [(el.get("name") or "").strip() for el in (r.elements or [])]
+        names = [n for n in names if n]
+        if not names:
+            _reply(channel, thread_ts,
+                   "생성할 인물/장소/의상/소품 이름을 못 찾았어요 — 예: `인물 김신우 이미지 생성해줘`")
             return
-        if single_name and sb._do_element_gen(channel, thread_ts, event,
-                                              work=r.work, name=single_name, etype=single_etype):
-            return
-        if sb._maybe_element_ref_generate_request(channel, thread_ts, query, event):
-            return
-        if not sb._maybe_element_gen_request(channel, thread_ts, query, event):
+        any_done = False
+        for el in r.elements:
+            name = (el.get("name") or "").strip()
+            if not name:
+                continue
+            etype = sb._REF_TYPE_KW.get((el.get("kind") or "").lower(), "person")
+            if sb._do_element_ref_generate(channel, thread_ts, query, event,
+                                           work=r.work, name=name, etype=etype):
+                any_done = True
+                continue
+            if sb._do_element_gen(channel, thread_ts, event, work=r.work, name=name, etype=etype):
+                any_done = True
+        if not any_done:
             legacy_fallback(event)
         return
 
@@ -1571,7 +1576,7 @@ def execute(
         if r.reply_text:
             _reply(channel, thread_ts, r.reply_text)
         else:
-            sb._maybe_thread_status(channel, thread_ts, _q(event.get("text")))
+            sb._do_thread_status(channel, thread_ts)
         return
 
     log.warning("nl_router: intent %s 실행 매핑 없음 → legacy 폴백", intent)
