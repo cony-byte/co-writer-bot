@@ -1337,6 +1337,30 @@ def _render_cuts(channel, thread_ts, work, bible, source_text, *,
                         log.error("샷 분해 JSON 파싱 재시도도 실패 — raw 길이=%d, 앞부분=%r",
                                  len(raw or ""), (raw or "")[:200])
                         raise
+                # ★2026-07-21: "전체 그리드도 스틸컷처럼 컷별로 저장해서 쓰자" — vp_store에
+                # 씬 폴더 단위로 저장하려면 컷마다 어느 씬 소속인지 알아야 한다. 이 청크 안의
+                # 씬 경계(_split_scenes)와 비트([N초]) 개수로 컷을 씬에 배분한다 — 청크가 씬
+                # 하나뿐이면(가장 흔한 경우, _chunk_conti가 씬을 안 쪼개므로) 정확하고, 여러
+                # 씬이 한 청크에 걸치면 비트 수 비례 근사치(정확한 컷↔비트 매핑은 LLM 자유
+                # 분해라 보장 안 됨 — 근사가 아예 안 붙이는 것보단 낫다는 판단).
+                chunk_scenes = _split_scenes(chunk_text)
+                if chunk_scenes and part:
+                    if len(chunk_scenes) == 1:
+                        for s in part:
+                            s["_scene_num"] = chunk_scenes[0][0]
+                    else:
+                        beat_counts = [len(_BEAT_TAG_RE.findall(body)) or 1 for _, _, body in chunk_scenes]
+                        total_beats = sum(beat_counts) or 1
+                        alloc, acc = [], 0.0
+                        for bc in beat_counts:
+                            acc += len(part) * bc / total_beats
+                            alloc.append(round(acc))
+                        alloc[-1] = len(part)   # 반올림 오차 보정 — 마지막 씬이 나머지 전부 흡수
+                        cstart = 0
+                        for (num, _hdr, _body), cend in zip(chunk_scenes, alloc):
+                            for s in part[cstart:cend]:
+                                s["_scene_num"] = num
+                            cstart = cend
                 # ★2026-07-15: '등장:' 줄의 인물-의상 매핑을 코드로 이 청크의 모든 컷에 직접
                 # 붙인다(LLM이 그 비트에서 의상 라벨을 다시 언급했는지와 무관하게) — shot_refs가
                 # 이미 "elements" 필드를 타입 무관 참조 후보로 스캔하므로 그대로 재사용.
@@ -1599,7 +1623,8 @@ def _render_cuts(channel, thread_ts, work, bible, source_text, *,
             "places": list(shots[i].get("places") or []),
             "props": list(shots[i].get("props") or []),
             "duration": shots[i].get("duration"),   # 샷 분해가 씬 목표 길이/대사 분량 보고 배정(2026-07-14)
-            "scene_text": source_text}
+            "scene_text": source_text,
+            "scene_num": shots[i].get("_scene_num")}   # ★2026-07-21: 씬별 vp_store 저장용
            for i in range(n) if results[i]]
 
     # 스토리보드 이미지는 성공한 전체 컷을 한 장의 그리드로 합친다.
@@ -1642,6 +1667,27 @@ def _render_cuts(channel, thread_ts, work, bible, source_text, *,
             "이미지는 만들었는데 업로드에서 막혔어요. 잠시 후 다시 시도해주시고, 계속 안 되면 봇 관리자에게 알려주세요.",
         )
         return
+
+    # ★2026-07-21: "[이미지] 전체 그리드"는 지금까지 컷별 원본을 디스크에 저장하는 경로가
+    # 아예 없었다(스틸컷([스틸컷] 단일 씬)만 확정 버튼으로 저장 가능) — 그리드는 미리보기용
+    # Slack 첨부일 뿐이라, 나중에 "이 스토리보드로 영상 만들어줘"를 하면 컷 원본이 없어서 늘
+    # 막혔다(실측). kind="images"(전체 그리드) 결과는 씬 번호가 붙은 컷을 씬별로 자동
+    # 저장한다 — vp_store 프로젝트가 없으면 그 자리에서 만든다(ensure_project).
+    if kind == "images" and any(c.get("scene_num") for c in cuts):
+        try:
+            episode = (conti_state.get_episode(thread_ts) or {}).get("episode")
+            vp_store.ensure_project(work)
+            by_scene: dict[int, list] = {}
+            for c in cuts:
+                if c.get("scene_num"):
+                    by_scene.setdefault(c["scene_num"], []).append(c)
+            for scene_num, scene_cuts in by_scene.items():
+                vp_store.save_still(work, scene_num=scene_num,
+                                    prompt_summary=f"스토리보드 그리드 씬{scene_num}(자동 저장)",
+                                    png=b"", cuts=scene_cuts, episode=episode)
+            log.info("스토리보드 그리드 컷별 자동 저장: work=%r 씬=%s", work, sorted(by_scene))
+        except Exception:
+            log.exception("스토리보드 그리드 컷별 자동 저장 실패(그리드 업로드 자체는 성공)")
 
     _update_note(channel, ph, f"✅ {title} 완성 (전체 컷 한 장)", clear=True)
     return grid_png, cuts
