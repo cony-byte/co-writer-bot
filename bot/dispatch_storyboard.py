@@ -3253,6 +3253,22 @@ def _generate_videos_for_cuts(channel, thread_ts, work, title, cuts, scene_secon
     어색했다 — 스틸컷 생성 때 이미 쓰던 "같은 씬 안 컷은 순차 생성 + 직전 컷을 참조로 체이닝"
     패턴(_gen_group)을 영상화에도 적용: 컷 번호 순으로 순차 생성하고, 직전 컷 영상의 마지막
     프레임을 다음 컷의 추가 참조로 넘긴다. 병렬성을 포기하는 대신 컷 사이 연결이 매끄러워짐."""
+    # ★2026-07-21 (사용자 지시): 영상화 전 '스틸컷이 있는지 없는지'부터 검증한다. 영상은
+    # 스틸컷을 시드로 만들므로, 스틸이 없는 컷은 영상화 자체가 불가 — 미리 걸러 안내하고,
+    # 하나도 없으면 생성을 시작하지 않고 멈춘다(생성 도중 실패로 새는 걸 방지). 모든 영상화
+    # 경로(직접·드롭다운·오토파일럿)가 이 함수를 지나므로 여기 한 곳에서 공통 검증.
+    valid = [c for c in cuts if c.get("png")]
+    no_still = sorted(c["n"] for c in cuts if not c.get("png"))
+    if no_still:
+        _reply(channel, thread_ts,
+               f"⚠️ 컷{','.join(map(str, no_still))}은 스틸컷이 없어 영상화에서 제외해요 — "
+               "먼저 그 컷 스틸컷을 만들어 「✅ 확정 저장」해 주세요.")
+    if not valid:
+        _reply(channel, thread_ts,
+               "영상화할 스틸컷이 하나도 없어요 — 먼저 스틸컷을 만들어 「✅ 확정 저장」한 뒤 "
+               "다시 영상화를 요청해 주세요.")
+        return
+    cuts = valid
     missing_lines = [f"· 컷{c['n']}: {', '.join(m)}" for c in cuts
                      if (m := _unregistered_mentions(work, c))]
     if missing_lines:
