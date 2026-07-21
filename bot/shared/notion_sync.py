@@ -522,14 +522,28 @@ def find_conti_toggle_for_episode(page_id: str, episode: int, token: str | None 
 
     conti_heading = f"상세 콘티 ({episode}화)"
     norm = lambda s: re.sub(r"\s+", "", s or "")
+    scene_hdr_re = re.compile(r"■\s*씬\s*\d+")
     flat = _flatten(page_id, token)  # 다른 토글 안에 중첩돼 있어도 찾도록 전체 트리 평탄화(2026-07-15)
-    tog = next((b for b in flat
-                if b.get("type") == "toggle" and norm(_block_text(b)) == norm(conti_heading)), None)
-    if not tog:
+    candidates = [b for b in flat
+                  if b.get("type") == "toggle" and norm(_block_text(b)) == norm(conti_heading)]
+    if not candidates:
         return None
-    kids = _children(tog["id"], token) if tog.get("has_children") else []
-    parts = [_block_text(b) for b in kids if b.get("type") == "paragraph"]
-    return "\n".join(parts) if parts else None
+
+    # 2026-07-21: 같은 이름("상세 콘티 (N화)")의 토글이 페이지에 두 개 이상 존재할 수 있다
+    # (예: 예전에 검증 없이 저장된 거절/오류 텍스트가 잔재로 남은 경우). 첫 매치를 무조건
+    # 쓰면 잔재를 집어버릴 수 있으므로, 후보가 여럿이면 (1) 페이지 최상위 직속 토글을
+    # (2) 씬 헤더(■ 씬N)가 실제로 들어있는 것을 (3) 가장 최근 수정된 것을 우선한다.
+    def _rank(b: dict):
+        kids = _children(b["id"], token) if b.get("has_children") else []
+        parts = [_block_text(k) for k in kids if k.get("type") == "paragraph"]
+        text = "\n".join(parts)
+        is_top_level = b.get("parent", {}).get("type") == "page_id"
+        has_scene_hdr = bool(scene_hdr_re.search(text))
+        return (is_top_level, has_scene_hdr, b.get("last_edited_time", ""), text)
+
+    ranked = sorted((_rank(b) for b in candidates), reverse=True)
+    best_text = ranked[0][3]
+    return best_text if best_text else None
 
 
 def find_authored_conti_for_episode(page_id: str, episode: int, token: str | None = None) -> str | None:
