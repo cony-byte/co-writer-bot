@@ -108,7 +108,9 @@ def _api_route(system_text: str, prompt: str) -> str:
     client = anthropic.Anthropic()
     resp = client.messages.create(
         model=ROUTER_MODEL or "claude-haiku-4-5",
-        max_tokens=800,
+        # ★2026-07-21: 복합 요청(steps 여러 개 + elements 여러 개)이 800 토큰에서 JSON이 중간에
+        # 끊겨 파싱 실패로 이어지는 실측 사고(compound-register-then-still) — 여유를 둔다.
+        max_tokens=1200,
         system=system_text,
         messages=[{"role": "user", "content": prompt}],
         timeout=ROUTER_TIMEOUT,
