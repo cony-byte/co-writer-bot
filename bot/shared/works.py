@@ -256,7 +256,7 @@ def add_aliases(work: str, aliases: list) -> str | None:
 # dispatch_cowriter.py/dispatch_storyboard.py는 서로 안 부르고 둘 다 이 shared 모듈만 부름)
 # vocabulary·라벨을 여기 shared/works.py에 둔다. dispatch_storyboard.py는 이 값을 그대로
 # 재노출(alias)해서 기존 호출부를 안 건드린다.
-STYLE_LABELS = {"realistic": "실사풍(세미리얼 일러스트)", "2d_anim": "2D 애니메이션"}
+STYLE_LABELS = {"realistic": "실사풍(리얼리스틱 시네마틱)", "2d_anim": "2D 애니메이션"}
 
 _STYLE_KEYWORDS = {
     # 2d_anim을 먼저 검사해야 한다 — "리얼" 계열과 겹치는 단어가 없어 순서 자체는 안전하지만,

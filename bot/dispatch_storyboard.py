@@ -7301,10 +7301,19 @@ def _do_style(channel, thread_ts, rest):
         return
     style_key = _parse_style_key(tail)
     if not style_key:
-        options = ", ".join(f"`{label}`" for label in STYLE_LABELS.values())
-        _reply(channel, thread_ts,
-              f"어떤 스타일인지 못 알아들었어요 — 예: `[스타일] <{work}> 2d 애니메이션`. "
-              f"지원하는 스타일: {options}")
+        # ★2026-07-21: 스타일을 못 알아들으면 텍스트로 되묻지 말고 드롭다운으로 고르게 한다
+        # (sb_pick_genre 핸들러 재사용 — 선택 시 set_style + resume).
+        opts = [{"text": {"type": "plain_text", "text": label}, "value": key}
+                for key, label in STYLE_LABELS.items()]
+        text = f"<{work}> 어떤 스타일로 바꿀까요? 아래에서 골라주세요."
+        resp = app.client.chat_postMessage(
+            channel=channel, thread_ts=thread_ts, text=text,
+            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": text},
+                     "accessory": {"type": "static_select",
+                                   "placeholder": {"type": "plain_text", "text": "스타일 선택"},
+                                   "action_id": "sb_pick_genre", "options": opts}}])
+        _PENDING_GENRE[resp["ts"]] = {"channel": channel, "thread_ts": thread_ts,
+                                      "work": work, "resume": (lambda: None)}
         return
     w = works.set_style(work, style_key)
     if not w:
