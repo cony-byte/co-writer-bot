@@ -35,6 +35,7 @@ COWRITER_ROUTER_ENABLED   "1"(기본) | "0" — 0이면 무조건 legacy_fallbac
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import re
@@ -502,6 +503,25 @@ def _extract_character_for_costume(text: str) -> str | None:
             if name not in {"나올", "등장할", "인물", "캐릭터"}:
                 return name
     return None
+
+
+_NOTION_IMG_MENTION_RE = re.compile(r"노션.{0,10}첨부(?:해\s*둔|해\s*논|한)?.{0,10}(?:이미지|사진|스토리보드)")
+_COMPOSITION_MATCH_RE = re.compile(r"구도|연출|블로킹")
+_COMPOSITION_SAME_RE = re.compile(r"그대로|똑같이|동일하게|같게")
+_NO_ARBITRARY_GEN_RE = re.compile(r"임의로\s*(?:생성|만들)|마음대로\s*(?:생성|만들)|자유롭게\s*(?:생성|만들)")
+
+
+def _wants_notion_composition_ref(text: str) -> bool:
+    """★2026-07-21 "씬 1. 스틸컷은 내가 노션에 첨부해둔 스토리보드 이미지를 보고 연출과
+    구도는 똑같이 하도록 해. 임의로 생성하지 말고." — 노션에 이미 붙여둔 이미지를 스틸컷
+    구도/연출의 확정 레퍼런스로 삼으라는, LLM 자유생성이 아니라 결정적으로 처리해야 하는
+    요청이다. 세 조건(노션+첨부+이미지/스토리보드 언급, 구도/연출 매칭, "똑같이/그대로" 동일
+    지시)이 모두 있어야 잡는다 — 어느 하나만으로는 오탐(예: 그냥 "노션 이미지 보여줘")이 남.
+    "임의로 생성하지 말고" 같은 부정 지시는 필수 조건은 아니지만(사용자가 안 붙일 수도 있음),
+    있으면 이 경로를 더 강하게 확신할 수 있어 로그/신뢰도 표시에만 참고한다."""
+    t = text or ""
+    return bool(_NOTION_IMG_MENTION_RE.search(t) and _COMPOSITION_MATCH_RE.search(t)
+                and _COMPOSITION_SAME_RE.search(t))
 
 
 def _deterministic_question_route(query_text: str, ctx: dict) -> Route | None:
@@ -1773,6 +1793,23 @@ def execute(
             f"씬{r.scene}" if r.scene is not None else "",
             ("컷" + ",".join(map(str, r.cuts))) if r.cuts else "",
         ) if x)
+        # ★2026-07-21: "노션에 첨부해둔 스토리보드 이미지 보고 구도 그대로" 요청은 LLM에
+        # 자유생성을 맡기지 않고 여기서 결정적으로 가로챈다 — 노션 이미지를 못 찾으면
+        # 절대 조용히 free-generation으로 폴백하지 않는다("임의로 생성하지 말고"는 명시적
+        # 부정 제약이라 무시하면 안 됨, R18과 동일한 부정 보존 원칙).
+        raw_text = _q(event.get("text")) or ""
+        if r.scene is not None and _wants_notion_composition_ref(body or raw_text):
+            ref_bytes = sb._notion_scene_reference_image(r.work, r.episode)
+            if ref_bytes is None:
+                _reply(channel, thread_ts,
+                       f"노션에서 <{r.work or '작품'}>{f' {r.episode}화' if r.episode else ''} 페이지에 "
+                       "첨부된 스토리보드 이미지를 못 찾았어요 — 노션 페이지에 이미지가 잘 붙어있는지 "
+                       "확인해주시거나, 이 스레드에 이미지를 직접 첨부해서 다시 요청해주세요. "
+                       "(요청하신 대로 구도를 임의로 생성하지는 않았어요.)")
+                return
+            ref_data_url = "data:image/png;base64," + base64.b64encode(ref_bytes).decode("ascii")
+            sb._do_stills(channel, thread_ts, rest, feedback=body or None, ref_data_url=ref_data_url)
+            return
         sb._do_stills(channel, thread_ts, rest, feedback=body or None)
         return
     if intent == "video":

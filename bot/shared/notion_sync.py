@@ -149,6 +149,36 @@ def list_files(page_id: str, token: str | None = None) -> list[dict]:
     return out
 
 
+_IMAGE_TYPES = ("image",)
+
+
+def _walk_images(blocks: list[dict], token: str, out: list[dict]) -> None:
+    """_walk_files와 동일 패턴 — "이미지 등 텍스트 없는 블록은 건너뛴다"(_render의 정책)는
+    텍스트 변환에만 적용되고, 첨부 자체는 file/pdf와 같은 방식(file.url 또는 external.url)으로
+    회수 가능하다. 2026-07-21: "노션에 첨부해둔 스토리보드 이미지" 참조 기능을 위해 추가."""
+    for b in blocks:
+        t = b.get("type")
+        if t in _IMAGE_TYPES:
+            data = b.get(t) or {}
+            url = (data.get("file") or {}).get("url") or (data.get("external") or {}).get("url")
+            name = _rt(data.get("caption")) or "image"
+            if url:
+                out.append({"name": name, "url": url, "type": t})
+        if b.get("has_children"):
+            _walk_images(_children(b["id"], token), token, out)
+
+
+def list_images(page_id: str, token: str | None = None) -> list[dict]:
+    """페이지(하위 블록 전체 재귀) 안에 첨부/삽입된 image 블록 목록. [{name, url, type}].
+    list_files와 동일한 모양 — url은 시간 제한 있는 프리사인일 수 있어 받는 즉시 써야 함."""
+    token = token or config.NOTION_TOKEN
+    if not token:
+        raise RuntimeError("NOTION_TOKEN 미설정")
+    out: list[dict] = []
+    _walk_images(_children(page_id, token), token, out)
+    return out
+
+
 def download_file(url: str, timeout: int = 60) -> bytes:
     """file/pdf 블록의 url 다운로드(원본 bytes)."""
     with urllib.request.urlopen(url, timeout=timeout) as r:

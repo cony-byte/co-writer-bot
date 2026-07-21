@@ -342,6 +342,39 @@ def _notion_attached_script(page_id, episode):
     text = _hwpx_text(raw) if f["name"].lower().endswith(".hwpx") else _decode_text(raw).strip()
     return text, None
 
+def _notion_scene_reference_image(work, episode):
+    """★2026-07-21: "노션에 첨부해둔 스토리보드 이미지 보고 구도 그대로 해" 요청 대응 —
+    work/episode의 노션 페이지에서 첨부/삽입된 이미지 블록 중 첫 번째를 다운로드해 원본
+    bytes로 반환한다. _fetch_external_conti와 동일한 에러 처리 철학(실패해도 raise하지
+    않고 None 반환 + log.exception, 호출자가 "못 찾음" 안내를 하도록 함) — 이미지 회수
+    실패를 조용히 free-generation으로 폴백하면 사용자가 명시한 '임의로 생성하지 말고'를
+    조용히 어기게 되므로, 반드시 호출자 쪽에서 None을 실패로 취급해야 한다."""
+    if not (config.NOTION_TOKEN and work):
+        return None
+    pid = works.page_of(work)
+    if not pid:
+        return None
+    try:
+        imgs = notion_sync.list_images(pid)
+    except Exception:
+        log.exception("노션 이미지 목록조회 실패: work=%s pid=%s", work, pid)
+        return None
+    if not imgs:
+        return None
+    # 화 번호가 이름/캡션에 있으면 그 화 우선(파일첨부 대본과 동일한 우선순위 로직).
+    cands = imgs
+    if episode:
+        exact = [f for f in imgs
+                 if (m := re.search(r"(\d+)\s*화", f["name"])) and int(m.group(1)) == episode]
+        if exact:
+            cands = exact
+    f = cands[0]
+    try:
+        return notion_sync.download_file(f["url"])
+    except Exception:
+        log.exception("노션 이미지 다운로드 실패: work=%s pid=%s name=%s", work, pid, f.get("name"))
+        return None
+
 def _script_for(work, episode, bible):
     """대본 소스: ①시트 바이블(빠른 캐시) → ②없으면 노션 페이지에서 '대본 N화' 섹션만 추출
     (NOTION_TOKEN 있을 때). 페이지에 여러 화가 같이 있으면 섹션을 안 자르면 LLM이 다른 화
@@ -1181,8 +1214,13 @@ def _render_cuts(channel, thread_ts, work, bible, source_text, *,
                  retry_shots=None, retry_results=None, retry_cost=0.0,
                  kind=None, orig_rest=None, skip_confirm=False, group_bounds=None,
                  cut_filter: "set[int] | None" = None, auto_cut_judgment: bool = False,
-                 state_key: str | None = None):
+                 state_key: str | None = None, ref_data_url: str | None = None):
     """source_text(콘티 전체 또는 한 씬)를 컷 분해 → 인물 참조로 생성 → 그리드 업로드.
+    ref_data_url: 2026-07-21 — 노션에서 회수한 "구도/연출 그대로" 참조 이미지의 data URL.
+    주어지면 이 호출로 생성되는 모든 컷의 참조 목록 맨 뒤에 추가되고(다른 인물/장소/의상
+    참조는 그대로 유지), 각 컷 프롬프트 앞에 "이 참조 이미지의 카메라 앵글/구도/블로킹을
+    그대로 따르고 새로 창작하지 말라"는 지시를 덧붙인다 — 사용자가 "임의로 생성하지 말고"라고
+    명시했을 때만 호출자(nl_router._maybe_notion_composition_ref 등)가 채워 넣는다.
     retry_shots/retry_results가 주어지면(실패 컷만 재시도, C3): 샷 분해를 새로 안 하고 그
     shots를 그대로 쓰며, retry_results 중 실패(None)한 것만 다시 생성해 성공분과 합친다.
     target을 안 정했는데 컷이 많이 나오면(C4) 진행 전에 확인 카드를 띄운다(skip_confirm=True면
@@ -1423,10 +1461,20 @@ def _render_cuts(channel, thread_ts, work, bible, source_text, *,
             refs = [u for _role, u, *_ in ref_entries]
             if prev_png:
                 refs = list(refs) + [oi.png_data_url(prev_png)]
+            # ★2026-07-21: 노션 "구도 그대로" 참조 — 인물/장소/의상 참조는 그대로 두고 맨 뒤에
+            # 추가(생성기가 앞쪽 참조를 우선시하는 경향이 있어, 외형 참조를 밀어내지 않도록).
+            if ref_data_url:
+                refs = list(refs) + [ref_data_url]
             # ★2026-07-20c: style_suffix를 씬 프롬프트 뒤에 붙이면(예전 순서) 스튜디오/카메라
             # 장비를 묘사하는 장면일 때 그 내용에 화풍 지시가 밀려 실제 사진처럼 나오는 사고가
             # 있었다 — 화풍 지시를 앞에 둬 우선권을 주고, 장면 내용은 그 뒤에 붙인다.
             prompt = f"{style_suffix}, {s['prompt']}" if style_suffix else s["prompt"]
+            if ref_data_url:
+                # 마지막 참조 이미지(방금 refs 끝에 추가한 것)를 구도 고정 기준으로 명시 지시.
+                prompt = (f"{prompt}\n\nCRITICAL: Match the exact camera angle, composition, "
+                          f"framing, and character blocking of the attached storyboard reference "
+                          f"image exactly — do not invent new staging or composition. Only use "
+                          f"the other reference images for character/place/costume appearance.")
             # ★2026-07-15: 참조 역할 분리 지시(사용자 제공 — "인물은 얼굴만, 의상은 옷만"
             # 명시적 선언) — 순서 재배치만으론 부족했던 얼굴 참조 옷차림 오염 문제 보강.
             role_block = oi.reference_priority_block(ref_entries)
@@ -3251,7 +3299,7 @@ _DIALOGUE_HAS_QUOTE_RE = re.compile(r"'[^']{2,}'")
 def _cut_has_dialogue(cut: dict) -> bool:
     return bool(_DIALOGUE_HAS_QUOTE_RE.search(cut.get("caption") or ""))
 
-def _do_stills(channel, thread_ts, rest, feedback=None):
+def _do_stills(channel, thread_ts, rest, feedback=None, ref_data_url=None):
     """[스틸컷] <작품> 씬N — 한 씬만 스틸컷 생성. ★2026-07-16: "씬2,3,4"/"씬2-4"처럼
     콤마·하이픈으로 여러 씬을 지정하면(_parse_scene_filter로 감지, [합본]과 동일 문법) 씬마다
     순서대로(레이트리밋/비용 때문에 씬 단위 병렬화는 하지 않음) _do_stills_render_one을 반복
@@ -3261,7 +3309,8 @@ def _do_stills(channel, thread_ts, rest, feedback=None):
     반영하게 한다 — rest/tail 파싱(씬 번호·컷수 등)에는 관여하지 않고 프롬프트 내용에만 영향."""
     work, bible, tail, msgs = _resolve_work_bible(channel, thread_ts, rest)
     if not _require_genre(channel, thread_ts, work,
-                           resume=lambda: _do_stills(channel, thread_ts, rest, feedback=feedback)):
+                           resume=lambda: _do_stills(channel, thread_ts, rest, feedback=feedback,
+                                                      ref_data_url=ref_data_url)):
         return
     # "컷1,3"/"1-3컷" 등 특정 컷만 골라 뽑는 지정(2026-07-15) — 있으면 아래 'N컷' 총개수
     # 오버라이드보다 우선한다(둘이 동시에 쓰이는 경우는 없다고 가정).
@@ -3354,7 +3403,8 @@ def _do_stills(channel, thread_ts, rest, feedback=None):
             _update_note(channel, ph, f"씬{label} 스틸컷 생성 중… ({i}/{len(do_nums)} · 씬{num})")
             try:
                 ok, detail = _do_stills_render_one(channel, thread_ts, rest, work, bible, scenes, num,
-                                                   cut_filter, target, auto_cut, ctm, fb_note, episode)
+                                                   cut_filter, target, auto_cut, ctm, fb_note, episode,
+                                                   ref_data_url=ref_data_url)
             except Exception:
                 log.exception(f"씬{num} 스틸컷 생성 실패(다중 씬 배치)")
                 _reply(channel, thread_ts, f"⚠️ 씬{num} 스틸컷 생성 중 오류가 났어요 — 다음 씬은 계속 진행할게요.")
@@ -3398,13 +3448,16 @@ def _do_stills(channel, thread_ts, rest, feedback=None):
             target = None
             del _RECENTLY_MISSING_CUTS[thread_ts]
     _do_stills_render_one(channel, thread_ts, rest, work, bible, scenes, num,
-                          cut_filter, target, auto_cut, ctm, fb_note, episode)
+                          cut_filter, target, auto_cut, ctm, fb_note, episode,
+                          ref_data_url=ref_data_url)
 
 def _do_stills_render_one(channel, thread_ts, rest, work, bible, scenes, num,
-                          cut_filter, target, auto_cut, ctm, fb_note, episode):
+                          cut_filter, target, auto_cut, ctm, fb_note, episode, ref_data_url=None):
     """단일 씬 스틸컷 생성 — 2026-07-16 다중 씬 배치("씬2,3,4 스틸컷") 지원을 위해 _do_stills
     본문 하단에 있던 단일 씬 처리 로직을 그대로 떼어낸 것(동작 변경 없음). _do_stills가 씬
     1개일 때 직접 호출하고, 다중 씬 배치일 때는 씬마다 이 함수를 순서대로 반복 호출한다.
+    ref_data_url: 2026-07-21 — "노션 첨부 이미지 보고 구도 그대로" 요청 시 그 이미지의
+    data URL. 주어지면 이 씬의 모든 컷 생성에 구도/블로킹 고정 참조로 함께 전달된다.
     cut_filter/target은 씬마다 아래에서 재해석될 수 있어 인자로 받은 뒤 로컬에서만 바뀐다
     (호출부 값에 영향 없음 — 씬마다 독립적으로 판단해야 하므로).
     반환값: (성공 여부, 요약용 라벨 문자열 — 다중 씬 배치의 완료 요약에 쓰인다)."""
@@ -3478,7 +3531,8 @@ def _do_stills_render_one(channel, thread_ts, rest, work, bible, scenes, num,
                                        auto_cut_judgment=False, aspect_ratio=STILL_ASPECT,
                                        style_suffix=_style_for_work(work), no_text=True,
                                        title=f"스틸컷 씬{num} (컷{b_start}-{b_end}/{n_beats})",
-                                       filename=f"still_{work or 'ep'}_s{num}_b{b_start}-{b_end}.png")
+                                       filename=f"still_{work or 'ep'}_s{num}_b{b_start}-{b_end}.png",
+                                       ref_data_url=ref_data_url)
             grid_png, cuts = res if res else (None, None)
             if grid_png:
                 _post_still_buttons(channel, thread_ts, work, num,
@@ -3508,7 +3562,8 @@ def _do_stills_render_one(channel, thread_ts, rest, work, bible, scenes, num,
                                f"■ 씬{num} · {hdr}\n{body}{fb_note}", target=shot_target,
                                cols=min(t, 2), cut_filter=cut_filter, auto_cut_judgment=auto_cut,
                                aspect_ratio=STILL_ASPECT, style_suffix=_style_for_work(work), no_text=True,
-                               title=f"스틸컷 씬{num}{cut_label}", filename=f"still_{work or 'ep'}_s{num}.png")
+                               title=f"스틸컷 씬{num}{cut_label}", filename=f"still_{work or 'ep'}_s{num}.png",
+                               ref_data_url=ref_data_url)
     grid_png, cuts = res if res else (None, None)
     if grid_png:
         _post_still_buttons(channel, thread_ts, work, num, f"스틸컷 씬{num}{cut_label} · {hdr}", rest, grid_png,
