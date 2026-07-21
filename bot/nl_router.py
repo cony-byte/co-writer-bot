@@ -1813,7 +1813,7 @@ def execute(
         sb._do_stills(channel, thread_ts, rest, feedback=body or None)
         return
     if intent == "video":
-        if not sb._do_video_from_last_still(channel, thread_ts, body or _q(event.get("text"))):
+        if not sb._do_video_from_last_still(channel, thread_ts, body or _q(event.get("text")), work=r.work):
             legacy_fallback(event)
         return
     if intent == "notion_save":
