@@ -1472,11 +1472,12 @@ def execute(
         sb.sb_do_storyboard(channel, thread_ts, rest, stage=2)
         return
     if intent == "conti_rewrite":
-        # ★2026-07-21 작업2: 트리거 판정(_CONTI_REWRITE_RE 등)을 재심사하지 않고 실행부를
-        # 직접 호출 — 라우터가 이미 확정한 work/episode를 그대로 넘겨서 레거시의 자체
-        # work/episode 재탐색(꺾쇠 전용 SUB_RE 등)에서 실패할 여지를 원천 차단한다.
-        txt = (f"씬{r.scene} " if r.scene else "") + body
-        if not sb._do_conti_rewrite(channel, thread_ts, txt, event, work=r.work, episode=r.episode):
+        # ★2026-07-21 작업2(+후속): 트리거 판정(_CONTI_REWRITE_RE 등)을 재심사하지 않고
+        # 실행부를 직접 호출 — 라우터가 이미 확정한 work/episode/scene을 전부 명시 파라미터로
+        # 넘긴다(scene을 "씬N " 텍스트로 body에 심어 넘기던 예전 방식은 파라미터 우선 원칙이
+        # 반쪽만 지켜지는 것이라 제거 — _do_conti_rewrite가 이제 scene을 직접 받는다).
+        if not sb._do_conti_rewrite(channel, thread_ts, body, event,
+                                    work=r.work, episode=r.episode, scene=r.scene):
             legacy_fallback(event)
         return
     if intent == "stillcut":

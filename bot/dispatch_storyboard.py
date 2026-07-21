@@ -5176,13 +5176,20 @@ _CONTI_REWRITE_RE = re.compile(
     r"|손\s*봐\s*(줘|주세요|줄래)"
 )
 
-def _do_conti_rewrite(channel, thread_ts, query, event, work=None, episode=None) -> bool:
+def _do_conti_rewrite(channel, thread_ts, query, event, work=None, episode=None, scene=None) -> bool:
     """_maybe_conti_rewrite_request의 실행부(트리거 판정과 분리, ★2026-07-21 작업2) —
     nl_router.execute()가 intent=conti_rewrite를 이미 확정했을 때 여기로 바로 들어온다.
-    work/episode를 미리 알면(라우터가 이미 resolve_work_ctx로 찾아둔 값) 그걸 그대로 쓰고,
-    없으면(레거시 자유문장 경로) 기존처럼 SUB_RE/스레드 이력에서 직접 찾는다 — 레거시
+    work/episode/scene을 미리 알면(라우터가 이미 확정해둔 값) 그걸 그대로 쓰고, 없으면
+    (레거시 자유문장 경로) 기존처럼 SUB_RE/스레드 이력/텍스트에서 직접 찾는다 — 레거시
     <작품> 꺾쇠 전용 정규식(SUB_RE)이 라우터가 이미 확정한 맨 텍스트 작품명을 재심사하다
-    실패해 조용히 안전정지로 빠지던 사고(실측)를 원천 차단."""
+    실패해 조용히 안전정지로 빠지던 사고(실측)를 원천 차단.
+
+    ★2026-07-21 후속: scene은 처음엔 명시 파라미터 없이 "씬N " 텍스트를 query 앞에 붙여
+    넘기고 있었다 — work/episode는 파라미터 우선 원칙을 지켰지만 scene만 프리텍스트로
+    새서(instr 추출 어떤 치환에도 안 걸림) '절반짜리 분리'였다는 지적을 받아 scene도
+    명시 파라미터로 승격. 하위 sb_do_storyboard(stage=2)는 구조화된 scene 인자가 없어
+    여전히 텍스트로 받아야 하므로, scene이 주어지면 instr을 다 만든 뒤 맨 앞에 "씬N "을
+    한 번만 명시적으로 붙인다(우연히 살아남은 원문 텍스트에 의존하지 않음)."""
     text, _blocked = _files_text(event)
     if text:
         return False   # 첨부 있으면 _maybe_conti_final이 처리
@@ -5202,15 +5209,25 @@ def _do_conti_rewrite(channel, thread_ts, query, event, work=None, episode=None)
         joined = "\n".join(m["content"] for m in _thread_messages(channel, thread_ts))
         epm = re.search(r"(\d{1,3})\s*[화회]", q) or re.search(r"(\d{1,3})\s*[화회]", joined)
         episode = int(epm.group(1)) if epm else (conti_state.get_episode(thread_ts) or {}).get("episode")
+    if scene is None:
+        scene_m = _SCENE_NUM_RE.search(q)
+        if scene_m:
+            scene = int(next(g for g in scene_m.groups() if g))
     content, src = _fetch_external_conti(work, episode)
     if not content:
         return False   # 고칠 기존 콘티가 아예 없으면 "다시 쓰기"가 아니라 새로 만들기 — 기존 흐름에 맡긴다
-    # 트리거 표현·화 번호·조사/어미 찌꺼기를 걷어내고 남는 텍스트가 있으면 구체적 수정 지시로 본다.
+    # 트리거 표현·화 번호·씬 번호·조사/어미 찌꺼기를 걷어내고 남는 텍스트가 있으면 구체적
+    # 수정 지시로 본다. "씬N"은 scene 파라미터로 이미 뽑았으니 여기서 걷어내 중복 방지.
     instr = re.sub(r"(\d{1,3})\s*[화회]", "", rest_q)
+    instr = _SCENE_NUM_RE.sub("", instr)
     instr = _CONTI_REWRITE_RE.sub("", instr)
     instr = re.sub(r"상세\s*콘티|콘티", "", instr)
     instr = re.sub(r"고\s*싶어|고\s*싶다|고\s*싶은데|싶어요?|싶다|줄래|해줘|줘|주세요|주라", "", instr)
     instr = instr.strip(" ,.!~？?！그걸을를이가는은도좀\n")
+    if scene is not None and len(instr) >= 4:
+        # sb_do_storyboard(stage=2)는 구조화된 scene 인자를 안 받아 텍스트로만 씬을 특정할 수
+        # 있다 — 방금 걷어낸 "씬N"을 우연한 원문 잔존이 아니라 여기서 명시적으로 한 번만 붙인다.
+        instr = f"씬{scene} {instr}"
     _upload_conti(channel, thread_ts, work, content, episode=episode)
     conti_state.set_episode(thread_ts, work, episode, human_final=True)
     if len(instr) < 4:   # 구체적 지시가 없음 — 뭘 바꿀지 되묻는다
