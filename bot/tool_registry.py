@@ -656,11 +656,11 @@ _add("still_variant",
      ["scene", "cut_number", "change"], HIGH, _still_variant)
 
 _add("delete_media",
-     "생성된 스틸컷/영상을 씬(또는 특정 컷) 단위로 삭제한다. '7씬 3컷 스틸컷 삭제', '씬2 영상 지워줘', '씬5 스틸컷·영상 다 지워줘'처럼 개별 산출물 삭제 요청. 화 전체 삭제(reset_episode_outputs)나 참조 이미지 삭제(delete_reference)와 다르다. 확인 버튼 후 _trash로 옮겨 복구 가능. kind로 스틸컷/영상 구분(생략 시 둘 다), cut_number 생략 시 그 씬 전체.",
+     "생성된 스틸컷·영상·합본을 종류별·범위별로 나눠 삭제한다. kind로 종류 지정(스틸컷/영상/합본), 범위는 컷·씬·화. 예: '7씬 3컷 스틸컷 삭제'(컷), '씬2 영상 지워줘'(씬), '1화 영상 다 지워'(화 전체 영상만), '1화 합본만 삭제'(합본), '1화 스틸컷 전부 삭제'. 스틸컷·영상·합본 전부 한꺼번에는 reset_episode_outputs, 참조 이미지 삭제는 delete_reference로 별개. 확인 버튼 후 _trash로 옮겨 복구 가능. 합본은 화 단위(씬/컷 없음). scene 생략 시 그 종류를 화 전체에서, cut_number 생략 시 그 씬 전체.",
      {"work": WORK, "episode": EPISODE, "scene": SCENE,
       "cut_number": {"type": "integer", "minimum": 1, "description": "특정 컷만 지울 때"},
-      "kind": {"type": "string", "description": "스틸컷/영상 등 지울 종류 힌트(생략 시 둘 다)"}},
-     ["scene"], HIGH, _delete_media)
+      "kind": {"type": "string", "description": "지울 종류: 스틸컷/영상/합본 (여러 개면 각각 호출 또는 함께 명시)"}},
+     [], HIGH, _delete_media)
 
 _add("check_cut_seconds",
      "콘티의 컷 초수 합계가 씬 헤더의 목표 초수와 맞는지 검증해 보고한다. '컷 초수 합 맞는지 확인해줘', '씬2 몇 초야'처럼 시간 예산 검증 요청. 씬별로 [N초] 비트를 합산해 목표와 비교(±1초 이내면 OK)한다. scene을 주면 그 씬만 검증한다.",

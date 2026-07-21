@@ -5095,39 +5095,51 @@ def _delete_media_confirm_blocks():
 
 
 def _do_delete_media(channel, thread_ts, work=None, episode=None, scene=None, cut=None, kind=None) -> bool:
-    """생성된 스틸컷/영상을 씬(/컷) 단위로 삭제한다(★2026-07-21 — 기존엔 화 전체
-    reset_episode_outputs만 있었다). 파괴적이므로 danger 버튼 확인 후에만 실행하고, 파일은
-    outputs/_trash/로 옮겨 복구 가능하게 둔다."""
+    """생성된 스틸컷/영상/합본을 종류별·범위별로 삭제한다(★2026-07-21 — 기존엔 화 전체 전부만
+    (reset_episode_outputs) 지울 수 있었다. 이제 스틸컷·영상·합본을 나눠서, 컷/씬/화 범위로).
+    파괴적이라 danger 버튼 확인 후에만 실행하고, 파일은 outputs/_trash/로 옮겨 복구 가능."""
     work = _resolve_show_work(channel, thread_ts, work)
     if not work:
         _reply(channel, thread_ts, _WORK_NOT_FOUND_MSG)
         return True
     episode = episode or (conti_state.get_episode(thread_ts) or {}).get("episode")
-    if scene is None:
-        _reply(channel, thread_ts,
-               "어느 씬(컷)의 무엇을 지울지 알려주세요 — 예: `7씬 3컷 스틸컷 삭제`, `씬2 영상 삭제`. "
-               "(화 전체를 지우려면 `[화초기화] <작품> N화`.)")
-        return True
     k = kind or ""
-    is_still = any(w in k for w in ("스틸", "컷", "이미지", "스토리보드", "still", "그리드"))
-    is_video = any(w in k for w in ("영상", "동영상", "비디오", "video", "합본", "클립"))
-    want_still, want_video = (is_still, is_video) if (is_still or is_video) else (True, True)
-    found = vp_store.scan_scene_media(work, episode, scene, cut)
-    n_still = len(found["stills"]) if want_still else 0
-    n_video = len(found["videos"]) if want_video else 0
-    if n_still == 0 and n_video == 0:
-        _reply(channel, thread_ts,
-               f"<{work}> {episode}화 씬{scene}{f' 컷{cut}' if cut else ''}에 지울 "
-               f"{'스틸컷/영상' if want_still and want_video else ('스틸컷' if want_still else '영상')}이 없어요.")
+    is_still = any(w in k for w in ("스틸", "이미지", "스토리보드", "still", "그리드")) or ("컷" in k and "합본" not in k)
+    is_compiled = any(w in k for w in ("합본", "컴파일", "compiled", "최종", "완성본"))
+    is_video = (any(w in k for w in ("영상", "동영상", "비디오", "video", "클립")) and not is_compiled)
+    if not (is_still or is_video or is_compiled):
+        # 종류 미지정: 씬이 있으면 스틸+영상(합본은 화 단위라 제외), 화 전체 종류 미지정은 안내.
+        if scene is not None:
+            is_still = is_video = True
+        else:
+            _reply(channel, thread_ts,
+                   "무엇을 지울지 종류를 정해주세요 — `스틸컷`/`영상`/`합본`. 예: `1화 영상 다 지워`, "
+                   "`1화 합본 삭제`, `7씬 3컷 스틸컷 삭제`. (스틸컷·영상·합본 전부는 `[화초기화] <작품> N화`.)")
+            return True
+    # 합본은 화 단위 개념(씬/컷 없음). 스틸/영상은 씬 지정 시 그 씬(/컷), 없으면 화 전체.
+    if scene is not None:
+        sc = vp_store.scan_scene_media(work, episode, scene, cut)
+        n_still = len(sc["stills"]) if is_still else 0
+        n_video = len(sc["videos"]) if is_video else 0
+        n_comp = len(vp_store._ep_compiled_files(oi.vp_project_dir(work), episode)) if is_compiled and oi.vp_project_dir(work) else 0
+        scope = f"씬{scene}" + (f" 컷{cut}" if cut else "")
+    else:
+        ep = vp_store.scan_episode_media(work, episode, still=is_still, video=is_video, compiled=is_compiled)
+        n_still, n_video, n_comp = len(ep["stills"]), len(ep["videos"]), len(ep["compiled"])
+        scope = f"{episode}화 전체"
+    parts = (([f"스틸컷 {n_still}개"] if n_still else []) +
+             ([f"영상 {n_video}개"] if n_video else []) +
+             ([f"합본 {n_comp}개"] if n_comp else []))
+    if not parts:
+        kinds = "/".join([n for n, f in (("스틸컷", is_still), ("영상", is_video), ("합본", is_compiled)) if f])
+        _reply(channel, thread_ts, f"<{work}> {scope}에 지울 {kinds}이(가) 없어요.")
         return True
-    where = f"씬{scene}" + (f" 컷{cut}" if cut else "")
-    parts = ([f"스틸컷 {n_still}개"] if n_still else []) + ([f"영상 {n_video}개"] if n_video else [])
-    text = (f"⚠️ <{work}> {episode}화 {where}의 {', '.join(parts)}을(를) 삭제할까요? "
-            "(파일은 _trash로 옮겨져 복구 가능해요.)")
+    text = f"⚠️ <{work}> {scope}의 {', '.join(parts)}을(를) 삭제할까요? (파일은 _trash로 옮겨져 복구 가능해요.)"
     resp = app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text,
                                        blocks=_with_text_block(text, _delete_media_confirm_blocks()))
     _PENDING_DELETE_MEDIA[resp["ts"]] = {"work": work, "episode": episode, "scene": scene,
-                                         "cut": cut, "still": want_still, "video": want_video}
+                                         "cut": cut, "still": is_still, "video": is_video,
+                                         "compiled": is_compiled}
     return True
 
 
@@ -5140,16 +5152,29 @@ def _act_delete_media_confirm(ack, body):
         _disable_buttons(body, "⚠️ 만료된 요청이에요.")
         return
     _disable_buttons(body, "🗑 삭제 중…")
-    moved = vp_store.trash_scene_media(p["work"], p["episode"], p["scene"], p["cut"],
+    moved = {"stills": [], "videos": [], "compiled": []}
+    # 스틸/영상: 씬 지정 시 그 씬(/컷), 없으면 화 전체.
+    if p["scene"] is not None and (p["still"] or p["video"]):
+        m = vp_store.trash_scene_media(p["work"], p["episode"], p["scene"], p["cut"],
                                        still=p["still"], video=p["video"])
-    ns, nv = len(moved["stills"]), len(moved["videos"])
-    parts = ([f"스틸컷 {ns}개"] if ns else []) + ([f"영상 {nv}개"] if nv else [])
-    cut_label = f" 컷{p['cut']}" if p["cut"] else ""
+        moved["stills"] += m["stills"]; moved["videos"] += m["videos"]
+    elif p["scene"] is None and (p["still"] or p["video"]):
+        m = vp_store.trash_episode_media(p["work"], p["episode"],
+                                         still=p["still"], video=p["video"], compiled=False)
+        moved["stills"] += m["stills"]; moved["videos"] += m["videos"]
+    # 합본은 항상 화 단위.
+    if p.get("compiled"):
+        m = vp_store.trash_episode_media(p["work"], p["episode"],
+                                         still=False, video=False, compiled=True)
+        moved["compiled"] += m["compiled"]
+    ns, nv, nc = len(moved["stills"]), len(moved["videos"]), len(moved["compiled"])
+    parts = (([f"스틸컷 {ns}개"] if ns else []) + ([f"영상 {nv}개"] if nv else []) +
+             ([f"합본 {nc}개"] if nc else []))
+    scope = (f"씬{p['scene']}" + (f" 컷{p['cut']}" if p["cut"] else "")) if p["scene"] is not None else f"{p['episode']}화 전체"
     summary = ", ".join(parts) or "해당 파일 없음"
     app.client.chat_postMessage(
         channel=ch, thread_ts=tts,
-        text=(f"✅ <{p['work']}> {p['episode']}화 씬{p['scene']}{cut_label} — "
-              f"{summary} 삭제 완료 (_trash에 보관, 복구 가능)."))
+        text=f"✅ <{p['work']}> {scope} — {summary} 삭제 완료 (_trash에 보관, 복구 가능).")
 
 
 @app.action("delete_media_cancel")

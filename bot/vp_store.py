@@ -579,6 +579,64 @@ def trash_scene_media(work: str, episode, scene, cut=None, *,
     return moved
 
 
+def _ep_still_files(proj, episode):
+    sdir = proj / "outputs" / "stills" / _episode_dir_name(episode)
+    return sorted(sdir.rglob("*.png")) if sdir.exists() else []
+
+
+def _ep_video_files(proj, episode):
+    vdir = proj / "outputs" / "videos" / _episode_dir_name(episode)
+    return sorted(vdir.glob("*.mp4")) if vdir.exists() else []
+
+
+def _ep_compiled_files(proj, episode):
+    cdir = proj / "outputs" / "compiled"
+    return sorted(cdir.glob(f"{episode}화*.mp4")) if cdir.exists() else []
+
+
+def scan_episode_media(work, episode, *, still=True, video=True, compiled=True) -> dict:
+    """화 단위 종류별 삭제 대상 미리보기(경로). 실제로 지우지 않는다."""
+    proj = oi.vp_project_dir(work)
+    out = {"stills": [], "videos": [], "compiled": []}
+    if not proj:
+        return out
+    if still:
+        out["stills"] = _ep_still_files(proj, episode)
+    if video:
+        out["videos"] = _ep_video_files(proj, episode)
+    if compiled:
+        out["compiled"] = _ep_compiled_files(proj, episode)
+    return out
+
+
+def trash_episode_media(work, episode, *, still=True, video=True, compiled=True) -> dict:
+    """화 단위 종류별(스틸컷/영상/합본) 파일을 outputs/_trash/로 옮긴다(복구 가능).
+    outputs/ 아래 상대 경로를 그대로 보존해 이동한다. 반환 {stills:[name],videos:[name],compiled:[name]}."""
+    proj = oi.vp_project_dir(work)
+    moved = {"stills": [], "videos": [], "compiled": []}
+    if not proj:
+        return moved
+    trash = proj / "outputs" / "_trash"
+    found = scan_episode_media(work, episode, still=still, video=video, compiled=compiled)
+
+    def _move(files, key):
+        for p in files:
+            try:
+                dest = trash / p.relative_to(proj / "outputs")
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                if dest.exists():
+                    dest = dest.with_name(p.stem + "_" + uuid.uuid4().hex[:6] + p.suffix)
+                p.rename(dest)
+                moved[key].append(p.name)
+            except Exception:
+                log.exception("화 단위 _trash 이동 실패: %s", p)
+
+    _move(found["stills"], "stills")
+    _move(found["videos"], "videos")
+    _move(found["compiled"], "compiled")
+    return moved
+
+
 def preview_episode_outputs(work: str, episode: int | str) -> dict | None:
     """실제로 지우기 전에 뭐가 지워질지 미리 센다(확인 메시지용). 프로젝트를 못 찾으면 None."""
     video_dir, compiled_dir, stills_dir = _episode_output_paths(work, episode)
