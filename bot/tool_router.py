@@ -329,12 +329,15 @@ def decide_from_context(query: str, context: dict, *, model: str | None = None,
             text="재개하거나 대상을 선택하려면 위에 표시된 버튼을 눌러주세요.",
             raw={"context": context, "blocked_short_ack": True},
         )
+    import time as _time
+    _t0 = _time.time()
     message = oi.tool_chat(
         _system_prompt_blocks(context), query,
         _RESPONSE_TOOLS + tool_registry.api_tools(),
         model=model or MODEL,
         timeout=timeout if timeout is not None else TIMEOUT,
     )
+    _latency_ms = int((_time.time() - _t0) * 1000)
     decision = _parse_message(message)
     executable = decision.calls or ([{"tool": decision.tool, "arguments": decision.arguments or {}}]
                                     if decision.type == "tool_call" else [])
@@ -349,7 +352,8 @@ def decide_from_context(query: str, context: dict, *, model: str | None = None,
         decision.calls = executable
     elif decision.type == "tool_calls":
         decision.calls = executable
-    decision.raw = {"message": message, "context": context}
+    decision.raw = {"message": message, "context": context,
+                    "latency_ms": _latency_ms, "backend": model or MODEL}
     return decision
 
 

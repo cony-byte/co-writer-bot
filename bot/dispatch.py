@@ -63,6 +63,7 @@ from bot import config
 from bot import dispatch_cowriter as cw
 from bot import dispatch_storyboard as sb
 from bot import nl_router
+from bot import router_log
 from bot import tool_router
 from bot import tool_router_slack
 from bot.shared import works
@@ -424,24 +425,43 @@ def _handle_dispatch(event: dict) -> None:
 
     # Native tool-calling router. The model chooses an allowed function directly;
     # schema/risk validation and confirmation are owned by code, not model output.
-    try:
-        decision = tool_router.decide(channel, thread_ts, query, event)
-        if decision is not None:
-            log.info("route=tool_router:type=%s tool=%s", decision.type, decision.tool)
-            tool_router_slack.execute(channel, thread_ts, event, decision)
+    # ★2026-07-21 결정 로깅: with 블록이 어느 경로로 끝나든(정상 return/예외) 결정 1줄을
+    # logs/router_decisions.jsonl에 남긴다(router_log). 로깅 실패는 라우팅에 영향 없음.
+    with router_log.capture(channel, thread_ts, query, event) as _rec:
+        try:
+            decision = tool_router.decide(channel, thread_ts, query, event)
+            if decision is not None:
+                _rec.set_decision(decision)
+                log.info("route=tool_router:type=%s tool=%s", decision.type, decision.tool)
+                _raw = getattr(decision, "raw", None) or {}
+                if _raw.get("blocked_short_ack"):
+                    _rec.outcome = "short_ack"
+                elif _raw.get("deterministic"):
+                    _rec.outcome = "deterministic_answer"
+                elif decision.type in ("answer", "clarification"):
+                    _rec.outcome = decision.type
+                else:
+                    _rec.outcome = "executed"
+                _rec.executed_handler = (
+                    ",".join((_rec.route or {}).get("tools") or [])
+                    or decision.tool or decision.type)
+                tool_router_slack.execute(channel, thread_ts, event, decision)
+                return
+        except Exception:
+            log.exception("tool_router 실행 예외 → 안전 정지")
+            _rec.outcome = "exception"
+
+        # 여기 도달 = tool call 생성 실패(킬스위치 / 백엔드 실패·타임아웃 / 잘못된 응답) 또는 실행 예외.
+        if not tool_router.ENABLED:
+            # 킬스위치(COWRITER_ROUTER_ENABLED=0): 의도적으로 라우터를 끈 것 → 예전 전체 체인 유지.
+            _rec.outcome = _rec.outcome or "killswitch_legacy"
+            log.info("route=killswitch_legacy")
+            _legacy_freeform_chain(channel, thread_ts, query, event, in_thread)
             return
-    except Exception:
-        log.exception("tool_router 실행 예외 → 안전 정지")
 
-    # 여기 도달 = tool call 생성 실패(킬스위치 / 백엔드 실패·타임아웃 / 잘못된 응답) 또는 실행 예외.
-    if not tool_router.ENABLED:
-        # 킬스위치(COWRITER_ROUTER_ENABLED=0): 의도적으로 라우터를 끈 것 → 예전 전체 체인 유지.
-        log.info("route=killswitch_legacy")
-        _legacy_freeform_chain(channel, thread_ts, query, event, in_thread)
-        return
-
-    # 라우터 활성인데 해석 실패 → 안전 정지(변형 실행 안 함, 조회성만 시도 후 1회 안내).
-    _safe_fallback(channel, thread_ts, query, event)
+        # 라우터 활성인데 해석 실패 → 안전 정지(변형 실행 안 함, 조회성만 시도 후 1회 안내).
+        _rec.outcome = _rec.outcome or "safe_stop"
+        _safe_fallback(channel, thread_ts, query, event)
 
 
 def _dispatch_bracket_command(channel: str, thread_ts: str, query: str, event: dict,
