@@ -69,6 +69,7 @@ class Route:
     cuts: list[int] | None = None
     elements: list[dict] | None = None
     instruction: str | None = None
+    display_label: str | None = None
     reply_text: str | None = None
     question_type: str | None = None
     assumptions: list[str] | None = None
@@ -650,7 +651,9 @@ def _apply_safety_normalization(r: Route, query_text: str, ctx: dict) -> Route:
     )
     if explicit_register:
         r.intent = "element_register"
-        r.episode = None
+        # 화 번호는 지우지 않는다 — 의상/장소/소품 라벨 자동 매칭(resolve_element_label)이
+        # 콘티/대본을 찾을 때 episode가 필요하다(★2026-07-21 사고4: 여기서 무조건 None으로
+        # 밀어써서 "1화 옥상 배경 이 사진으로 등록해줘" 같은 요청의 라벨 해석이 깨짐).
         r.episodes = None
         r.scene = None
         r.cuts = None
@@ -777,6 +780,7 @@ def route(
         cuts=data.get("cuts") if isinstance(data.get("cuts"), list) else None,
         elements=data.get("elements") if isinstance(data.get("elements"), list) else None,
         instruction=(data.get("instruction") or "").strip() or None,
+        display_label=(data.get("display_label") or "").strip() or None,
         reply_text=(data.get("reply_text") or "").strip() or None,
         question_type=(data.get("question_type") or "").strip() or None,
         assumptions=(
@@ -1086,6 +1090,176 @@ def _episode_character_costume(work: str, episode: int, character: str) -> tuple
     return None, f"<{canonical}> {episode}화 자료는 읽었지만 {character}의 의상 표기를 찾지 못했어요."
 
 
+_ELEMENT_KIND_KO_TO_EN = {"의상": "costume", "장소": "place", "소품": "prop", "인물": "person"}
+
+
+def _episode_place_hint(work: str, episode: int, hint: str) -> tuple[str | None, str | None]:
+    """해당 화 상세콘티/대본에서 장소 표기를 찾는다(씬 헤더 "S#N 장소-세트", "장소:", "배경:")."""
+    from . import dispatch_storyboard as sb
+
+    canonical = _canonical_work(work) or work
+    script = ""
+    try:
+        script, _err = sb._script_for(canonical, episode, None)
+        script = script or ""
+    except Exception:
+        log.exception("episode_place_hint: script load failed work=%s ep=%s", canonical, episode)
+    conti = ""
+    try:
+        conti, _source = sb._fetch_external_conti(canonical, episode)
+        conti = conti or ""
+    except Exception:
+        log.exception("episode_place_hint: conti load failed work=%s ep=%s", canonical, episode)
+
+    source_text = "\n".join(x for x in (script, conti) if x).strip()
+    if not source_text:
+        return None, f"<{canonical}> {episode}화 대본이나 상세 콘티를 읽지 못했어요."
+
+    hint_compact = re.sub(r"\s+", "", hint or "")
+    patterns = (
+        r"S\s*#\s*\d+\s*([^\n\-–—]+)",
+        r"(?:장소|배경)\s*[:：]\s*([^\n]+)",
+    )
+    found: list[str] = []
+    for pattern in patterns:
+        for m in re.finditer(pattern, source_text, flags=re.I):
+            value = re.sub(r"\s+", " ", m.group(1)).strip(" ·,/-–—")
+            if value and len(value) <= 30 and "\n" not in value:
+                found.append(value)
+    if hint_compact:
+        matched = [v for v in found if hint_compact in re.sub(r"\s+", "", v)]
+        if matched:
+            return matched[0], "1화 대본/상세 콘티"
+    if found:
+        return found[0], "1화 대본/상세 콘티"
+    return None, f"<{canonical}> {episode}화 자료는 읽었지만 장소 표기를 찾지 못했어요."
+
+
+def _episode_prop_hint(work: str, episode: int, character: str | None, hint: str) -> tuple[str | None, str | None]:
+    """해당 화 지문에서 소품 표기를 찾는다(캐릭터의 지문 우선, "소품:" 라인, hint 명사와 결합)."""
+    from . import dispatch_storyboard as sb
+
+    canonical = _canonical_work(work) or work
+    script = ""
+    try:
+        script, _err = sb._script_for(canonical, episode, None)
+        script = script or ""
+    except Exception:
+        log.exception("episode_prop_hint: script load failed work=%s ep=%s", canonical, episode)
+    conti = ""
+    try:
+        conti, _source = sb._fetch_external_conti(canonical, episode)
+        conti = conti or ""
+    except Exception:
+        log.exception("episode_prop_hint: conti load failed work=%s ep=%s", canonical, episode)
+
+    source_text = "\n".join(x for x in (script, conti) if x).strip()
+    if not source_text:
+        return None, f"<{canonical}> {episode}화 대본이나 상세 콘티를 읽지 못했어요."
+
+    hint_compact = re.sub(r"\s+", "", hint or "")
+    found: list[str] = []
+    for m in re.finditer(r"소품\s*[:：]\s*([^\n]+)", source_text, flags=re.I):
+        value = re.sub(r"\s+", " ", m.group(1)).strip(" ·,/")
+        if value and len(value) <= 30 and "\n" not in value:
+            found.append(value)
+    lines = source_text.splitlines()
+    char_lines = [ln for ln in lines if character and character in ln] if character else []
+    for ln in char_lines + lines:
+        clean = ln.strip()
+        if hint_compact and hint_compact in re.sub(r"\s+", "", clean) and len(clean) <= 240:
+            m = re.search(rf"([^\s(]*{re.escape(hint)}(?:\([^\n\)]+\))?)", clean)
+            if m:
+                value = m.group(1).strip(" ·,/")
+                if value:
+                    found.append(value)
+    if found:
+        return found[0], "1화 대본/상세 콘티"
+    return None, f"<{canonical}> {episode}화 자료는 읽었지만 {hint or ''} 소품 표기를 찾지 못했어요."
+
+
+def resolve_element_label(
+    work: str, episode: int | None, kind: str, character: str | None, hint: str = ""
+) -> tuple[str | None, list[str], str]:
+    """(확정 라벨 | None, 후보 라벨들, 근거 설명) 반환. kind는 "costume"|"place"|"prop".
+
+    스틸컷 참조는 라벨 일치로 붙기 때문에, "이영 상의"/"옥상 배경" 같은 사용자 호칭이 아니라
+    콘티에 실제로 쓰인 라벨로 등록해야 한다. 공통 우선순위:
+    1) 해당 화 상세콘티/대본에서의 표기(kind별 추출) — 결과가 짧은 고유 라벨(공백·줄바꿈
+       없는 20~30자 이하)일 때만 후보로 쓴다.
+    2) 등록된 동일 kind 엘리먼트 중 character/hint와 부분 일치하는 것.
+    3) 작품 바이블(costume만 우선 지원, 기존 동작 유지).
+    episode가 None이면 1)을 건너뛰고 2)만 본다.
+    """
+    canonical = _canonical_work(work) or work
+    candidates: list[str] = []
+    reason = ""
+
+    if episode is not None:
+        if kind == "costume" and character:
+            label_raw, source = _episode_character_costume(canonical, episode, character)
+        elif kind == "place":
+            label_raw, source = _episode_place_hint(canonical, episode, hint)
+        elif kind == "prop":
+            label_raw, source = _episode_prop_hint(canonical, episode, character, hint)
+        else:
+            label_raw, source = None, None
+        label = (label_raw or "").strip()
+        if label and len(label) <= 30 and "\n" not in label:
+            candidates.append(label)
+            reason = f"{episode}화 {source or '콘티/대본'}"
+
+    if not candidates:
+        try:
+            from . import openrouter_image as oi
+
+            hint_compact = re.sub(r"\s+", "", hint or "")
+            char_compact = re.sub(r"\s+", "", character or "")
+            for el in oi.load_elements(canonical):
+                if str(el.get("type") or "") != kind:
+                    continue
+                display = _element_name(el)
+                if not display:
+                    continue
+                compact = re.sub(r"\s+", "", display)
+                if kind == "costume":
+                    if char_compact and char_compact not in compact:
+                        continue
+                    if hint_compact and hint_compact not in compact and char_compact not in compact:
+                        continue
+                else:
+                    if hint_compact and hint_compact not in compact:
+                        continue
+                    if not hint_compact and char_compact and char_compact not in compact:
+                        continue
+                candidates.append(display)
+        except Exception:
+            log.exception("resolve_element_label: 등록 엘리먼트 스캔 실패 work=%s kind=%s", canonical, kind)
+        if candidates:
+            kind_label = {"costume": "의상", "place": "장소", "prop": "소품"}.get(kind, kind)
+            reason = f"등록된 {kind_label} 엘리먼트"
+
+    uniq = list(dict.fromkeys(c for c in candidates if c))
+    if len(uniq) == 1:
+        return uniq[0], uniq, reason
+    if len(uniq) > 1:
+        return None, uniq, reason
+    subject = character or hint or ""
+    fallback_reason = reason or (
+        f"{episode}화 콘티/대본에서 {subject} 라벨을 찾지 못했어요."
+        if episode is not None
+        else f"{subject} 라벨을 찾지 못했어요."
+    )
+    return None, [], fallback_reason
+
+
+def resolve_costume_label(
+    work: str, episode: int | None, character: str, hint: str = ""
+) -> tuple[str | None, list[str], str]:
+    """레거시 호출부 호환용 얇은 래퍼 — resolve_element_label(kind="costume")에 위임."""
+    return resolve_element_label(work, episode, "costume", character, hint=hint)
+
+
 def _answer_question(
     channel: str,
     thread_ts: str,
@@ -1287,6 +1461,100 @@ def _answer_question(
     # 일반 지식 질문은 기존 자유응답 체인으로 넘겨, 라우터가 사실을 지어내지 않게 한다.
     legacy_fallback(event)
 
+
+_KO_KIND_TO_EN = {"의상": "costume", "장소": "place", "소품": "prop"}
+
+
+def _apply_element_label_resolution(r: Route, ctx: dict) -> str | None:
+    """의상/장소/소품 엘리먼트 하나로 좁혀진 등록/수정/생성 요청에서 콘티 라벨을 확정해
+    r.display_label을 덮어쓴다("이영 상의"/"옥상 배경" 같은 사용자 호칭이 아니라 콘티에
+    실제로 쓰인 라벨로 등록해야 스틸컷 참조가 붙는다). 후보가 여러 개면
+    r.needs_clarification을 세팅한다(호출부가 바로 리턴). 반환값은 성공/실패 시 함께 보낼
+    안내 문구(없으면 None). kind=="인물"(person)은 이 로직의 대상이 아니다."""
+    if not r.elements or len(r.elements) != 1:
+        return None
+    el0 = r.elements[0]
+    kind_ko = str(el0.get("kind") or "")
+    kind = _KO_KIND_TO_EN.get(kind_ko)
+    if not kind:
+        return None
+    character = str(el0.get("character") or "").strip() or None
+    work = r.work or ctx.get("tracked_work")
+    if not work:
+        return None
+
+    name = str(el0.get("name") or r.display_label or "").strip()
+    if not name:
+        return None
+
+    # 이미 등록된 라벨/별칭과 정확히 일치하면(사용자가 콘티 라벨을 직접 부른 경우)
+    # 해석을 건너뛰고 그대로 사용한다.
+    try:
+        from . import openrouter_image as oi
+
+        canonical = _canonical_work(work) or work
+        name_compact = re.sub(r"\s+", "", name)
+        for el in oi.load_elements(canonical):
+            if str(el.get("type") or "") != kind:
+                continue
+            display = _element_name(el)
+            if display and re.sub(r"\s+", "", display) == name_compact:
+                return None
+    except Exception:
+        log.exception("_apply_element_label_resolution: 등록 엘리먼트 사전 체크 실패 work=%s", work)
+
+    if kind == "costume" and not character:
+        return None
+
+    episode = r.episode if r.episode is not None else ctx.get("tracked_episode")
+    part = str(el0.get("part") or "").strip()
+    hint = part or name
+    ep_txt = f"{episode}화 " if episode is not None else ""
+
+    confirmed, candidates, _reason = resolve_element_label(work, episode, kind, character, hint=hint)
+    if confirmed:
+        original = (r.display_label or name).strip()
+        r.display_label = confirmed
+        if original and original != confirmed:
+            el0["register_alias"] = original
+        if kind == "costume":
+            return f"📌 {ep_txt}콘티에서 {character} 의상은 '{confirmed}' — 이 라벨로 등록해요 (스틸컷에 자동 반영되도록)"
+        if kind == "place":
+            return f"📌 {ep_txt}콘티의 장소는 '{confirmed}' — 이 라벨로 등록해요 (스틸컷에 자동 반영되도록)"
+        return f"📌 {ep_txt}콘티에서 소품은 '{confirmed}' — 이 라벨로 등록해요 (스틸컷에 자동 반영되도록)"
+
+    if candidates:
+        r.needs_clarification = True
+        subject = character or name
+        kind_label = kind_ko
+        if len(candidates) >= 4:
+            numbered = "\n".join(f"{i+1}. {c}" for i, c in enumerate(candidates))
+            r.reply_text = (
+                f"{ep_txt}콘티에 {subject} {kind_label}이 {len(candidates)}개예요 — "
+                f"숫자로 답변해주세요.\n{numbered}\n{len(candidates)+1}. 새 라벨로"
+            )
+        else:
+            opts = " ".join(f"[{c}]" for c in candidates) + " [새 라벨로]"
+            r.reply_text = f"{ep_txt}콘티에 {subject} {kind_label}이 {len(candidates)}개예요 — 어느 라벨로 등록할까요? {opts}"
+        return None
+
+    subject = character or name
+    if kind == "costume":
+        return (
+            f"⚠️ {ep_txt}콘티에 {subject} 의상 라벨이 없어서 새 이름으로 등록했어요 — "
+            "콘티 지문이 이 라벨을 언급해야 스틸컷에 반영돼요. 콘티에 반영해드릴까요?"
+        )
+    if kind == "place":
+        return (
+            f"⚠️ {ep_txt}콘티에 {subject} 장소 라벨이 없어서 새 이름으로 등록했어요 — "
+            "콘티 지문이 이 라벨을 언급해야 스틸컷에 반영돼요. 콘티에 반영해드릴까요?"
+        )
+    return (
+        f"⚠️ {ep_txt}콘티에 {subject} 소품 라벨이 없어서 새 이름으로 등록했어요 — "
+        "콘티 지문이 이 라벨을 언급해야 스틸컷에 반영돼요. 콘티에 반영해드릴까요?"
+    )
+
+
 def execute(
     channel: str,
     thread_ts: str,
@@ -1341,6 +1609,16 @@ def execute(
         _answer_question(channel, thread_ts, event, r, legacy_fallback)
         return
 
+    if r.intent in ("element_register", "element_edit", "element_generate"):
+        ctx = r.raw.get("_context") if isinstance(r.raw, dict) else None
+        note = _apply_element_label_resolution(r, ctx if isinstance(ctx, dict) else {})
+        if r.needs_clarification:
+            _remember_proposal(thread_ts, r)
+            _reply(channel, thread_ts, r.reply_text or _default_clarify(r))
+            return
+    else:
+        note = None
+
     if r.intent == "smalltalk":
         _reply(channel, thread_ts, r.reply_text or "네, 말씀해 주세요.")
         return
@@ -1378,6 +1656,7 @@ def execute(
                     else None
                 ),
                 instruction=(step.get("instruction") or "").strip() or None,
+                display_label=(step.get("display_label") or "").strip() or None,
                 confidence=r.confidence,
             )
             if sub.intent in INTENT_SPECS:
@@ -1497,8 +1776,13 @@ def execute(
             _reply(channel, thread_ts,
                    "등록할 인물/장소/의상/소품 이름을 못 찾았어요 — 예: `인물 김신우, 이영` + 이미지 첨부")
             return
+        elements = r.elements
+        # 사용자 노출/등록명은 raw instruction에서 파생된 이름이 아니라 display_label을
+        # 우선한다(★2026-07-21: 대상이 하나로 좁혀졌을 때만 — 여러 개면 각자의 name 유지).
+        if r.display_label and len(elements) == 1:
+            elements = [{**elements[0], "name": r.display_label}]
         by_kind: dict[str, list[str]] = {}
-        for el in r.elements:
+        for el in elements:
             n = (el.get("name") or "").strip()
             if n:
                 by_kind.setdefault(el.get("kind", "인물"), []).append(n)
@@ -1507,18 +1791,35 @@ def execute(
         txt = f"{kind} {', '.join(by_kind[kind])}"
         if not sb._maybe_typed_ref(channel, thread_ts, txt, event):
             legacy_fallback(event)
-        elif len(kinds) > 1:
-            _reply(channel, thread_ts,
-                   f"ℹ️ {kind}부터 등록했어요 — {', '.join(kinds[1:])}는 이미지와 함께 따로 보내주세요.")
+        else:
+            if len(kinds) > 1:
+                _reply(channel, thread_ts,
+                       f"ℹ️ {kind}부터 등록했어요 — {', '.join(kinds[1:])}는 이미지와 함께 따로 보내주세요.")
+            if note:
+                _reply(channel, thread_ts, note)
         return
     if intent == "element_generate":
         query = body or _q(event.get("text"))
         # 첨부 참조 재생성은 일반 생성 핸들러보다 먼저 처리한다. 일반 핸들러는
         # 첨부가 있으면 등록 경로와 충돌하지 않도록 False를 반환하기 때문이다.
-        if sb._maybe_element_ref_generate_request(channel, thread_ts, query, event):
+        # display_label은 사용자 노출용(확인 메시지/후보 카드/등록명)으로만 넘긴다 —
+        # query(=instruction 원문)는 생성 프롬프트 내부용으로 그대로 유지한다.
+        register_alias = None
+        if r.elements and len(r.elements) == 1:
+            register_alias = r.elements[0].get("register_alias")
+        if sb._maybe_element_ref_generate_request(
+            channel, thread_ts, query, event,
+            display_label=r.display_label, extra_alias=register_alias,
+        ):
+            if note:
+                _reply(channel, thread_ts, note)
             return
-        if not sb._maybe_element_gen_request(channel, thread_ts, query, event):
+        if not sb._maybe_element_gen_request(
+            channel, thread_ts, query, event, display_label=r.display_label
+        ):
             legacy_fallback(event)
+        elif note:
+            _reply(channel, thread_ts, note)
         return
 
     if intent == "script_revise":

@@ -2086,7 +2086,10 @@ def _act_element_gen_confirm(ack, body):
     if fx:
         # 폴더명은 이름이 아니라 id로(rename에 안전 — 2026-07-13) — register_element를
         # 먼저 호출해 id를 확보한 뒤 그 id 폴더에 저장한다.
-        elem = oi.register_element(p["work"], p["name"], p["etype"], aliases=[p["name"]], clear_file=True)
+        elem = oi.register_element(
+            p["work"], p["name"], p["etype"],
+            aliases=[p["name"]] + list(p.get("aliases") or []), clear_file=True,
+        )
         d = fx / elem["id"]
         d.mkdir(parents=True, exist_ok=True)
         # ★2026-07-14: 대표 이미지가 mtime 최초 파일로 고정(_first_image)돼서, 이 캐릭터에
@@ -2102,7 +2105,10 @@ def _act_element_gen_confirm(ack, body):
     d.mkdir(parents=True, exist_ok=True)
     fname = f"{p['name']}.png"
     (d / fname).write_bytes(p["png"])
-    oi.register_element(p["work"], p["name"], p["etype"], filename=fname, aliases=[p["name"]])
+    oi.register_element(
+        p["work"], p["name"], p["etype"], filename=fname,
+        aliases=[p["name"]] + list(p.get("aliases") or []),
+    )
     _disable_buttons(body, f"✅ <{p['work']}> {p['name']} 등록 완료 (AI 생성 이미지)")
 
 @app.action("element_gen_regen")
@@ -3797,11 +3803,18 @@ def _reference_generation_prompt(name: str, etype: str, query: str) -> str:
     )
 
 
-def _maybe_element_ref_generate_request(channel, thread_ts, query, event) -> bool:
+def _maybe_element_ref_generate_request(
+    channel, thread_ts, query, event,
+    display_label: str | None = None, extra_alias: str | None = None,
+) -> bool:
     """첨부 이미지를 시각 참조로 새 엘리먼트 후보를 생성한다.
 
     일반 _maybe_element_gen_request는 첨부가 있으면 등록 경로와 충돌하지 않도록 일부러
     False를 반환한다. 따라서 '이 이미지와 동일하게 재생성'은 이 전용 경로에서 처리한다.
+
+    display_label(라우터가 뽑은 사용자 노출용 짧은 라벨)이 있으면 확인 메시지/후보 카드/
+    등록명에 raw query에서 정규식으로 파싱한 name 대신 이걸 쓴다(★2026-07-21: instruction
+    원문이 그대로 노출되던 문제 — 생성 프롬프트에는 여전히 원문 query를 그대로 넘긴다).
     """
     q = query or ""
     has_ref = bool(re.search(
@@ -3817,6 +3830,7 @@ def _maybe_element_ref_generate_request(channel, thread_ts, query, event) -> boo
         return False
 
     work, episode, name, etype = _parse_reference_element_target(q)
+    name = (display_label or "").strip() or name
     if not work:
         joined = "\n".join(m["content"] for m in _thread_messages(channel, thread_ts))
         work = _work_from_thread(joined, thread_ts)
@@ -3829,7 +3843,7 @@ def _maybe_element_ref_generate_request(channel, thread_ts, query, event) -> boo
 
     data_url = "data:image/png;base64," + base64.b64encode(imgs[0][2]).decode("ascii")
     prompt = _reference_generation_prompt(name, etype, q)
-    _reply(channel, thread_ts, f"🎨 <{work}> {name}을 첨부 이미지 기준으로 재생성할게요…")
+    _reply(channel, thread_ts, f"🎨 <{work}> — {name}을(를) 첨부 이미지 기준으로 재생성할게요")
     try:
         png, cost = oi.generate(prompt, refs=[data_url], aspect_ratio="1:1", quality="low")
     except Exception:
@@ -3859,11 +3873,12 @@ def _maybe_element_ref_generate_request(channel, thread_ts, query, event) -> boo
     pending_element_state.set(
         resp["ts"], work=work, name=name, etype=etype,
         context=f"첨부 이미지 기준 재생성: {q}", png=png,
+        aliases=[extra_alias] if extra_alias and extra_alias != name else None,
     )
     return True
 
 
-def _maybe_element_gen_request(channel, thread_ts, query, event) -> bool:
+def _maybe_element_gen_request(channel, thread_ts, query, event, display_label: str | None = None) -> bool:
     """이미지 첨부 없이 "선우의 이미지를 생성해줘"처럼 순수 자연어로 온 AI 생성 요청.
     첨부 이미지가 있으면 등록 의도(_maybe_natural_ref)로 먼저 처리되게 여기선 건너뛴다."""
     if _image_files(event):
@@ -3934,6 +3949,7 @@ def _maybe_element_gen_request(channel, thread_ts, query, event) -> bool:
     work = works.resolve(work) or work
     if etype is None:
         etype = _guess_ref_type(work, name)
+    name = (display_label or "").strip() or name
     _reply(channel, thread_ts, f"🎨 <{work}> {name} 이미지를 AI로 생성할게요…")
     _post_element_candidate(channel, thread_ts, work, name, etype, context=trailing_context)
     return True

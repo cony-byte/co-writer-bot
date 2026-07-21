@@ -563,7 +563,9 @@
         "element_names": [
           "이영 1화 상의"
         ],
-        "instruction_contains": "첨부 이미지"
+        "instruction_contains": "첨부 이미지",
+        "element_character": "이영",
+        "element_part": "상의"
       },
       "incident": "첨부가 있어도 동일하게 재생성은 등록이 아니라 시각 참조 기반 생성"
     },
@@ -728,6 +730,123 @@
         "work": "저는 연프 출연진이 아닌데요 !"
       },
       "incident": "사고2: 별칭 표기 등록현황 질문 work canon 해석"
+    },
+    {
+      "id": "display-label-clean",
+      "text": "이영 PD룩은 이 이미지에 있는 상의 디자인이랑 색깔 똑같이 맞춰서 재생성해줘",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "attached_image_count": 1,
+        "registered_works": {
+          "저는 연프 출연진이 아닌데요 !": [
+            "저연프"
+          ]
+        }
+      },
+      "expected": {
+        "intent": "element_edit",
+        "display_label": "이영 상의",
+        "display_label_not_contains": "재생성해줘"
+      },
+      "incident": "확인메시지/후보카드에 instruction 원문이 그대로 노출되던 문제 — display_label 검증"
+    },
+    {
+      "id": "costume-direct-label-register",
+      "text": "이영 PD룩 이걸로 등록해줘",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "attached_image_count": 1,
+        "registered_works": {
+          "저는 연프 출연진이 아닌데요 !": [
+            "저연프"
+          ]
+        }
+      },
+      "expected": {
+        "intent": "element_register",
+        "element_names": [
+          "이영 PD룩"
+        ]
+      },
+      "incident": "사용자가 콘티 라벨을 직접 부르면 그 라벨을 name으로 그대로 사용"
+    },
+    {
+      "id": "r25-costume-slot-extraction",
+      "text": "1화 이영 상의 이걸로 재생성",
+      "ctx": {
+        "attached_image_count": 1,
+        "tracked_work": "저연프",
+        "registered_works": {
+          "저연프": []
+        }
+      },
+      "expected": {
+        "intent_oneof": ["element_edit", "element_generate"],
+        "episode": 1,
+        "element_character": "이영",
+        "element_part": "상의"
+      },
+      "incident": "R25 일반화 검증: 의상 슬롯(character/part/episode) 추출"
+    },
+    {
+      "id": "r25-place-slot-extraction",
+      "text": "1화 옥상 배경 이 사진으로 등록해줘",
+      "ctx": {
+        "attached_image_count": 1,
+        "tracked_work": "저연프",
+        "registered_works": {
+          "저연프": []
+        }
+      },
+      "expected": {
+        "intent": "element_register",
+        "episode": 1,
+        "element_names": [
+          "옥상"
+        ]
+      },
+      "incident": "R25 일반화 검증: 장소 등록 시 자연어 표현(옥상)을 name으로, character는 비움"
+    },
+    {
+      "id": "r25-prop-slot-extraction",
+      "text": "이영이 들고 다니는 카메라 소품 만들어줘",
+      "ctx": {
+        "tracked_work": "저연프",
+        "registered_works": {
+          "저연프": []
+        }
+      },
+      "expected": {
+        "intent": "element_generate",
+        "element_character": "이영",
+        "element_names": [
+          "카메라"
+        ]
+      },
+      "incident": "R25 일반화 검증: 소품 슬롯(character/name) 추출"
+    },
+    {
+      "id": "place-direct-label-register",
+      "text": "옥상-세트 이걸로 등록해줘",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "attached_image_count": 1,
+        "registered_works": {
+          "저는 연프 출연진이 아닌데요 !": [
+            "저연프"
+          ]
+        }
+      },
+      "expected": {
+        "intent": "element_register",
+        "element_names": [
+          "옥상-세트"
+        ]
+      },
+      "incident": "사용자가 콘티 장소 라벨을 직접 부르면 그 라벨을 name으로 그대로 사용(의상판 costume-direct-label-register의 장소 버전)"
     }
   ]
 }

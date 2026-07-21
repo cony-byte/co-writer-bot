@@ -85,6 +85,23 @@ def _check(expected: dict, route) -> list[str]:
         errs.append(
             f"instruction must contain {expected['instruction_contains']!r}"
         )
+    if "element_character" in expected:
+        got = (route.elements or [{}])[0].get("character") if route.elements else None
+        if got != expected["element_character"]:
+            errs.append(f"element character {got!r} != {expected['element_character']!r}")
+    if "element_part" in expected:
+        got = (route.elements or [{}])[0].get("part") if route.elements else None
+        if got != expected["element_part"]:
+            errs.append(f"element part {got!r} != {expected['element_part']!r}")
+    if "display_label" in expected and route.display_label != expected["display_label"]:
+        errs.append(f"display_label {route.display_label!r} != {expected['display_label']!r}")
+    if (
+        "display_label_not_contains" in expected
+        and expected["display_label_not_contains"] in (route.display_label or "")
+    ):
+        errs.append(
+            f"display_label must not contain {expected['display_label_not_contains']!r}"
+        )
     if expected.get("needs_clarification") and not route.needs_clarification:
         errs.append("needs_clarification expected")
     if (

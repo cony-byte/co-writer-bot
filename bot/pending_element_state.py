@@ -29,13 +29,17 @@ def _save(d: dict) -> None:
     _META_PATH.write_text(json.dumps(d, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
-def set(msg_ts: str, *, work: str, name: str, etype: str, context: str, png: bytes) -> None:
+def set(msg_ts: str, *, work: str, name: str, etype: str, context: str, png: bytes,
+        aliases: list[str] | None = None) -> None:
     _PNG_DIR.mkdir(parents=True, exist_ok=True)
     fname = f"{msg_ts}_{uuid.uuid4().hex[:8]}.png"
     (_PNG_DIR / fname).write_bytes(png)
     with _LOCK:
         d = _load()
-        d[msg_ts] = {"work": work, "name": name, "etype": etype, "context": context, "png_file": fname}
+        d[msg_ts] = {
+            "work": work, "name": name, "etype": etype, "context": context,
+            "png_file": fname, "aliases": aliases or [],
+        }
         _save(d)
 
 

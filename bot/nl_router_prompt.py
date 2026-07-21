@@ -90,6 +90,8 @@ R20. 복합 요청은 steps로 분해하며 최대 5개다.
 R21. “N화, 인물들 옷과 배경 이미지 생성”은 storyboard_image가 아니라 element_generate다. 해당 화 대본/상세 콘티를 소스로 의상과 장소 참조를 생성한다는 조건을 instruction에 보존한다.
 R22. “그 내용 디벨롭해서 대본 작성”은 요약을 바탕으로 대사를 창작·확장하라는 허용이다. 대사 원문이 없다는 이유로 거절하지 않는다. 기존 1화의 씬 요약을 확장하는 경우 script_revise로 분류한다.
 R23. “~룩”(PD룩·스탭룩·촬영장룩 등), “극중의상-A/B”, “{인물} 의상/옷/의상 라벨” + “비슷하게/동일하게/이거처럼/이 이미지에 있는 것처럼/맞춰줘/이 사진으로”는 의상 참조 작업이다(R12의 ‘룩→인물 외형’보다 우선 — 첨부나 참조 지시가 붙은 ‘~룩’은 외형 스펙이 아니라 의상 참조다). 첨부 이미지 있음 → element_edit(kind=의상, name=등록된 의상 라벨 최장일치 또는 "<인물> <라벨>"). 첨부 없음(attached_image_count=0) → R17대로 재첨부 안내(기능 부정 금지) 또는 소스가 명확하면 element_generate. 절대 scene_design/detail_conti/storyboard_image로 보내지 않는다. 화 번호는 스레드 문맥(tracked_episode)만 쓰고 진행도로 추론하지 않는다.
+R24. element_register/element_edit/element_generate에서 대상이 인물·의상·장소·소품 하나로 좁혀지면 display_label을 채운다. instruction은 생성 프롬프트에 넘길 지시 원문 그대로 두되(요약·정제 금지), display_label은 사용자에게 보여줄 짧은 라벨이다 — "<인물> <의상부위>" 형식으로 조사·잉여 단어·요청 동사를 모두 제거한다. 예: instruction="첨부 이미지의 옷차림과 비슷하게 이영 PD룩 의상 참조를 맞춘다" → display_label="이영 상의". 대상이 여러 개거나 불분명하면 null.
+R25. 의상/장소/소품 등록·생성 요청에서는 kind·인물명(해당 시)·화 번호·자연어 표현을 각각 슬롯으로 추출한다 — elements=[{"kind":"의상"|"장소"|"소품", "name":"<사용자가 부른 자연어 표현>", "character":"<인물명>"|null, "part":"<부위>"|null}], episode도 반드시 채운다(tracked_episode 포함). name은 사용자가 실제로 말한 자연어 그대로 두고("이영 상의", "옥상", "카메라") 콘티/등록 라벨로 다듬지 않는다 — 실제 등록 라벨("PD룩", "옥상-세트" 등) 매칭은 실행부(resolve_element_label)가 콘티/대본/등록 엘리먼트를 보고 결정하므로 여기서 추측해 지어내지 않는다. 장소는 character를 채우지 않는다(null). 다만 사용자가 콘티 라벨을 이미 직접 말했으면("이영 PD룩 이걸로 등록") name에 그 라벨을 그대로 쓰고 character/part는 생략 가능하다.
 """
 
 FEW_SHOTS: list[tuple[str, dict]] = [
@@ -143,6 +145,7 @@ FEW_SHOTS: list[tuple[str, dict]] = [
             "intent": "element_edit",
             "elements": [{"kind": "의상", "name": "이영 PD룩", "image_index": 0}],
             "instruction": "첨부 이미지의 옷차림과 비슷하게 이영 PD룩 의상 참조를 맞춘다",
+            "display_label": "이영 상의",
             "confidence": 0.85,
         },
     ),
@@ -343,9 +346,40 @@ FEW_SHOTS: list[tuple[str, dict]] = [
             "intent": "element_generate",
             "work": "저연프",
             "episode": 1,
-            "elements": [{"kind": "의상", "name": "이영 1화 상의", "image_index": 0}],
+            "elements": [{"kind": "의상", "name": "이영 1화 상의", "image_index": 0, "character": "이영", "part": "상의"}],
             "instruction": "첨부 이미지의 상의 디자인만 시각 참조로 사용해 이영 1화 상의 이미지를 동일하게 재생성; 얼굴·헤어·배경은 반영하지 않음",
+            "display_label": "이영 상의",
             "confidence": 0.96,
+        },
+    ),
+    (
+        # R25: 자연어 표현 그대로 name에 담고, 라벨 매칭은 실행부(resolve_element_label)에 위임
+        "1화 이영 상의 이걸로 재생성",
+        {
+            "intent": "element_generate",
+            "episode": 1,
+            "elements": [{"kind": "의상", "name": "이영 상의", "image_index": 0, "character": "이영", "part": "상의"}],
+            "instruction": "첨부 이미지로 1화 이영 상의 참조를 재생성",
+            "confidence": 0.9,
+        },
+    ),
+    (
+        "1화 옥상 배경 이 사진으로 등록해줘",
+        {
+            "intent": "element_register",
+            "episode": 1,
+            "elements": [{"kind": "장소", "name": "옥상", "image_index": 0, "character": None}],
+            "instruction": "첨부 사진으로 1화 옥상 배경 참조를 등록",
+            "confidence": 0.92,
+        },
+    ),
+    (
+        "이영이 들고 다니는 카메라 소품 만들어줘",
+        {
+            "intent": "element_generate",
+            "elements": [{"kind": "소품", "name": "카메라", "character": "이영"}],
+            "instruction": "이영이 들고 다니는 카메라 소품 참조 이미지를 생성",
+            "confidence": 0.88,
         },
     ),
     (
@@ -417,8 +451,9 @@ def build_system_prompt(ctx: dict) -> str:
 
 {{"intent": "<아래 목록 중 하나>", "work": "작품명|null", "episode": 정수|null,
 "episodes": [정수]|null, "scene": 정수|null, "cuts": [정수]|null,
-"elements": [{{"kind":"인물|장소|의상|소품","name":"…","image_index":정수}}]|null,
+"elements": [{{"kind":"인물|장소|의상|소품","name":"…","image_index":정수,"character":"인물명(의상일 때, 선택)","part":"상의|하의|전체 등(의상일 때, 선택)"}}]|null,
 "instruction": "핸들러에 전달할 지시 원문(불필요한 요약 금지)|null",
+"display_label": "사용자 노출용 짧은 라벨 — '<인물> <의상부위>' 형식, 조사·잉여 단어 제거 (예: '이영 상의')|null",
 "question_type": "registered_elements_status|episode_required_elements|element_reflection_status|next_step|capability|storyboard_image_explanation|stillcut_explanation|generation_explanation|pipeline_status|general|null",
 "reply_text": "clarify/smalltalk일 때만 사용자에게 보낼 문장|null",
 "assumptions": ["추론으로 채운 슬롯 설명 한 줄"…]|null,
