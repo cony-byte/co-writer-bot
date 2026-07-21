@@ -773,6 +773,26 @@ def _reply_with_stop_button(channel, thread_ts, text):
     ]
     app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text, blocks=blocks)
 
+@app.action("stillcut_scene_pick")
+def _act_stillcut_scene_pick(ack, body):
+    """★2026-07-21: "어느 씬을 스틸컷으로 만들까요?" 드롭다운 선택 — 텍스트로 "씬2"라고
+    답장하는 기존 경로(_maybe_scene_pick_reply/_PENDING_SCENE_PICK)와 동일하게 _do_stills를
+    호출해 동작을 통일한다(별도 재개 로직을 새로 만들지 않음)."""
+    ack()
+    msg_ts = (body.get("message") or {}).get("ts")
+    p = _PENDING_SCENE_PICK_BY_MSG.pop(msg_ts, None) if msg_ts else None
+    if not p:
+        _disable_buttons(body, "⚠️ 만료된 요청이에요 (봇이 재시작되면 대기 중인 요청은 사라져요) — 다시 시도해주세요.")
+        return
+    try:
+        num = body["actions"][0]["selected_option"]["value"]
+    except Exception:
+        _disable_buttons(body, "⚠️ 선택값을 못 읽었어요 — 다시 시도해주세요.")
+        return
+    _PENDING_SCENE_PICK.pop(p["thread_ts"], None)
+    _disable_buttons(body, f"✅ 씬{num} 선택함, 생성 중…")
+    _do_stills(p["channel"], p["thread_ts"], f"{p['rest']} 씬{num}".strip())
+
 @app.action("autopilot_stop")
 def _act_autopilot_stop(ack, body):
     """[🛑 중단] 버튼 — _STOP_RE("멈춰"/"중단"/"취소" 등) 텍스트 핸들러와 동일한 취소 절차를
@@ -3215,6 +3235,15 @@ def _generate_videos_for_cuts(channel, thread_ts, work, title, cuts, scene_secon
                     clear=(idx == total))
 
 _PENDING_SCENE_PICK: dict[str, dict] = {}   # thread_ts -> {channel, rest} — (A7) "어느 씬을...?" 답 대기
+# ★2026-07-21: 드롭다운(static_select)으로 씬을 고르는 경로 — 게시된 메시지 ts로 키를 잡는다
+# (스레드에 여러 "어느 씬을...?" 드롭다운이 동시에 떠 있을 수 있어 thread_ts만으로는 어느
+# 드롭다운을 누른 건지 구분이 안 됨). 텍스트 "씬2" 답장 경로(_PENDING_SCENE_PICK)와 별개로
+# 유지하되, 실제 재개는 동일하게 _do_stills를 호출해 동작을 완전히 통일한다.
+_PENDING_SCENE_PICK_BY_MSG: dict[str, dict] = {}   # message_ts -> {channel, thread_ts, rest}
+
+def _truncate_option_text(s: str, limit: int = 75) -> str:
+    """Slack static_select 옵션 text는 75자 하드 제한 — 넘으면 '…'로 잘라 에러를 막는다."""
+    return s if len(s) <= limit else s[:limit - 1].rstrip() + "…"
 
 _RECENTLY_MISSING_CUTS: dict[str, dict] = {}
 
@@ -3468,8 +3497,27 @@ def _do_stills(channel, thread_ts, rest, feedback=None, ref_data_url=None):
     if not sm:
         lines = "\n".join(f"· 씬{num} — {hdr}" for num, hdr, _ in scenes)
         _PENDING_SCENE_PICK[thread_ts] = {"channel": channel, "rest": rest}   # (A7) 다음 답글 "씬2"만 와도 이어받게
-        _reply(channel, thread_ts,
-               f"어느 씬을 스틸컷으로 만들까요? `[스틸컷] <{work or '작품'}> 씬N`\n{lines}")
+        text = f"어느 씬을 스틸컷으로 만들까요? `[스틸컷] <{work or '작품'}> 씬N`\n{lines}"
+        blocks = [
+            {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+            {"type": "actions", "elements": [
+                {"type": "static_select",
+                 "action_id": "stillcut_scene_pick",
+                 "placeholder": {"type": "plain_text", "text": "씬 선택…"},
+                 "options": [
+                     {"text": {"type": "plain_text",
+                               "text": _truncate_option_text(f"씬{num} — {hdr}")},
+                      "value": str(num)}
+                     for num, hdr, _ in scenes
+                 ]},
+            ]},
+        ]
+        try:
+            posted = app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text, blocks=blocks)
+            _PENDING_SCENE_PICK_BY_MSG[posted["ts"]] = {"channel": channel, "thread_ts": thread_ts, "rest": rest}
+        except Exception:
+            log.exception("씬 선택 드롭다운 게시 실패")
+            _reply(channel, thread_ts, text)
         return
     _PENDING_SCENE_PICK.pop(thread_ts, None)
     num = int(sm.group(1))
