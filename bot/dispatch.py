@@ -428,6 +428,25 @@ def _handle_dispatch(event: dict) -> None:
     # ★2026-07-21 결정 로깅: with 블록이 어느 경로로 끝나든(정상 return/예외) 결정 1줄을
     # logs/router_decisions.jsonl에 남긴다(router_log). 로깅 실패는 라우팅에 영향 없음.
     with router_log.capture(channel, thread_ts, query, event) as _rec:
+        # ★2026-07-21 전면 에이전트화: 구독 경로(Claude Agent SDK)가 스스로 멀티턴으로 도구를
+        # 호출하는 agent_router가 기본. 롤백은 .env에 COWRITER_ROUTER_BACKEND=openrouter 한 줄
+        # → 아래 기존 tool_router.decide+execute 경로로 되돌아간다(그 경로는 그대로 보존).
+        if config.ROUTER_BACKEND in ("agent", "agent_sdk"):
+            try:
+                from bot import agent_router
+                if agent_router.run(channel, thread_ts, query, event):
+                    _rec.outcome = "agent_executed"
+                    log.info("route=agent_router")
+                    return
+                _rec.outcome = "safe_stop"
+                log.info("route=agent_router:unhandled → safe_stop")
+                _safe_fallback(channel, thread_ts, query, event)
+                return
+            except Exception:
+                log.exception("agent_router 실행 예외 → 안전 정지")
+                _rec.outcome = "exception"
+                _safe_fallback(channel, thread_ts, query, event)
+                return
         try:
             decision = tool_router.decide(channel, thread_ts, query, event)
             if decision is not None:

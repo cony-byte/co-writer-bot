@@ -596,6 +596,11 @@ def api_tools() -> list[dict]:
     return [spec.api_schema() for spec in TOOLS.values()]
 
 
+def all_specs() -> list[ToolSpec]:
+    """Every registered ToolSpec (additive helper for the subscription agent router)."""
+    return list(TOOLS.values())
+
+
 def get(name: str) -> ToolSpec | None:
     return TOOLS.get(name)
 
