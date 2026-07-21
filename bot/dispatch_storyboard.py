@@ -1244,12 +1244,29 @@ def _render_cuts(channel, thread_ts, work, bible, source_text, *,
                     _update_note(channel, ph,
                                  f"{title}: 컷(샷) 리스트로 나누는 중이에요… ({idx + 1}/{len(chunks)} 구간)")
                 # 샷 분해는 OpenRouter chat(HTTP) — agent(claude CLI)의 느림·동시호출 충돌 회피
-                raw = oi.chat(prompts.storyboard_shots_system(bible, target=target if len(chunks) == 1 else None,
-                                                               places=places or None, props=props or None,
-                                                               costumes=costumes or None,
-                                                               force_merge_judgment=auto_cut_judgment),
-                              prompts.storyboard_shots_user(chunk_text, chunk=len(chunks) > 1), timeout=300)
-                part = [s for s in _parse_json_array(raw) if isinstance(s, dict) and s.get("prompt")]
+                shots_sys = prompts.storyboard_shots_system(
+                    bible, target=target if len(chunks) == 1 else None,
+                    places=places or None, props=props or None, costumes=costumes or None,
+                    force_merge_judgment=auto_cut_judgment)
+                shots_user = prompts.storyboard_shots_user(chunk_text, chunk=len(chunks) > 1)
+                raw = oi.chat(shots_sys, shots_user, timeout=300)
+                try:
+                    part = [s for s in _parse_json_array(raw) if isinstance(s, dict) and s.get("prompt")]
+                except Exception:
+                    # ★2026-07-21: "컷 분해 중 오류가 났어요"가 반복 발생 — 원인이 안 보이는
+                    # (raw를 안 남기던) JSONDecodeError였다. 응답이 짧게 잘리거나 빈 값으로
+                    # 오는 건 상위 청크 호출 하나에서만 흔들리는 일시적 업스트림 문제일 수 있어
+                    # 다른 502류 실패와 같은 패턴으로 1회만 즉시 재시도, 그래도 실패하면 raw
+                    # 앞부분을 로그에 남겨 다음엔 원인을 바로 볼 수 있게 한다.
+                    log.warning("샷 분해 JSON 파싱 실패, 1회 재시도 — raw 길이=%d, 앞부분=%r",
+                               len(raw or ""), (raw or "")[:200])
+                    raw = oi.chat(shots_sys, shots_user, timeout=300)
+                    try:
+                        part = [s for s in _parse_json_array(raw) if isinstance(s, dict) and s.get("prompt")]
+                    except Exception:
+                        log.error("샷 분해 JSON 파싱 재시도도 실패 — raw 길이=%d, 앞부분=%r",
+                                 len(raw or ""), (raw or "")[:200])
+                        raise
                 # ★2026-07-15: '등장:' 줄의 인물-의상 매핑을 코드로 이 청크의 모든 컷에 직접
                 # 붙인다(LLM이 그 비트에서 의상 라벨을 다시 언급했는지와 무관하게) — shot_refs가
                 # 이미 "elements" 필드를 타입 무관 참조 후보로 스캔하므로 그대로 재사용.
