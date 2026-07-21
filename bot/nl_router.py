@@ -509,6 +509,10 @@ _NOTION_IMG_MENTION_RE = re.compile(r"노션.{0,10}첨부(?:해\s*둔|해\s*논|
 _COMPOSITION_MATCH_RE = re.compile(r"구도|연출|블로킹")
 _COMPOSITION_SAME_RE = re.compile(r"그대로|똑같이|동일하게|같게")
 _NO_ARBITRARY_GEN_RE = re.compile(r"임의로\s*(?:생성|만들)|마음대로\s*(?:생성|만들)|자유롭게\s*(?:생성|만들)")
+# ★2026-07-21(추가): "이 스토리보드 그리드를 보고 씬1 스틸컷을 똑같이 생성해줘"처럼 노션이
+# 아니라 이 스레드에 직접 첨부한 이미지를 구도 레퍼런스로 쓰라는 요청은 "구도/연출/블로킹"
+# 같은 단어 없이도 "보고 ... 그대로/똑같이" 패턴만으로 나타난다.
+_COMPOSITION_LOCK_RE = re.compile(r"(?:보고|참고해서|참조해서).{0,20}(?:그대로|똑같이|동일하게|같게)")
 
 
 def _wants_notion_composition_ref(text: str) -> bool:
@@ -522,6 +526,16 @@ def _wants_notion_composition_ref(text: str) -> bool:
     t = text or ""
     return bool(_NOTION_IMG_MENTION_RE.search(t) and _COMPOSITION_MATCH_RE.search(t)
                 and _COMPOSITION_SAME_RE.search(t))
+
+
+def _wants_slack_composition_ref(text: str) -> bool:
+    """★2026-07-21(실사용 확인: "이 스토리보드 그리드를 보고 씬1 스틸컷을 똑같이 생성해줘" +
+    이미지 첨부 — 실제로는 이 요청이 첨부 이미지를 전혀 참조하지 않고 그냥 자유 생성되고
+    있었음). 이 스레드에 방금 첨부한 이미지를 구도 고정 레퍼런스로 쓰라는 요청 — 노션 언급이
+    없어도 "보고/참고해서/참조해서 ... 그대로/똑같이" 패턴이면 잡는다. 호출부에서 반드시
+    이벤트에 실제 첨부 이미지가 있는지(_image_files) 같이 확인해야 한다 — 텍스트만으로는
+    참조할 이미지가 없을 수 있음."""
+    return bool(_COMPOSITION_LOCK_RE.search(text or ""))
 
 
 def _deterministic_question_route(query_text: str, ctx: dict) -> Route | None:
@@ -1798,18 +1812,33 @@ def execute(
         # 절대 조용히 free-generation으로 폴백하지 않는다("임의로 생성하지 말고"는 명시적
         # 부정 제약이라 무시하면 안 됨, R18과 동일한 부정 보존 원칙).
         raw_text = _q(event.get("text")) or ""
-        if r.scene is not None and _wants_notion_composition_ref(body or raw_text):
-            ref_bytes = sb._notion_scene_reference_image(r.work, r.episode)
-            if ref_bytes is None:
-                _reply(channel, thread_ts,
-                       f"노션에서 <{r.work or '작품'}>{f' {r.episode}화' if r.episode else ''} 페이지에 "
-                       "첨부된 스토리보드 이미지를 못 찾았어요 — 노션 페이지에 이미지가 잘 붙어있는지 "
-                       "확인해주시거나, 이 스레드에 이미지를 직접 첨부해서 다시 요청해주세요. "
-                       "(요청하신 대로 구도를 임의로 생성하지는 않았어요.)")
+        check_text = body or raw_text
+        if r.scene is not None:
+            # ★2026-07-21(추가): 이 스레드에 방금 첨부한 이미지를 구도 레퍼런스로 쓰라는
+            # 요청("이 스토리보드 그리드를 보고 씬1 스틸컷을 똑같이 생성해줘" + 첨부) —
+            # 노션 언급 없이도 첨부 이미지가 실제로 있으면 그걸 그대로 쓴다. 노션 경로보다
+            # 먼저 확인한다: 방금 첨부한 이미지가 있으면 그게 사용자가 말한 "이 이미지"다.
+            attached = sb._image_files(event)
+            if attached and _wants_slack_composition_ref(check_text):
+                ref_data_url = "data:image/png;base64," + base64.b64encode(attached[0][2]).decode("ascii")
+                sb._do_stills(channel, thread_ts, rest, feedback=body or None, ref_data_url=ref_data_url)
                 return
-            ref_data_url = "data:image/png;base64," + base64.b64encode(ref_bytes).decode("ascii")
-            sb._do_stills(channel, thread_ts, rest, feedback=body or None, ref_data_url=ref_data_url)
-            return
+            # "노션에 첨부해둔 스토리보드 이미지 보고 구도 그대로" 요청은 LLM에 자유생성을
+            # 맡기지 않고 여기서 결정적으로 가로챈다 — 노션 이미지를 못 찾으면 절대 조용히
+            # free-generation으로 폴백하지 않는다("임의로 생성하지 말고"는 명시적 부정
+            # 제약이라 무시하면 안 됨, R18과 동일한 부정 보존 원칙).
+            if _wants_notion_composition_ref(check_text):
+                ref_bytes = sb._notion_scene_reference_image(r.work, r.episode)
+                if ref_bytes is None:
+                    _reply(channel, thread_ts,
+                           f"노션에서 <{r.work or '작품'}>{f' {r.episode}화' if r.episode else ''} 페이지에 "
+                           "첨부된 스토리보드 이미지를 못 찾았어요 — 노션 페이지에 이미지가 잘 붙어있는지 "
+                           "확인해주시거나, 이 스레드에 이미지를 직접 첨부해서 다시 요청해주세요. "
+                           "(요청하신 대로 구도를 임의로 생성하지는 않았어요.)")
+                    return
+                ref_data_url = "data:image/png;base64," + base64.b64encode(ref_bytes).decode("ascii")
+                sb._do_stills(channel, thread_ts, rest, feedback=body or None, ref_data_url=ref_data_url)
+                return
         sb._do_stills(channel, thread_ts, rest, feedback=body or None)
         return
     if intent == "video":
