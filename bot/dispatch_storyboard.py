@@ -1418,10 +1418,16 @@ def _render_cuts(channel, thread_ts, work, bible, source_text, *,
             _post_chunks(channel, thread_ts, msg, replace_ts=ph); return
         if not shots:
             _set_render_fail_reason(_skey, "컷을 못 만들었어요(샷 리스트가 비어있음).")
+            _src_len = len(source_text or "")
+            _src_head = (source_text or "").strip()[:200]
             _post_chunks(channel, thread_ts,
-                        "⚠️ 이 구간에서 컷을 하나도 못 만들었어요 — 넘긴 콘티/대본 구간에 실제 "
-                        "장면 내용(대사·지문·씬 헤더)이 없었을 가능성이 높아요. 대상 화/씬의 "
-                        "상세 콘티가 제대로 저장돼 있는지 확인한 뒤 다시 요청해주세요.",
+                        f"⚠️ <{work}>에서 컷을 하나도 못 만들었어요 — 넘겨받은 콘티/대본 원문에 "
+                        f"실제 장면 내용(씬 헤더·대사·지문)이 없어 보여요(원문 길이 {_src_len}자"
+                        + (f", 앞부분: {_src_head!r}" if _src_head else " — 아예 비어 있음")
+                        + f"). <{work}> 노션 페이지에 이 화의 '상세 콘티' 토글이 실제로 있고, "
+                        "그 안에 씬별 내용이 채워져 있는지 확인해주실 수 있나요? 혹시 다른 "
+                        "이름의 토글이나 다른 텍스트가 대신 들어있는 건 아닌지도 함께 봐주세요. "
+                        "확인 후 다시 요청해주세요.",
                         replace_ts=ph); return
         if not skip_confirm and target is None and kind and len(shots) >= _CUT_CONFIRM_THRESHOLD:
             _PENDING_CUT_CONFIRM[thread_ts] = {
