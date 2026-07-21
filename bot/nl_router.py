@@ -463,17 +463,6 @@ def _build_context(channel: str, thread_ts: str, event: dict, query_text: str = 
         except Exception:
             registry = {}
 
-    elements = {}
-    try:
-        if tracked.get("work"):
-            from . import openrouter_image as oi
-            for el in oi.load_elements(_canonical_work(tracked["work"])):
-                name = _element_name(el)
-                if name:
-                    elements.setdefault(el.get("type", "?"), []).append(name)
-    except Exception:
-        pass
-
     last_output = None
     for msg in msgs[::-1]:
         if msg.get("role") == "assistant":
@@ -509,6 +498,25 @@ def _build_context(channel: str, thread_ts: str, event: dict, query_text: str = 
     resolved_work = _resolve_work_ctx(query_text, base_ctx)
     ep_match = re.search(r"(\d+)\s*화", query_text or "")
     resolved_episode = int(ep_match.group(1)) if ep_match else tracked.get("episode")
+
+    # ★2026-07-21 버그 수정: 등록 여부 질문("등록 안 된 인물 뭐 있지?")에 봇이 실제로는 등록된
+    # 인물을 "등록 안 됨"으로 오답하는 실측 사고 — 이 아래 elements 조회가 tracked_work(스레드가
+    # 이미 추적 중인 작품)만 봐서, 메시지에 작품이 <꺾쇠>로 명시됐지만 아직 스레드가 그 작품을
+    # 추적 중이 아닐 때 registered_elements가 통째로 빈 채로 LLM에 넘어갔다. resolved_work(현재
+    # 문장/스레드 부모에서 실제로 해석된 작품)를 우선 쓰도록 수정 — answer_sources의 bible/콘티
+    # 로드가 이미 resolved_work를 쓰는 것과 동일한 원칙.
+    elements = {}
+    element_work = resolved_work or tracked.get("work")
+    if element_work:
+        try:
+            from . import openrouter_image as oi
+            for el in oi.load_elements(_canonical_work(element_work)):
+                name = _element_name(el)
+                if name:
+                    elements.setdefault(el.get("type", "?"), []).append(name)
+        except Exception:
+            log.exception("nl_router registered_elements 조회 실패: work=%s", element_work)
+
     if resolved_work:
         try:
             from .sheet_bible import SheetBible
