@@ -547,15 +547,22 @@ def _build_context(channel: str, thread_ts: str, event: dict, query_text: str = 
             # 그 화의 스틸컷 씬/영상/합본을 돌려주므로(값싼 glob), 그 요약을 컨텍스트에 실어
             # LLM이 사실로 답하게 한다(프롬프트 규칙과 함께 — tool_router._system_prompt_static).
             try:
-                outputs = sb.vp_store.preview_episode_outputs(_canonical_work(resolved_work), resolved_episode)
+                cw = _canonical_work(resolved_work)
+                outputs = sb.vp_store.preview_episode_outputs(cw, resolved_episode)
                 if outputs is not None:
+                    # ★2026-07-21 수동 삽입 대비: 스틸컷 존재는 생성 기록(preview의 씬폴더
+                    # 개수)이 아니라 실제 PNG 스캔(scan_episode_stills)으로 판정한다 — 사용자가
+                    # 파일을 폴더에 직접 밀어넣으면 기록이 안 남아 '없다'고 오답하던 문제.
+                    stills = sb.vp_store.scan_episode_stills(cw, resolved_episode) or {}
                     answer_sources["generated_artifacts"] = {
                         "episode": resolved_episode,
-                        "stillcut_scenes": outputs.get("still_scenes") or [],
+                        "stillcut_scenes": stills.get("scenes") or [],
+                        "stillcut_cut_count": stills.get("cut_count") or 0,
                         "video_file_count": len(outputs.get("video_files") or []),
                         "compiled": bool(outputs.get("compiled_files")),
-                        "_note": "실제 저장된 생성물 기준(디스크 스캔). stillcut_scenes가 있으면 "
-                                 "그 씬 스틸컷은 이미 생성·저장된 것.",
+                        "_note": "실제 디스크의 PNG를 직접 스캔한 결과(생성 기록이 아님). "
+                                 "stillcut_scenes/stillcut_cut_count가 있으면 그 스틸컷은 "
+                                 "이미 저장돼 있는 것(수동으로 넣은 파일 포함).",
                     }
             except Exception as exc:
                 log.warning("nl_router answer source artifacts load failed: %s", exc)

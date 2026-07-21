@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 import subprocess
 import urllib.request
@@ -419,6 +420,43 @@ def extract_first_frame_png(video_path: str, timeout: int = 30) -> bytes | None:
         return None
 
 
+_CUT_PNG_RE = re.compile(r"cut(\d+)\.png$", re.I)
+
+
+def _recover_cuts_from_pngs(scene_dir) -> list | None:
+    """meta.json이 없거나 깨졌을 때 cut{n}.png 파일들에서 최소 컷 메타를 복구."""
+    if not scene_dir.exists():
+        return None
+    out = []
+    for p in sorted(scene_dir.glob("*.png")):
+        m = _CUT_PNG_RE.match(p.name)
+        if m:
+            out.append({"n": int(m.group(1)), "caption": "", "png": p.read_bytes()})
+    return sorted(out, key=lambda m: m["n"]) if out else None
+
+
+def scan_episode_stills(work: str, episode: int | str | None) -> dict | None:
+    """존재 질문(스틸컷 있어?/몇 컷?)의 근거를 '생성 기록'이 아니라 '실제 디스크 파일'로 삼기
+    위한 스캔(★2026-07-21). outputs/stills/<N화>/ 밑의 실제 PNG를 직접 세므로, 사용자가 파일을
+    수동으로 밀어넣어 생성 기록이 없어도 잡는다. 씬폴더(<N씬>/cut*.png)와 씬폴더 없이 평평하게
+    떨어진 PNG를 모두 센다. 프로젝트를 못 찾으면 None."""
+    proj = oi.vp_project_dir(work)
+    if not proj:
+        return None
+    sdir = proj / "outputs" / "stills" / _episode_dir_name(episode)
+    if not sdir.exists():
+        return {"scenes": [], "cut_count": 0, "loose_cut_count": 0}
+    scenes, total = [], 0
+    for sub in sorted(sdir.iterdir()):
+        if sub.is_dir():
+            n = len(list(sub.glob("*.png")))
+            if n:
+                scenes.append(sub.name)
+                total += n
+    loose = len(list(sdir.glob("*.png")))   # 씬폴더 없이 밀어넣은 수동 스틸
+    return {"scenes": scenes, "cut_count": total + loose, "loose_cut_count": loose}
+
+
 def load_latest_cuts(work: str, scene_num: int | None,
                      episode: int | str | None = None) -> list | None:
     """그 작품·씬의 확정 스틸컷 컷별 원본(png+메타)을 디스크에서 복원.
@@ -436,11 +474,14 @@ def load_latest_cuts(work: str, scene_num: int | None,
                 / _scene_dir_name(scene_num))
     meta_path = scene_dir / "meta.json"
     if not meta_path.exists():
-        return None
+        # ★2026-07-21 수동 삽입 대비: meta.json이 없어도 cut{n}.png가 디스크에 있으면
+        # 파일명에서 최소 메타(n)를 복구해 영상화가 되게 한다 — 사용자가 스틸을 폴더에 직접
+        # 밀어넣으면 생성 기록(meta.json)이 안 남아, 파일은 있는데 영상화가 막히던 문제.
+        return _recover_cuts_from_pngs(scene_dir)
     try:
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
     except Exception:
-        return None
+        return _recover_cuts_from_pngs(scene_dir)
     if isinstance(meta, dict):
         meta = list(meta.values())
     out = [{**m, "png": p.read_bytes()}
