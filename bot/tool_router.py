@@ -60,7 +60,10 @@ _RESPONSE_TOOLS = [
 ]
 
 
-def _system_prompt(context: dict) -> str:
+def _system_prompt_static() -> str:
+    """context와 무관한 고정 규칙 부분 — ★2026-07-21(프롬프트 캐싱): 이 텍스트는 메시지마다
+    완전히 동일하므로 cache_control로 캐시한다(_system_prompt_blocks 참고). context(스레드
+    상태)만 매번 바뀌는 별도 블록으로 분리해 캐시가 안 깨지게 한다."""
     return f"""너는 Slack 창작 제작 봇의 tool caller다.
 반드시 제공된 함수만 호출한다. 일반 텍스트를 출력하지 않는다.
 - 정보 질문/상태 질문/잡담은 respond_with_answer를 호출한다.
@@ -128,10 +131,27 @@ def _system_prompt(context: dict) -> str:
   스토리보드 이미지를 만들어'는 sync가 아니라 generate_storyboard_grid다.
 - URL 끝이 말줄임표로 표시돼도 사용자가 동기화를 명시했으면 sync_notion을 호출한다.
 - 비주얼 스펙, 룩앤필, 캐릭터 시트를 '정리해줘/써줘'라고 하면 질문 답변이 아니라
-  generate_script로 새 텍스트를 생성한다.
+  generate_script로 새 텍스트를 생성한다."""
+
+
+def _system_prompt(context: dict) -> str:
+    """레거시 호환용 — 캐싱 없이 통짜 문자열 하나로 필요한 호출부(있다면)를 위해 유지.
+    실제 tool_chat 호출은 _system_prompt_blocks를 쓴다."""
+    return f"""{_system_prompt_static()}
 
 현재 스레드 상태와 근거:
 {json.dumps(context, ensure_ascii=False, indent=1)}"""
+
+
+def _system_prompt_blocks(context: dict) -> list[dict]:
+    """★2026-07-21(프롬프트 캐싱): 고정 규칙(캐시 대상) + 매번 바뀌는 스레드 상태(캐시 제외)를
+    별도 content block으로 분리해 tool_chat에 넘긴다. 고정 규칙 블록만 cache_control을 찍는다
+    — 뒤에 오는 동적 컨텍스트가 매번 달라져도 앞쪽 캐시는 그대로 재사용된다."""
+    return [
+        {"type": "text", "text": _system_prompt_static(),
+         "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": f"현재 스레드 상태와 근거:\n{json.dumps(context, ensure_ascii=False, indent=1)}"},
+    ]
 
 
 def _parse_message(message: dict) -> Decision:
@@ -210,7 +230,7 @@ def decide_from_context(query: str, context: dict, *, model: str | None = None,
             raw={"context": context, "blocked_short_ack": True},
         )
     message = oi.tool_chat(
-        _system_prompt(context), query,
+        _system_prompt_blocks(context), query,
         _RESPONSE_TOOLS + tool_registry.api_tools(),
         model=model or MODEL,
         timeout=timeout if timeout is not None else TIMEOUT,

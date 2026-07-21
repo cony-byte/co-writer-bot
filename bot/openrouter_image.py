@@ -52,17 +52,31 @@ def chat(system: str, user: str, *, model: str | None = None, timeout: int = 240
     return (data.get("choices") or [{}])[0].get("message", {}).get("content", "") or ""
 
 
-def tool_chat(system: str, user: str, tools: list[dict], *,
-              model: str | None = None, timeout: int = 30) -> dict:
+def tool_chat(system: str | list[dict], user: str, tools: list[dict], *,
+              model: str | None = None, timeout: int = 30, cache_tools: bool = True) -> dict:
     """OpenRouter native function calling.
 
     Returns the provider's assistant message unchanged so the caller can inspect
     ``tool_calls``. Plain model text is never interpreted as an executable action.
     A compound user request may return multiple declared calls; their array order is
     preserved and the caller validates the complete plan before anything runs.
+
+    ★2026-07-21(프롬프트 캐싱): 매 콜마다 동일한 tool 스키마(전체 tool_registry, 수천
+    토큰)와 시스템 프롬프트의 고정 규칙 부분을 다시 처리하느라 콜당 비용이 컸다(실측
+    ~$0.11/콜). Anthropic 프롬프트 캐싱을 OpenRouter→Bedrock 경로로 직접 호출해 확인한
+    결과 지원됨(캐시 히트 시 해당 토큰 비용 ~90% 절감, 실측 $0.055→$0.0056). 두 곳에 적용:
+    1) system은 str(기존 그대로, 캐싱 없음) 또는 이미 cache_control이 박힌 content-block
+       리스트를 받을 수 있다 — 호출부(tool_router.py)가 고정 규칙 블록에 cache_control을
+       찍어 넘기고, 매번 바뀌는 스레드 컨텍스트는 별도 블록으로(캐시 안 됨) 분리한다.
+    2) tools 배열은 호출마다 내용이 완전히 같으므로(레지스트리가 곧 스키마) 여기서
+       cache_tools=True(기본)면 마지막 tool에 자동으로 cache_control을 찍는다 — Anthropic은
+       그 지점까지의 tools 전체를 캐시한다.
     """
     if not config.OPENROUTER_API_KEY:
         raise RuntimeError("OPENROUTER_API_KEY 미설정")
+    if cache_tools and tools:
+        tools = list(tools)
+        tools[-1] = {**tools[-1], "cache_control": {"type": "ephemeral"}}
     payload = {
         "model": model or getattr(config, "OPENROUTER_LLM_MODEL", "anthropic/claude-sonnet-4.5"),
         "messages": [
