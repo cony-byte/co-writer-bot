@@ -26,17 +26,27 @@
 
 환경변수
 
-COWRITER_ROUTER_BACKEND   "auto"(기본, 2026-07-21) | "agent" | "api"
-                          auto = agent 우선 시도 → 실패(타임아웃/예외/파싱실패)하면 그
-                          자리에서 1회만 api(claude-haiku-4-5, 8초 타임아웃)로 재시도한 뒤에만
-                          safe_stop으로 넘어간다. agent/api를 명시하면 폴백 없이 그 백엔드만 쓴다.
-COWRITER_ROUTER_MODEL     agent: 미지정 시 Claude Code 기본 모델 / api: 기본 claude-haiku-4-5
+COWRITER_ROUTER_BACKEND   "openrouter"(기본, 2026-07-21) | "agent" | "api" | "auto"
+                          openrouter = OPENROUTER_API_KEY로 oi.chat() 단발 호출(기본 모델
+                          anthropic/claude-sonnet-4.5, config.OPENROUTER_LLM_MODEL로 재정의
+                          가능) — agent 백엔드가 매 요청마다 이 머신에서 Claude Code CLI를
+                          서브프로세스로 띄우는 방식이라 실사용 중 "Reached maximum number of
+                          turns"/타임아웃성 실패가 반복 관측됐음(2026-07-21). 단발 API 호출로
+                          바꿔 그 실패 클래스를 없애고, 분류 품질도 sonnet급으로 유지한다.
+                          agent/api/auto를 명시하면 이전처럼 그 경로로 강제 고정(폴백 없음,
+                          단 auto는 agent→api 폴백 유지).
+COWRITER_ROUTER_MODEL     openrouter: 미지정 시 config.OPENROUTER_LLM_MODEL(기본
+                          anthropic/claude-sonnet-4.5) / agent: 미지정 시 Claude Code 기본
+                          모델 / api: 기본 claude-haiku-4-5
 COWRITER_ROUTER_TIMEOUT   초 단위, 기본 12 (라우팅은 빨라야 하므로 생성용 150초와 별도)
 COWRITER_ROUTER_FALLBACK_TIMEOUT  auto 모드에서 2차 api 백엔드 타임아웃(초), 기본 8
 COWRITER_ROUTER_ENABLED   "1"(기본) | "0" — 0이면 무조건 legacy_fallback (킬스위치)
-ANTHROPIC_API_KEY         auto/api 백엔드가 쓰는 anthropic SDK 키 — 라우터 폴백 분류 호출에만
-                          쓰이고(요금이 저렴한 haiku, 짧은 프롬프트), 실제 생성(대본/이미지/영상)
-                          호출은 기존 agent(Claude Code 구독)로 그대로 유지돼 과금이 분리된다.
+OPENROUTER_API_KEY        openrouter 백엔드가 쓰는 키 — 이미지 생성/컷분해(oi.chat)와 동일한
+                          키를 그대로 재사용하므로 별도 발급 불필요.
+ANTHROPIC_API_KEY         auto/api 백엔드가 쓰는 anthropic SDK 키(현재 기본 경로 아님) — 라우터
+                          폴백 분류 호출에만 쓰이고(저렴한 haiku, 짧은 프롬프트), 실제 생성
+                          (대본/이미지/영상) 호출은 기존 agent(Claude Code 구독)로 유지돼
+                          과금이 분리된다.
 """
 
 from __future__ import annotations
@@ -56,7 +66,7 @@ from .shared.slack_io import _reply, _thread_messages, app, log
 
 ROUTER_BACKEND = os.environ.get(
     "COWRITER_ROUTER_BACKEND",
-    os.environ.get("COWRITER_BACKEND", "auto"),
+    os.environ.get("COWRITER_BACKEND", "openrouter"),
 )
 ROUTER_MODEL = os.environ.get("COWRITER_ROUTER_MODEL", "")
 ROUTER_TIMEOUT = int(os.environ.get("COWRITER_ROUTER_TIMEOUT", "12"))
@@ -70,6 +80,7 @@ _METRICS_LOCK = threading.Lock()
 _METRICS = {
     "agent": {"ok": 0, "fail": 0, "latency_sum": 0.0},
     "api": {"ok": 0, "fail": 0, "latency_sum": 0.0},
+    "openrouter": {"ok": 0, "fail": 0, "latency_sum": 0.0},
     "safe_stop": 0,
 }
 
@@ -91,13 +102,16 @@ def record_safe_stop() -> int:
 
 def _metrics_summary() -> str:
     with _METRICS_LOCK:
-        a, p, s = _METRICS["agent"], _METRICS["api"], _METRICS["safe_stop"]
+        a, p, o, s = (
+            _METRICS["agent"], _METRICS["api"], _METRICS["openrouter"], _METRICS["safe_stop"],
+        )
 
         def _avg(m):
             n = m["ok"] + m["fail"]
             return (m["latency_sum"] / n) if n else 0.0
 
         return (
+            f"openrouter(ok={o['ok']},fail={o['fail']},avg={_avg(o):.1f}s) "
             f"agent(ok={a['ok']},fail={a['fail']},avg={_avg(a):.1f}s) "
             f"api(ok={p['ok']},fail={p['fail']},avg={_avg(p):.1f}s) "
             f"safe_stop_cum={s}"
@@ -172,11 +186,32 @@ def _api_route(system_text: str, prompt: str, timeout: int | None = None) -> str
     ).strip()
 
 
+def _openrouter_route(system_text: str, prompt: str, timeout: int | None = None) -> str:
+    """★2026-07-21: 라우터 기본 백엔드 — OPENROUTER_API_KEY로 단발 chat completion 호출
+    (이미지 생성/컷분해와 동일한 키·인프라 재사용, oi.chat()). agent 백엔드(CLI 서브프로세스)의
+    "Reached maximum number of turns"/타임아웃성 실패를 없애기 위해 도입."""
+    from . import openrouter_image as oi
+
+    model = ROUTER_MODEL or config.OPENROUTER_LLM_MODEL
+    return oi.chat(
+        system_text, prompt, model=model,
+        timeout=timeout if timeout is not None else ROUTER_TIMEOUT,
+    ).strip()
+
+
 def _call_backend(system_text: str, prompt: str) -> str:
-    """★2026-07-21 이중화: auto 모드에선 1차 백엔드(agent) 실패 시 그 자리에서 즉시
-    2차 백엔드(api, haiku, 짧은 타임아웃)로 1회만 재시도한 뒤에만 예외를 올려 safe_stop으로
-    보낸다 — 지금까지는 agent 타임아웃/예외 하나로 바로 safe_stop이었다. agent/api를 명시
-    지정하면(킬스위치성 강제 고정) 폴백 없이 그 백엔드만 쓴다."""
+    """★2026-07-21: 기본 백엔드는 openrouter(단발 API 호출, agent의 CLI 서브프로세스 방식이
+    갖던 "Reached maximum number of turns"류 실패가 없다). agent/api/auto를 명시하면 그
+    이전 경로로 강제 고정(auto는 agent→api 1회 폴백 유지, 이중화 로직 그대로)."""
+    if ROUTER_BACKEND == "openrouter":
+        t0 = time.time()
+        try:
+            out = _openrouter_route(system_text, prompt)
+            _record_metric("openrouter", True, time.time() - t0)
+            return out
+        except Exception:
+            _record_metric("openrouter", False, time.time() - t0)
+            raise
     if ROUTER_BACKEND == "api":
         t0 = time.time()
         try:
