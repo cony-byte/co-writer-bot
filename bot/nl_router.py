@@ -634,6 +634,13 @@ _NO_ARBITRARY_GEN_RE = re.compile(r"임의로\s*(?:생성|만들)|마음대로\s
 # 아니라 이 스레드에 직접 첨부한 이미지를 구도 레퍼런스로 쓰라는 요청은 "구도/연출/블로킹"
 # 같은 단어 없이도 "보고 ... 그대로/똑같이" 패턴만으로 나타난다.
 _COMPOSITION_LOCK_RE = re.compile(r"(?:보고|참고해서|참조해서).{0,20}(?:그대로|똑같이|동일하게|같게)")
+# ★2026-07-21(실사용 추가 리포트): "이 스토리보드 그대로 1화 스틸컷을 만들고 싶어"처럼 "보고"
+# 동사 없이 "이 스토리보드/이미지 ... 그대로/똑같이"만 오는 어순은 위 _COMPOSITION_LOCK_RE가
+# 놓쳤다(오탐 걱정으로 "보고"를 필수로 뒀던 게 오히려 재현률을 깎아먹음) — 지시사("이")로
+# 특정 이미지를 가리키는 것만으로도 충분한 신호이므로 별도로 잡는다.
+_COMPOSITION_DEMONSTRATIVE_SAME_RE = re.compile(
+    r"이\s*(?:스토리보드|이미지|사진|그리드)[^.!?\n]{0,20}(?:그대로|똑같이|동일하게|같게)"
+)
 
 
 def _wants_notion_composition_ref(text: str) -> bool:
@@ -652,11 +659,14 @@ def _wants_notion_composition_ref(text: str) -> bool:
 def _wants_slack_composition_ref(text: str) -> bool:
     """★2026-07-21(실사용 확인: "이 스토리보드 그리드를 보고 씬1 스틸컷을 똑같이 생성해줘" +
     이미지 첨부 — 실제로는 이 요청이 첨부 이미지를 전혀 참조하지 않고 그냥 자유 생성되고
-    있었음). 이 스레드에 방금 첨부한 이미지를 구도 고정 레퍼런스로 쓰라는 요청 — 노션 언급이
-    없어도 "보고/참고해서/참조해서 ... 그대로/똑같이" 패턴이면 잡는다. 호출부에서 반드시
-    이벤트에 실제 첨부 이미지가 있는지(_image_files) 같이 확인해야 한다 — 텍스트만으로는
-    참조할 이미지가 없을 수 있음."""
-    return bool(_COMPOSITION_LOCK_RE.search(text or ""))
+    있었음. 후속 리포트: "이 스토리보드 그대로 1화 스틸컷을 만들고 싶어"처럼 "보고" 동사 없는
+    어순도 여전히 안 잡혀 같은 문제가 재발함). 이 스레드에 방금 첨부한 이미지를 구도 고정
+    레퍼런스로 쓰라는 요청 — 노션 언급이 없어도 "보고/참고해서/참조해서 ... 그대로/똑같이"
+    패턴이거나, "이 스토리보드/이미지/사진/그리드 ... 그대로/똑같이" 지시사 패턴이면 잡는다.
+    호출부에서 반드시 이벤트에 실제 첨부 이미지가 있는지(_image_files) 같이 확인해야 한다 —
+    텍스트만으로는 참조할 이미지가 없을 수 있음."""
+    t = text or ""
+    return bool(_COMPOSITION_LOCK_RE.search(t) or _COMPOSITION_DEMONSTRATIVE_SAME_RE.search(t))
 
 
 def _deterministic_question_route(query_text: str, ctx: dict) -> Route | None:
