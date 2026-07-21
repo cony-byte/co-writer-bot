@@ -1401,11 +1401,29 @@ def _render_cuts(channel, thread_ts, work, bible, source_text, *,
                 group_bounds = [(s, min(e, len(shots))) for s, e in group_bounds if s < len(shots)]
         except Exception as e:
             log.exception("shots failed")
+            # ★2026-07-21: "컷 분해 중 오류가 났어요. 잠시 후 다시 시도해주세요"라는 말만
+            # 하고 멈추면 사용자가 뭘 해야 할지 알 수 없다 — raw가 남아있고 그게 JSON 배열이
+            # 아니라 산문체 응답이면(=모델이 정보 부족으로 거절/질문한 경우일 확률이 높음)
+            # 그 원문을 그대로 보여줘서 사용자가 뭘 보완해야 할지 스스로 판단하게 한다.
+            raw_snippet = (locals().get("raw") or "").strip()
+            if raw_snippet and not raw_snippet.lstrip().startswith("["):
+                msg = ("⚠️ 샷(컷) 리스트를 만들지 못했어요 — 모델이 정상적인 컷 목록 대신 "
+                       "아래와 같이 응답했어요(원본 콘티/대본에 정보가 부족하다는 뜻일 가능성이 "
+                       "높아요). 내용을 보완해서 다시 요청해주세요:\n\n"
+                       f"{raw_snippet[:800]}")
+            else:
+                msg = ("⚠️ 샷(컷) 리스트를 만드는 중 일시적인 오류가 났어요(모델 응답/네트워크 "
+                       f"문제로 보여요: {type(e).__name__}). 잠시 후 다시 시도해주세요 — 계속 "
+                       "실패하면 관리자에게 알려주세요.")
             _set_render_fail_reason(_skey, "컷 분해 중 오류가 났어요.")
-            _post_chunks(channel, thread_ts, "컷 분해 중 오류가 났어요. 잠시 후 다시 시도해주세요.", replace_ts=ph); return
+            _post_chunks(channel, thread_ts, msg, replace_ts=ph); return
         if not shots:
             _set_render_fail_reason(_skey, "컷을 못 만들었어요(샷 리스트가 비어있음).")
-            _post_chunks(channel, thread_ts, "컷을 못 만들었어요.", replace_ts=ph); return
+            _post_chunks(channel, thread_ts,
+                        "⚠️ 이 구간에서 컷을 하나도 못 만들었어요 — 넘긴 콘티/대본 구간에 실제 "
+                        "장면 내용(대사·지문·씬 헤더)이 없었을 가능성이 높아요. 대상 화/씬의 "
+                        "상세 콘티가 제대로 저장돼 있는지 확인한 뒤 다시 요청해주세요.",
+                        replace_ts=ph); return
         if not skip_confirm and target is None and kind and len(shots) >= _CUT_CONFIRM_THRESHOLD:
             _PENDING_CUT_CONFIRM[thread_ts] = {
                 "kind": kind, "orig_rest": orig_rest or "", "channel": channel, "work": work,
