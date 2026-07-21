@@ -144,7 +144,7 @@ def main() -> int:
     for case in cases:
         ctx = {**base_ctx, **case.get("ctx", {})}
         _mock_slack(ctx)
-        nl_router._build_context = lambda ch, ts, ev, _ctx=ctx: _ctx
+        nl_router._build_context = lambda ch, ts, ev, _ctx=ctx, **_kw: _ctx
         event = {
             "text": case["text"],
             "files": [
