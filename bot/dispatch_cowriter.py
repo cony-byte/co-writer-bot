@@ -2992,7 +2992,11 @@ def _do_sync(channel: str, thread_ts: str, rest: str) -> None:
         # 만든다(works.genre_required — 이미 등록돼 있던 기존 작품은 이 표시가 절대 안 붙으므로
         # 기존 작품들의 생성 흐름은 전혀 영향받지 않는다).
         if existing is None:
-            genre_key = works.parse_style_key(content)
+            # ★2026-07-21: parse_style_key(content) 전체 스캔은 대본/바이블 본문 중 우연히
+            # 등장하는 "애니"/"리얼" 등의 부분 문자열에도 반응해 사용자가 지정한 적 없는 화풍을
+            # 조용히 확정시키는 버그가 있었다(실사용 리포트: 신규 등록 다음날 그림체가 애니풍으로
+            # 바뀜) — "장르:"/"스타일:"/"화풍:" 라벨이 명시된 줄에서만 찾도록 좁힌다.
+            genre_key = works.parse_style_key_labeled(content)
             if genre_key:
                 works.set_style(work, genre_key)
             elif not works.get_style(work):

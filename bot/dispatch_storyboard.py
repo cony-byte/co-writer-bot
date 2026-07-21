@@ -2434,7 +2434,20 @@ _STYLE_COMMON_SUFFIX = (
     # 명시적으로 금지한다.
     "No text, letters, captions, subtitles, speech bubbles, or written words should "
     "appear anywhere in the image — render a pure illustration with no on-screen "
-    "text of any kind."
+    "text of any kind. "
+    # ★2026-07-21 버그 리포트("스틸컷이 한국식이라기보단 외국 느낌, 특히 첫 컷 방송 로고에서") —
+    # STYLE_PRESETS 어디에도 "한국"을 명시적으로 앵커링하는 문구가 없었다. 렌더링 화풍
+    # (realistic/2d_anim) 서술만 있고 프로덕션/배경/소품의 국적 맥락이 비어 있으면, 이미지
+    # 생성기가 스타일화된 그래픽 요소(방송사 로고/타이틀 카드처럼 브랜딩성이 강한 첫 컷일수록
+    # 더)를 기본값인 서구권/할리우드식 톤으로 채우는 경향이 있다. 화풍과 무관하게 항상 붙는
+    # 공통 접미사에 "한국 드라마" 프로덕션 정체성을 명시적으로 못박아 배경·소품·그래픽 요소가
+    # 전부 한국 배경으로 그려지게 한다.
+    "This is an authentic Korean television drama (K-drama) production — the overall "
+    "visual identity, sets, props, signage, and any broadcast-style graphic elements "
+    "must read as Korean, not Western/Hollywood or generic international. Any environmental "
+    "text, signage, or on-screen graphic elements (e.g. a broadcast network logo/title card) "
+    "must use Korean (Hangul) typography and Korean broadcast-drama conventions, never English "
+    "or other non-Korean branding."
 )
 
 # ★2026-07-20 "작품마다 그림체를 다르게 쓰고 싶다" — 실사풍(기존 기본값)/2D 애니메이션 중
