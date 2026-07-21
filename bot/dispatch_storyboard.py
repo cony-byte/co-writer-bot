@@ -1897,12 +1897,15 @@ _IDEALIZED_FACE_GUIDANCE = (
     "personality — supporting characters, villains, and elderly characters must be idealized with "
     "the same beautiful bone structure, never given a realistic or aged face. Convey age, "
     "occupation, or personality through clothing, posture, and background only, never through "
-    "facial realism or aging detail. Render at roughly 80% realism — mostly realistic and "
-    "cinematic with only a light illustrative finish, still not a literal photograph, "
-    "minimal visible skin pores or heavy photographic skin texture."
-    # ★2026-07-15: 스틸컷→영상 변환 시 톤 불일치가 심하고, 사실적일수록 영상화 API의 실존인물
-    # 안전필터(InputImageSensitiveContentDetected.PrivacyInformation)에 더 잘 걸리는 것으로
-    # 보여(사용자 실측) 기존 65-70%보다 더 낮춰(60%) 스타일화를 강화한다.
+    "facial realism or aging detail. Render at roughly 80% realism — a realistic cinematic "
+    "photographic look (realistic skin and lighting like a film frame), NOT illustrative, NOT "
+    "painterly, no brushwork or illustrated finish. Despite the realistic rendering the face "
+    "stays a clearly idealized, fictional digital character — not an ordinary real person and "
+    "not resembling any real celebrity or public figure."
+    # ★2026-07-21: 사용자 지시 "일러스트풍 다 빼고 리얼리스틱 80%로 통일" — 기존엔 영상화 API의
+    # 실존인물 안전필터 회피 목적으로 일러스트/페인터리 톤을 섞었으나, 그게 '만화풍' 원인이었다.
+    # 일러스트 문구는 제거하되 '명백한 가상/이상화 인물, 실존인물 아님' 프레이밍은 강하게 유지해
+    # 필터를 완화한다(걸리면 face_grid 폴백이 있음).
 )
 
 # ★2026-07-20b: 2D 애니메이션(재패니메이션) 작품용 인물 이상화 지침 — 위 _IDEALIZED_FACE_
@@ -2525,7 +2528,7 @@ _STYLE_COMMON_SUFFIX = (
     # 이 문제와 무관). 이미지 자체에 텍스트를 넣지 말라는 지시가 어디에도 없었어서
     # 명시적으로 금지한다.
     "No text, letters, captions, subtitles, speech bubbles, or written words should "
-    "appear anywhere in the image — render a pure illustration with no on-screen "
+    "appear anywhere in the image — render a clean image with no on-screen "
     "text of any kind. "
     # ★2026-07-21 버그 리포트("스틸컷이 한국식이라기보단 외국 느낌, 특히 첫 컷 방송 로고에서") —
     # STYLE_PRESETS 어디에도 "한국"을 명시적으로 앵커링하는 문구가 없었다. 렌더링 화풍
@@ -2548,11 +2551,11 @@ _STYLE_COMMON_SUFFIX = (
 # 하위호환)로 폴백한다.
 STYLE_PRESETS = {
     "realistic": (
-        "mostly realistic cinematic style with only a light illustrative finish (~80% realism), "
-        "clean cinematic rendering, cinematic still, "
-        "natural relaxed facial expression, not stiff or uncanny, "
-        "a lightly stylized image, still not a literal photograph, "
-        "not resembling any real celebrity or public figure. "
+        "realistic cinematic style at roughly 80% realism — a clean photographic cinematic look "
+        "like a film/drama camera frame. NOT an illustration, NOT painterly/watercolor, NOT a "
+        "cartoon or anime, no illustrative finish or brushwork. Clean cinematic rendering, "
+        "realistic lighting and skin, natural relaxed facial expression, not stiff or uncanny. "
+        "A clearly fictional character, not resembling any real celebrity or public figure. "
         f"{_IDEALIZED_FACE_GUIDANCE} "
         f"{_STYLE_COMMON_SUFFIX}"
     ),
@@ -2621,16 +2624,14 @@ def _face_guidance_for_work(work: str | None) -> str:
 # 하므로 별도 dict로 둔다(realistic 문구는 기존 그대로, 하위호환).
 _VIDEO_STYLE_LOCK_EMPHASIS = {
     "realistic": (
-        "The entire video MUST exactly match the art style, rendering, color palette, and level "
-        "of realism of the input reference image (the first frame) from the first frame to the "
-        "very last — a mostly-realistic cinematic look at roughly 80% realism with only a light "
-        "illustrative finish. Keep that identical rendering in every single frame; do NOT restyle "
-        "and do NOT drift toward either extreme. Specifically: zero photorealistic live-action "
-        "video look, zero literal-photograph look, zero 3D-rendered or CGI look, AND zero "
-        "painterly/watercolor/hand-painted brushwork or soft painterly gradients (this is NOT a "
-        "painting). No frame may look more realistic or more illustrated than the reference "
-        "still — the style must stay locked to the reference across the whole clip so cuts don't "
-        "look like different art styles."
+        "The entire video MUST match the art style, rendering, color palette, and level of realism "
+        "of the input reference image (the first frame) from the first frame to the very last — a "
+        "realistic cinematic look at roughly 80% realism with a clean photographic finish, like a "
+        "film/drama camera frame. Keep that identical realistic rendering in every single frame; do "
+        "NOT restyle. Specifically it must NOT drift toward illustration, painterly/watercolor/"
+        "hand-painted brushwork or soft painterly gradients, cel-shading, cartoon, or anime — this "
+        "is a realistic cinematic clip, not a drawing. The style must stay locked to the reference "
+        "across the whole clip so cuts don't look like different art styles."
     ),
     # ★2026-07-20b: 일본 애니메 화풍임을 명시적으로 못박는다 — "2D cartoon" 표현만으로는
     # 서구식 플랫 카툰(예: 심슨풍)으로 드리프트할 여지가 있어, 매 프레임 유지해야 할 구체
@@ -2938,7 +2939,8 @@ def _generate_video_for_cut(channel, thread_ts, work, title, cut, num, scene_sec
         "An entirely fictional adult character, created for an original fictional drama.\n"
         "The character is not based on, associated with, or intended to resemble any real person,\n"
         "celebrity, public figure, or private individual.\n"
-        "Stylized cinematic realism, clearly fictional digital character. "
+        "Realistic cinematic look (~80% realism, clean photographic rendering, not illustration/"
+        "cartoon/anime), a clearly fictional digital character. "
     )
     # ★2026-07-20: 얼굴이 안전필터에 걸려 face_grid로 얼굴을 빨간 격자로 덮어 승인한 컷 한정
     # (스틸 옆 .orig.bak 백업으로 판별), 그 격자 스틸이 "승인된 시작 프레임"임을 프롬프트
