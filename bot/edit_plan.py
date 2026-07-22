@@ -192,27 +192,26 @@ def _build_rough_plan(scenes: list[tuple], videos_with_dur: dict[int, list[dict]
         if not vids:
             continue
         intended = _cut_intended_durations(body, vids)
-        beat_texts = _cut_beat_texts(body)
         for i, v in enumerate(vids):
             if v["duration"] <= 0:
                 log.warning(f"러프 플랜 — 씬{num} 컷{v['cut_num']} 실측 길이 0(건너뜀, ffprobe 실패 가능성)")
                 continue
             duration = v["duration"]
             iv = intended.get(v["cut_num"])
-            has_dialogue = i < len(beat_texts) and bool(_BEAT_QUOTE_RE.search(beat_texts[i]))
-            # ★2026-07-22 음성 기반 꼬리 트림 — 클립 소리에서 마지막 발화 끝을 검출해, 그 뒤의
-            # 정적 꼬리만 잘라낸다(발화 구간은 절대 안 건드림). 오디오 없는 컷은 None → 폴백.
+            # ★2026-07-22 우선순위: (1) 말 안 끊김 (2) 행위 안 끊김 (3) 콘티 의도 길이[N초]는
+            # '후순위'. 그래서 의도 길이로 "줄이는(cap)" 로직은 제거했다 — 실측이 의도보다 길어도
+            # 그 여분에 행위가 이어질 수 있어 함부로 자르면 행위가 끊긴다. 이제 유일한 트림은
+            # 음성 기반 꼬리 트림: 클립 소리에서 마지막 발화 끝을 검출해 그 뒤 정적 꼬리만 잘라내되,
+            # (a) 발화 끝+여운, (b) 콘티 의도 길이(iv) 둘 다를 최소 보장선으로 남긴다(행위 길이 보호).
+            # 오디오 없는 무음 컷은 검출 불가(None) → 아무것도 안 자르고 실측 전체 유지.
             speech_end = _last_speech_end(v["path"], v["duration"])
             if speech_end is not None:
-                trimmed = speech_end + _SPEECH_TAIL_PAD
-                floor = iv if iv is not None else 0.0   # 콘티 의도 길이 밑으로는 안 자름(안전)
-                new_dur = min(v["duration"], max(trimmed, floor))
+                keep = max(speech_end + _SPEECH_TAIL_PAD, iv or 0.0)   # 말·행위 보호 최소선
+                new_dur = min(v["duration"], keep)
                 if v["duration"] - new_dur > 0.3:
                     log.info(f"러프 플랜 — 씬{num} 컷{v['cut_num']} 발화 끝 {speech_end:.1f}s "
                              f"뒤 정적 꼬리 트림: {v['duration']:.1f}s → {new_dur:.1f}s")
                     duration = new_dur
-            elif iv is not None and duration - iv > 0.3 and not has_dialogue:
-                duration = iv
             out.append({"scene_num": num, "cut_num": v["cut_num"], "video_path": v["path"],
                        "start": 0.0, "duration": duration, "narration_text": None,
                        "speaker": None, "delivery": None, "transition_in": "cut"})
