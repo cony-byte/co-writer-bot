@@ -274,7 +274,7 @@ def _show_media(args: dict, ctx) -> None:
     sb._do_show_media(ctx.channel, ctx.thread_ts, work=args.get("work"),
                       episode=args.get("episode"), scene=args.get("scene"),
                       cut=args.get("cut_number"), name=args.get("name"),
-                      kind=args.get("kind"))
+                      kind=args.get("kind"), all_scenes=args.get("all_scenes"))
 
 
 def _delete_reference(args: dict, ctx) -> None:
@@ -668,7 +668,9 @@ _add("show_media",
       "cut_number": {"type": "integer", "minimum": 1, "description": "스틸컷·영상의 컷 번호"},
       "kind": {"type": "string",
                "description": "무엇을 보여줄지 힌트: 인물/의상/장소/소품/스틸컷/영상/합본 등"},
-      "name": {"type": "string", "description": "참조를 볼 때 그 이름(예: 이영 PD룩)"}},
+      "name": {"type": "string", "description": "참조를 볼 때 그 이름(예: 이영 PD룩)"},
+      "all_scenes": {"type": "boolean",
+                     "description": "'스틸컷 전부/전체/다 보여줘'처럼 그 화 전 씬을 다 보려면 true"}},
      [], LOW, _show_media)
 
 _add("delete_reference",

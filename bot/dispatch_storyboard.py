@@ -4836,10 +4836,39 @@ def _still_cut_meta(work, scene, cut, episode) -> str:
     return ""
 
 
-def _show_stillcuts(channel, thread_ts, work, episode, scene, cut) -> bool:
+_SHOW_ALL_SCENES_CAP = 12   # '전부' 요청 시 한 번에 올리는 씬 그리드 최대 개수
+
+
+def _show_stillcuts(channel, thread_ts, work, episode, scene, cut, all_scenes=False) -> bool:
     episode = episode or (conti_state.get_episode(thread_ts) or {}).get("episode")
     stills = vp_store.scan_episode_stills(work, episode) or {}
     have_scenes = stills.get("scenes") or []
+    if scene is None and all_scenes:
+        # ★2026-07-22 '전부/전체/다' — 그 화 전 씬 스틸컷을 씬별 그리드로 순서대로 보여준다.
+        if not have_scenes:
+            _reply(channel, thread_ts, f"<{work}> {episode}화에 저장된 스틸컷이 없어요.")
+            return True
+        nums = sorted(int(re.sub(r"\D", "", s) or 0) for s in have_scenes)
+        _reply(channel, thread_ts,
+               f"<{work}> {episode}화 스틸컷 전부 보여드려요 — 씬 {', '.join(map(str, nums))} "
+               f"(씬별 그리드로 순서대로).")
+        shown = 0
+        for n in nums[:_SHOW_ALL_SCENES_CAP]:
+            cuts_n = vp_store.load_latest_cuts(work, n, episode=episode)
+            if not cuts_n:
+                continue
+            panels = [(c["png"], c["n"], c.get("caption") or f"컷{c['n']}") for c in cuts_n]
+            grid_png = grid.build_grid(panels, cols=4)
+            app.client.files_upload_v2(
+                channel=channel, thread_ts=thread_ts, file=grid_png,
+                filename=f"stills_{_work_safe_name(work)}_s{n}.png",
+                title=f"씬{n} 스틸컷 {len(panels)}컷",
+                initial_comment=f"씬{n} 스틸컷 {len(panels)}컷 (컷 {', '.join(str(c['n']) for c in cuts_n)}).")
+            shown += 1
+        if len(nums) > _SHOW_ALL_SCENES_CAP:
+            _reply(channel, thread_ts,
+                   f"…씬 {_SHOW_ALL_SCENES_CAP}개까지 올렸어요. 나머지는 `N씬 스틸컷 보여줘`로 봐주세요.")
+        return True
     if scene is None:
         if not have_scenes:
             _reply(channel, thread_ts, f"<{work}> {episode}화에 저장된 스틸컷이 없어요.")
@@ -4848,7 +4877,7 @@ def _show_stillcuts(channel, thread_ts, work, episode, scene, cut) -> bool:
         latest = max(int(re.sub(r"\D", "", s) or 0) for s in have_scenes)
         _reply(channel, thread_ts,
                f"씬 지정이 없어 가장 최근 씬{latest}을 보여드려요 — 스틸컷 있는 씬: "
-               f"{', '.join(have_scenes)} (특정 씬은 `N씬 스틸컷 보여줘`).")
+               f"{', '.join(have_scenes)} (전부 보려면 '전부 보여줘', 특정 씬은 `N씬 스틸컷 보여줘`).")
         scene = latest
     cuts = vp_store.load_latest_cuts(work, scene, episode=episode)
     if not cuts:
@@ -4997,8 +5026,11 @@ def _show_videos(channel, thread_ts, work, episode, scene, cut, want_compiled=Fa
     return True
 
 
+_SHOW_ALL_RE = re.compile(r"전부|전체|모든|다\s*보여|all")
+
+
 def _do_show_media(channel, thread_ts, work=None, episode=None, scene=None, cut=None,
-                   name=None, kind=None) -> bool:
+                   name=None, kind=None, all_scenes=None) -> bool:
     """인물 참조·스틸컷·영상 등 모든 시각 산출물을 "보여줘"로 통합 표시(★2026-07-21 — 기존
     show_reference는 등록 참조만 다뤘고, 생성 스틸컷/영상을 보여주는 경로가 없어 '스틸컷
     보여줘'가 스틸컷 생성/씬설계로 새던 라이브 버그). kind/scene/cut/name 신호로 무엇을 보여줄지
@@ -5026,7 +5058,8 @@ def _do_show_media(channel, thread_ts, work=None, episode=None, scene=None, cut=
         want_compiled = any(w in (kind or "") for w in ("합본", "확정"))
         return _show_videos(channel, thread_ts, work, episode, scene, cut, want_compiled)
     if media == "stillcut":
-        return _show_stillcuts(channel, thread_ts, work, episode, scene, cut)
+        all_sc = bool(all_scenes) or bool(_SHOW_ALL_RE.search(kind or ""))
+        return _show_stillcuts(channel, thread_ts, work, episode, scene, cut, all_scenes=all_sc)
     if media == "reference":
         return _do_show_refs(channel, thread_ts, work=work, name=name, kind=kind)
     # 모호: 이름 없이 그냥 "보여줘" → 등록 참조 그리드(기존 show 동작)로 안내 겸 표시.
