@@ -3494,7 +3494,7 @@ def _cut_has_dialogue(cut: dict) -> bool:
     cap = cut.get("caption") or ""
     return bool(_DIALOGUE_HAS_QUOTE_RE.search(cap) or _DIALOGUE_MARKER_RE.search(cap))
 
-def _do_stills(channel, thread_ts, rest, feedback=None, ref_data_url=None):
+def _do_stills(channel, thread_ts, rest, feedback=None, ref_data_url=None, ref_data_urls=None):
     """[스틸컷] <작품> 씬N — 한 씬만 스틸컷 생성. ★2026-07-16: "씬2,3,4"/"씬2-4"처럼
     콤마·하이픈으로 여러 씬을 지정하면(_parse_scene_filter로 감지, [합본]과 동일 문법) 씬마다
     순서대로(레이트리밋/비용 때문에 씬 단위 병렬화는 하지 않음) _do_stills_render_one을 반복
@@ -3505,8 +3505,13 @@ def _do_stills(channel, thread_ts, rest, feedback=None, ref_data_url=None):
     work, bible, tail, msgs = _resolve_work_bible(channel, thread_ts, rest)
     if not _require_genre(channel, thread_ts, work,
                            resume=lambda: _do_stills(channel, thread_ts, rest, feedback=feedback,
-                                                      ref_data_url=ref_data_url)):
+                                                      ref_data_url=ref_data_url,
+                                                      ref_data_urls=ref_data_urls)):
         return
+    # ★2026-07-22 다중 첨부→씬/컷 순서 매핑: ref_data_urls가 있으면 배치 분기에서 대상마다
+    # i번째 이미지를 구도 참조로 준다. 단일 씬 경로에선 첫 이미지를 그 씬 구도참조로 폴백.
+    if ref_data_urls and not ref_data_url:
+        ref_data_url = ref_data_urls[0]
     # "컷1,3"/"1-3컷" 등 특정 컷만 골라 뽑는 지정(2026-07-15) — 있으면 아래 'N컷' 총개수
     # 오버라이드보다 우선한다(둘이 동시에 쓰이는 경우는 없다고 가정).
     cut_filter = _parse_cut_filter(tail)
@@ -3599,10 +3604,11 @@ def _do_stills(channel, thread_ts, rest, feedback=None, ref_data_url=None):
         results = []
         for i, (num, cs) in enumerate(do_pairs, 1):
             _update_note(channel, ph, f"스틸컷 생성 중… ({i}/{len(do_pairs)} · 씬{num})")
+            this_ref = ref_data_urls[i - 1] if (ref_data_urls and i - 1 < len(ref_data_urls)) else ref_data_url
             try:
                 ok, detail = _do_stills_render_one(channel, thread_ts, rest, work, bible, scenes, num,
                                                    (cs or None), target, auto_cut, ctm, fb_note, episode,
-                                                   ref_data_url=ref_data_url)
+                                                   ref_data_url=this_ref)
             except Exception:
                 log.exception(f"씬{num} 스틸컷 생성 실패(씬-컷 쌍 배치)")
                 _reply(channel, thread_ts, f"⚠️ 씬{num} 스틸컷 생성 중 오류 — 다음은 계속 진행할게요.")
@@ -3635,10 +3641,11 @@ def _do_stills(channel, thread_ts, rest, feedback=None, ref_data_url=None):
         results = []
         for i, num in enumerate(do_nums, 1):
             _update_note(channel, ph, f"씬{label} 스틸컷 생성 중… ({i}/{len(do_nums)} · 씬{num})")
+            this_ref = ref_data_urls[i - 1] if (ref_data_urls and i - 1 < len(ref_data_urls)) else ref_data_url
             try:
                 ok, detail = _do_stills_render_one(channel, thread_ts, rest, work, bible, scenes, num,
                                                    cut_filter, target, auto_cut, ctm, fb_note, episode,
-                                                   ref_data_url=ref_data_url)
+                                                   ref_data_url=this_ref)
             except Exception:
                 log.exception(f"씬{num} 스틸컷 생성 실패(다중 씬 배치)")
                 _reply(channel, thread_ts, f"⚠️ 씬{num} 스틸컷 생성 중 오류가 났어요 — 다음 씬은 계속 진행할게요.")

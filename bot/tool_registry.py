@@ -140,8 +140,15 @@ def _sb(name: str, args: dict, ctx) -> None:
                        "않았어요.)")
                 return
             ref_data_url = "data:image/png;base64," + base64.b64encode(ref_bytes).decode("ascii")
-        sb._do_stills(channel, thread_ts, rest, feedback=args.get("instruction"),
-                      ref_data_url=ref_data_url)
+        # ★2026-07-22: 이미지 여러 장을 첨부하면 업로드 순서대로 각 씬/컷의 구도 참조로 매핑한다
+        # (이미지1→첫 대상, 이미지2→다음 대상…). 한 장이면 기존 단일 구도참조 그대로.
+        ref_urls = _image_data_urls_in_order(ctx) if not args.get("use_notion_storyboard_ref") else []
+        if len(ref_urls) > 1:
+            sb._do_stills(channel, thread_ts, rest, feedback=args.get("instruction"),
+                          ref_data_urls=ref_urls)
+        else:
+            sb._do_stills(channel, thread_ts, rest, feedback=args.get("instruction"),
+                          ref_data_url=ref_data_url)
     elif name == "save_stillcuts":
         images = _image_attachments_in_order(ctx)
         if not images:
@@ -380,6 +387,13 @@ def _image_attachments_in_order(ctx) -> list[tuple[bytes, str]]:
     return _media_attachments_in_order(ctx, "image")
 
 
+def _image_data_urls_in_order(ctx) -> list[str]:
+    """현재 이벤트의 첨부 이미지 전부를 업로드 순서대로 data URL 리스트로(★2026-07-22 —
+    다중 첨부를 씬/컷에 순서대로 구도 참조로 매핑하기 위함)."""
+    return [f"data:{mt};base64,{base64.b64encode(b).decode('ascii')}"
+            for b, mt in _image_attachments_in_order(ctx)]
+
+
 def _video_attachments_in_order(ctx) -> list[tuple[bytes, str]]:
     return _media_attachments_in_order(ctx, "video")
 
@@ -536,7 +550,7 @@ _storyboard = {
     "generate_detail_conti": ("씬 설계나 대본을 컷 단위 상세 콘티 텍스트로 변환한다. scene을 생략하면 회차 전체다.", LOW),
     "rewrite_conti": ("기존 상세 콘티의 지정 범위를 수정한다. '수정/바꿔/손봐/다듬어'라는 원문 자체가 instruction이므로 추가 수정 방향을 묻지 않는다.", HIGH),
     "generate_storyboard_grid": ("상세 콘티를 여러 컷이 배치된 스토리보드 이미지 또는 그리드 이미지로 생성한다. 스틸컷 생성과 다르다.", HIGH),
-    "generate_stillcuts": ("현재 스토리보드의 지정 씬·컷 또는 최근 스틸컷을 생성·재생성한다. 현재 메시지의 첨부 스토리보드를 그대로 참고하라는 요청이면 attachment_id를 반드시 포함한다. 활성 스레드에서는 작품·회차가 없어도 호출한다.", HIGH),
+    "generate_stillcuts": ("현재 스토리보드의 지정 씬·컷 또는 최근 스틸컷을 생성·재생성한다. 현재 메시지의 첨부 스토리보드를 그대로 참고하라는 요청이면 attachment_id를 반드시 포함한다. 활성 스레드에서는 작품·회차가 없어도 호출한다. ★이미지를 여러 장 첨부하고 여러 씬(예: 씬2,3,4)을 요청하면 씬을 나눠 여러 번 호출하지 말고 한 번의 호출에 씬을 다 담아라 — 첨부 이미지가 업로드 순서대로 각 씬의 구도 참조로 매핑된다.", HIGH),
     "save_stillcuts": ("사용자가 첨부한 이미지 자체를 재생성 없이 그대로 그 씬의 스틸컷으로 저장한다. '이 이미지들을 씬N 컷1,2,3으로 저장해줘', '내가 준 그림 그대로 스틸컷으로', '새로 만들지 말고 이대로 저장'처럼 첨부 이미지를 결과물로 굳히라는 요청. 여러 장이면 업로드 순서대로 컷에 매핑한다. 봇이 새로 그리는 generate_stillcuts와 정반대다. 활성 스레드에서는 작품·회차가 없어도 호출한다.", HIGH),
     "save_videos": ("사용자가 첨부한 완성 영상(mp4) 자체를 재생성 없이 그대로 그 씬 컷의 영상으로 저장한다. '이 영상들을 씬N 컷1,2,3 영상으로 저장해줘', '내가 만든 영상 그대로 넣어줘'처럼 첨부 영상을 결과물로 굳혀 영상 단계를 건너뛰고 바로 합본으로 가려는 요청. 여러 개면 업로드 순서대로 컷에 매핑한다. 활성 스레드에서는 작품·회차가 없어도 호출한다.", HIGH),
     "generate_video": ("현재 스토리보드나 최근 스틸컷의 지정 씬·컷을 영상으로 생성한다. 활성 스레드에서는 작품·회차가 없어도 호출한다.", HIGH),
