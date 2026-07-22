@@ -80,10 +80,12 @@ def _wrap(draw, text: str, font, max_w: int, max_lines: int) -> list[str]:
 
 def build_grid(panels: list[tuple[bytes, int, str]], *, cols: int = 6, panel_w: int = 400,
                pad: int = 12, cap_lines: int = 3, bg=(18, 18, 20),
-               fg=(236, 236, 236), no_text: bool = False) -> bytes:
+               fg=(236, 236, 236), no_text: bool = False, header: str | None = None) -> bytes:
     """panels = [(png_bytes, 번호, 캡션)] → 그리드 PNG bytes.
     기본: 각 셀 = 이미지(첫 이미지 비율로 통일) + 좌상단 번호칩 + 하단 캡션바.
-    no_text=True: 번호칩·캡션바 없이 이미지만(스틸컷용 — 화면에 글자 없음)."""
+    no_text=True: 번호칩·캡션바 없이 이미지만(스틸컷용 — 화면에 글자 없음).
+    header: 주어지면 그리드 상단에 그 텍스트(예: '씬2')를 배너로 그려 어느 씬인지 구분되게 한다
+    (★2026-07-22 — 여러 씬 그리드를 한꺼번에 볼 때 구분용). no_text와 무관하게 항상 표시."""
     from PIL import Image, ImageDraw
 
     imgs = []
@@ -99,22 +101,29 @@ def build_grid(panels: list[tuple[bytes, int, str]], *, cols: int = 6, panel_w: 
 
     cap_font = _font(20)
     num_font = _font(22)
+    hdr_font = _font(34)
     line_h = cap_font.getbbox("가")[3] + 6
     cap_h = 0 if no_text else (cap_lines * line_h + 12)   # 캡션바 높이(no_text면 0)
+    hdr_h = 0 if not header else (hdr_font.getbbox("씬")[3] + 22)   # 상단 헤더 배너 높이
     cell_w = panel_w
     cell_h = panel_h + cap_h
 
     rows = (len(imgs) + cols - 1) // cols
     W = cols * cell_w + (cols + 1) * pad
-    H = rows * cell_h + (rows + 1) * pad
+    H = hdr_h + rows * cell_h + (rows + 1) * pad
 
     canvas = Image.new("RGB", (W, H), bg)
     draw = ImageDraw.Draw(canvas)
 
+    if header:
+        draw.rectangle([0, 0, W, hdr_h], fill=(0, 0, 0))
+        hw = draw.textlength(header, font=hdr_font)
+        draw.text(((W - hw) / 2, 8), header, font=hdr_font, fill=(255, 220, 90))
+
     for i, (im, n, cap) in enumerate(imgs):
         r, c = divmod(i, cols)
         x = pad + c * (cell_w + pad)
-        y = pad + r * (cell_h + pad)
+        y = hdr_h + pad + r * (cell_h + pad)
         canvas.paste(im.resize((panel_w, panel_h), Image.LANCZOS), (x, y))
         if no_text:
             continue

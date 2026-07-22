@@ -4858,7 +4858,7 @@ def _show_stillcuts(channel, thread_ts, work, episode, scene, cut, all_scenes=Fa
             if not cuts_n:
                 continue
             panels = [(c["png"], c["n"], c.get("caption") or f"컷{c['n']}") for c in cuts_n]
-            grid_png = grid.build_grid(panels, cols=4)
+            grid_png = grid.build_grid(panels, cols=4, header=f"씬{n}")
             app.client.files_upload_v2(
                 channel=channel, thread_ts=thread_ts, file=grid_png,
                 filename=f"stills_{_work_safe_name(work)}_s{n}.png",
@@ -4902,7 +4902,7 @@ def _show_stillcuts(channel, thread_ts, work, episode, scene, cut, all_scenes=Fa
                              f"{_still_cut_meta(work, scene, cut, episode)}."))
         return True
     panels = [(c["png"], c["n"], c.get("caption") or f"컷{c['n']}") for c in cuts]
-    grid_png = grid.build_grid(panels, cols=4)
+    grid_png = grid.build_grid(panels, cols=4, header=f"씬{scene}")
     app.client.files_upload_v2(
         channel=channel, thread_ts=thread_ts, file=grid_png,
         filename=f"stills_{_work_safe_name(work)}_s{scene}.png",
