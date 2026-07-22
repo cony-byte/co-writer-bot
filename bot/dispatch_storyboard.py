@@ -2546,6 +2546,13 @@ _STYLE_COMMON_SUFFIX = (
     "No text, letters, captions, subtitles, speech bubbles, or written words should "
     "appear anywhere in the image — render a clean image with no on-screen "
     "text of any kind. "
+    # ★2026-07-22 사용자 요청 — 로맨스 K-드라마 관습: 남녀 주연이 한 프레임에 함께 있으면
+    # 남성이 여성보다 자연스럽게 키가 크도록 고정(과장 아닌 현실적 신장차). 컷마다 상대 키가
+    # 뒤바뀌지 않게 일관 유지. 이 스튜디오는 로맨스 K-드라마 중심이라 공통 접미사에 넣는다.
+    "When an adult man and an adult woman appear together in the same frame, the man should "
+    "be noticeably but naturally taller than the woman (a typical Korean romance-drama "
+    "height difference — realistic, not exaggerated); keep their relative heights consistent "
+    "across cuts so the taller/shorter relationship never flips. "
     # ★2026-07-21 버그 리포트("스틸컷이 한국식이라기보단 외국 느낌, 특히 첫 컷 방송 로고에서") —
     # STYLE_PRESETS 어디에도 "한국"을 명시적으로 앵커링하는 문구가 없었다. 렌더링 화풍
     # (realistic/2d_anim) 서술만 있고 프로덕션/배경/소품의 국적 맥락이 비어 있으면, 이미지
