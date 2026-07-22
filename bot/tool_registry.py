@@ -300,6 +300,14 @@ def _still_variant(args: dict, ctx) -> None:
                          change=args.get("change"), episode=args.get("episode"))
 
 
+def _echo_understanding(args: dict, ctx) -> None:
+    """실제 작업 실행 전에 '이렇게 이해했어요'로 해석을 먼저 알린다(오해 조기 발견용)."""
+    from .shared.slack_io import _reply
+    summary = (args.get("summary") or "").strip()
+    if summary:
+        _reply(ctx.channel, ctx.thread_ts, f"📌 이렇게 이해했어요: {summary}")
+
+
 def _set_work_style_note(args: dict, ctx) -> None:
     from . import dispatch_storyboard as sb
     sb._do_set_art_note(ctx.channel, ctx.thread_ts, work=args.get("work"), note=args.get("note"))
@@ -690,6 +698,11 @@ _add("delete_media",
       "cut_number": {"type": "integer", "minimum": 1, "description": "특정 컷만 지울 때"},
       "kind": {"type": "string", "description": "지울 종류: 스틸컷/영상/합본 (여러 개면 각각 호출 또는 함께 명시)"}},
      [], HIGH, _delete_media)
+
+_add("echo_understanding",
+     "실제 작업(생성·수정·삭제·영상화 등)을 실행하기 직전에, 요청을 어떻게 이해했는지 한 줄로 먼저 사용자에게 알린다. 예: '저연프 1화 씬7 2컷을 영상으로 만들기'. 조회·보여주기·단순 대화에는 쓰지 않는다.",
+     {"summary": {"type": "string", "description": "요청을 어떻게 이해했는지 한 줄 요약(무엇을·어느 작품/화/씬/컷에)"}},
+     ["summary"], LOW, _echo_understanding)
 
 _add("set_work_style_note",
      "작품에 항상 적용할 고정 스타일 지시(자유 문장)를 등록·변경·해제한다. '이 작품은 원본 레퍼런스랑 똑같이 만들어', '겨울 하루는 항상 따뜻한 톤으로', '이 작품 스타일 항상 이렇게 고정해줘'처럼 그 작품의 모든 이미지·영상 생성에 매번 반영할 지시. 화풍 프리셋(실사풍/2D 애니메이션) 변경(change_visual_style)과 달리 자유 문장이다. note에 그 지시를 넣고, 해제는 note에 '지워줘' 등을 넣는다.",
