@@ -2998,6 +2998,15 @@ def _generate_video_for_cut(channel, thread_ts, work, title, cut, num, scene_sec
         # 항상 그 컷 자신의 스틸을 시작 이미지로 쓴다(prev_last_frame 인자는 호출부 정리 전까지
         # 하위호환으로 받되 더 이상 쓰지 않음).
         seed_png = cut["png"]
+        # ★2026-07-22: episode/scene_num을 hf_video.generate() 호출(실패 지점) 전에 미리
+        # 계산해둔다 — 예전엔 generate() 성공 후에만 계산해서, 그 호출이 예외(특히 실존인물
+        # 안전필터 400)를 던지면 아래 except 블록이 아직 정의 안 된 episode를 참조하다
+        # UnboundLocalError로 다시 죽었다(실측 — 안전필터 실패 시 얼굴격자 자동 재시도가
+        # 아예 발동 못 하고 그 자리에서 다시 크래시). 실패 안내 메시지에 쓰는 값들이라
+        # generate() 성공 여부와 무관하게 항상 있어야 한다.
+        scene_m = re.search(r"씬(\d+)", title)
+        scene_num = int(scene_m.group(1)) if scene_m else None
+        episode = (conti_state.get_episode(thread_ts) or {}).get("episode")
         # ★2026-07-15: 드롭다운으로 컷 하나만 골라 영상화하는 이 경로는 scene_seconds(씬 헤더의
         # "전체" 길이, 예: 28초)를 그대로 duration에 넘겨서 seedance 허용 범위(4~15초)를 넘기면
         # "Duration 28s is not supported" 400으로 실패했다 — _generate_videos_for_cuts(전체 영상화
@@ -3015,9 +3024,7 @@ def _generate_video_for_cut(channel, thread_ts, work, title, cut, num, scene_sec
                                       generate_audio=want_audio)
         # ★영상을 URL로만 남기면 CapCut 드래프트(로컬 파일 경로만 지원)에 못 넣어서
         # 로컬로도 받아둔다(2026-07-14). 다운로드 실패해도 URL 결과 공유는 그대로 진행.
-        scene_m = re.search(r"씬(\d+)", title)
-        scene_num = int(scene_m.group(1)) if scene_m else None
-        episode = (conti_state.get_episode(thread_ts) or {}).get("episode")
+        # (scene_num/episode는 위에서 이미 계산해뒀다 — generate() 실패 시에도 필요해서 옮김.)
         local_path = vp_store.save_video(work, scene_num=scene_num, cut_num=num, url=url,
                                          episode=episode,
                                          prompt_summary=motion_prompt[:300],
