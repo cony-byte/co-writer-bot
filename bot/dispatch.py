@@ -442,7 +442,7 @@ def _handle_dispatch(event: dict) -> None:
         if config.ROUTER_BACKEND in ("agent", "agent_sdk"):
             try:
                 from bot import agent_router
-                if agent_router.run(channel, thread_ts, query, event):
+                if agent_router.run(channel, thread_ts, query, event, rec=_rec):
                     _rec.outcome = "agent_executed"
                     log.info("route=agent_router")
                     return

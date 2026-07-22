@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 
 from . import config, tool_registry
 
@@ -95,8 +96,30 @@ def _make_tool(spec: tool_registry.ToolSpec, ctx, context: dict, executed: list[
     return _impl
 
 
-def run(channel: str, thread_ts: str, query_text: str, event: dict) -> bool:
-    """dispatch가 호출하는 진입점. 처리했으면(무언가 게시했으면) True, 아니면 False."""
+def _record(rec, executed: list[str], final_text: str, elapsed_ms: int) -> None:
+    """결정 로그(router_log.DecisionRecord)에 agent 경로 실행 내역을 채운다 — 자기성장형 평가
+    파이프라인이 현재 라이브(agent) 백엔드도 리플레이·라벨링·지표에 쓸 수 있게(★2026-07-22).
+    로깅이 라우팅을 절대 안 깨도록 전부 방어."""
+    if rec is None:
+        return
+    try:
+        rec.executed_handler = ",".join(executed) or ("answer" if final_text else None)
+        rec.route = {
+            "intent": "agent",
+            "tools": list(executed),
+            "tool": (executed[0] if executed else None),
+            "slots": {},
+            "backend": (config.AGENT_ROUTER_MODEL or "agent"),
+            "latency_ms": elapsed_ms,
+        }
+    except Exception:
+        log.exception("agent 결정 로그 기록 실패(무시)")
+
+
+def run(channel: str, thread_ts: str, query_text: str, event: dict, rec=None) -> bool:
+    """dispatch가 호출하는 진입점. 처리했으면(무언가 게시했으면) True, 아니면 False.
+    rec: router_log 결정 레코드(있으면 실행 도구·지연을 채운다 — 평가 파이프라인용)."""
+    _t0 = time.monotonic()
     try:
         from claude_agent_sdk import (
             AssistantMessage, ClaudeAgentOptions, TextBlock,
@@ -138,6 +161,8 @@ def run(channel: str, thread_ts: str, query_text: str, event: dict) -> bool:
         # 도구가 사용자에게 보이는 출력을 직접 냈으므로, 아무 도구도 안 돌았을 때만
         # (= 순수 질문/대화 응답) 에이전트의 최종 텍스트를 스레드에 올린다.
         final_text = tool_registry.sanitize_user_text("".join(texts).strip())
+        _elapsed_ms = int((time.monotonic() - _t0) * 1000)
+        _record(rec, executed, final_text, _elapsed_ms)
         if not executed and final_text:
             from .shared.slack_io import _reply
             _reply(channel, thread_ts, final_text)
