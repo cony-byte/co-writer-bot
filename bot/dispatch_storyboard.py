@@ -924,7 +924,7 @@ def sb_do_storyboard(channel, thread_ts, rest, stage=1):
                     prompts.storyboard_plan_user(draft), job_key=thread_ts))
         except Exception as e:
             log.exception("plan failed")
-            _post_chunks(channel, thread_ts, "씬 설계 중 오류가 났어요. 잠시 후 다시 시도해주세요.", replace_ts=ph); return
+            _post_chunks(channel, thread_ts, f"씬 설계 중 오류가 났어요 — 모델 응답/네트워크 문제로 보여요({type(e).__name__}). 잠시 후 다시 시도하고, 계속되면 관리자에게 알려주세요.", replace_ts=ph); return
         finally:
             job_ledger.finish_job(jid)
         if ans in (generator.CANCEL_MSG, generator.TIMEOUT_MSG):
@@ -1054,7 +1054,7 @@ def sb_do_storyboard(channel, thread_ts, rest, stage=1):
             except Exception as e:
                 log.exception("conti(씬 병렬) failed")
                 job_ledger.finish_job(jid)
-                _post_chunks(channel, thread_ts, "상세 콘티 생성 중 오류가 났어요. 잠시 후 다시 시도해주세요.", replace_ts=ph); return
+                _post_chunks(channel, thread_ts, f"상세 콘티 생성 중 오류가 났어요 — 모델 응답/네트워크 문제로 보여요({type(e).__name__}). 잠시 후 다시 시도하고, 계속되면 관리자에게 알려주세요.", replace_ts=ph); return
             job_ledger.finish_job(jid)
             cancelled = next((r for r in results.values() if r in (generator.CANCEL_MSG, generator.TIMEOUT_MSG)), None)
             if cancelled:
@@ -1087,7 +1087,7 @@ def sb_do_storyboard(channel, thread_ts, rest, stage=1):
                     sys_prompt, user, timeout=config.AGENT_TIMEOUT, job_key=thread_ts))
             except Exception as e:
                 log.exception("conti failed")
-                _post_chunks(channel, thread_ts, "상세 콘티 생성 중 오류가 났어요. 잠시 후 다시 시도해주세요.", replace_ts=ph); return
+                _post_chunks(channel, thread_ts, f"상세 콘티 생성 중 오류가 났어요 — 모델 응답/네트워크 문제로 보여요({type(e).__name__}). 잠시 후 다시 시도하고, 계속되면 관리자에게 알려주세요.", replace_ts=ph); return
             finally:
                 job_ledger.finish_job(jid)
             if ans in (generator.CANCEL_MSG, generator.TIMEOUT_MSG):
@@ -2176,7 +2176,7 @@ def _post_element_candidate(channel, thread_ts, work, name, etype, context, forc
                                                  feedback=feedback)
     except Exception as e:
         log.exception("엘리먼트 AI 생성 실패")
-        app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text="⚠️ 이미지 생성에 실패했어요. 잠시 후 다시 시도해주세요.")
+        app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"⚠️ 이미지 생성에 실패했어요 — {_classify_fail_reason(str(e))}. 잠시 후 다시 시도하고, 계속되면 관리자에게 알려주세요.")
         return
     cap = f"🎨 {label} 후보 — {name}" + (f" · ~${cost:.3f}" if cost else "")
     app.client.files_upload_v2(channel=channel, thread_ts=thread_ts, file=png,
@@ -2798,7 +2798,8 @@ def _act_video_confirm_unregistered(ack, body):
     _generate_video_for_cut_with_safety_retry(ch, tts, p["work"], p["title"], p["cut"], p["num"], p["scene_seconds"])
 
 
-def _generate_video_for_cut_with_safety_retry(channel, thread_ts, work, title, cut, num, scene_seconds):
+def _generate_video_for_cut_with_safety_retry(channel, thread_ts, work, title, cut, num, scene_seconds,
+                                              fail_out=None):
     """★2026-07-16: 사용자 리포트 — "안전 필터 걸려서 안됨" 반복. 이 필터
     (InputImageSensitiveContentDetected.PrivacyInformation)는 모션 프롬프트 텍스트가 아니라
     입력 이미지(그 컷의 확정 스틸컷)가 실사 인물처럼 보인다고 판단해서 걸리므로, 텍스트만
@@ -2807,7 +2808,7 @@ def _generate_video_for_cut_with_safety_retry(channel, thread_ts, work, title, c
     있던 이 재시도 로직을 수동 "영상 만들어줘" 경로에도 동일하게 적용 — 수동 경로만 안 붙어
     있어서 사용자가 계속 필터에 걸린 채 남아있었다."""
     cost_out: dict = {}
-    fail_out: dict = {}
+    fail_out = fail_out if fail_out is not None else {}   # ★2026-07-22 사유를 호출부(배치 루프)까지 전달
     local_path = _generate_video_for_cut(channel, thread_ts, work, title, cut, num, scene_seconds,
                                          post_result=False, cost_out=cost_out, fail_reason_out=fail_out)
     # ★2026-07-20 입력이미지 안전필터("실존 인물처럼 보인다")에 걸리면, 재스타일화 없이
@@ -3331,17 +3332,21 @@ def _generate_videos_for_cuts(channel, thread_ts, work, title, cuts, scene_secon
         cut_seconds = (max(4.0, min(15.0, float(planned)))
                       if isinstance(planned, (int, float)) and planned > 0
                       else _estimate_cut_seconds(c.get("caption") or ""))
+        fail_out: dict = {}
         try:
             # ★2026-07-21: 안전필터(실존인물)로 실패하면 얼굴에 격자를 덮어 재시도하는 폴백을
             # 배치 경로에도 적용(기존엔 raw _generate_video_for_cut을 직접 불러 폴백을 안 탔다 —
             # 실사도를 올려 필터가 더 걸리는데도 그냥 실패로 끝나던 문제).
             local_path = _generate_video_for_cut_with_safety_retry(
-                channel, thread_ts, work, title, c, c["n"], cut_seconds)
-        except Exception:
+                channel, thread_ts, work, title, c, c["n"], cut_seconds, fail_out=fail_out)
+        except Exception as exc:
             log.exception("전체 컷 영상화 중 한 건 실패")
             local_path = None
+            fail_out.setdefault("reason", f"내부 오류({type(exc).__name__})")
+        # ★2026-07-22: 실패는 '실패'만 찍지 말고 사유를 함께 — 실무자가 '왜 안돼?' 안 하게.
+        fail_txt = f" 실패 — {fail_out.get('reason') or '생성 오류'}" if not local_path else " 완료"
         _update_note(channel, ph,
-                    (f"컷 {idx}/{total} 완료" if local_path else f"컷 {idx}/{total} 실패") +
+                    f"컷 {idx}/{total}{fail_txt}" +
                     (f" → 컷 {idx + 1}/{total} 생성 중…" if idx < total else f" — 전체 {total}컷 처리 끝"),
                     clear=(idx == total))
     job_ledger.finish_job(_batch_jid)   # 정상 완료 → 원장에서 제거(재개 대상 아님)
@@ -4939,9 +4944,11 @@ def _do_still_variant(channel, thread_ts, work=None, scene=None, cut_number=None
            f"🎨 씬{scene} {cut_number}컷을 재생성 중이에요 (구도·의상 유지, 변경: {change})…")
     try:
         png, _cost = oi.generate(prompt, aspect_ratio=STILL_ASPECT, refs=refs)
-    except Exception:
+    except Exception as exc:
         log.exception("still_variant 생성 실패")
-        _reply(channel, thread_ts, "재생성에 실패했어요 — 잠시 후 다시 시도해 주세요.")
+        _reply(channel, thread_ts,
+               f"재생성에 실패했어요 — {_classify_fail_reason(str(exc))}. 잠시 후 다시 시도하고, "
+               "계속되면 관리자에게 알려주세요.")
         return True
     vp_store.overwrite_still_with_backup(work, scene_num=scene, cut_num=cut_number,
                                          episode=episode, new_png=png, original_png=src_png)
