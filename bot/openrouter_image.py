@@ -900,6 +900,15 @@ def _shot_mentions(work: str | None, shot: dict) -> list[str]:
     mentions = (list(shot.get("characters") or []) + list(shot.get("places") or [])
                 + list(shot.get("props") or []) + list(shot.get("elements") or []))
     tnorm = _nfc(f"{shot.get('prompt', '')} {shot.get('caption', '')}")
+    # ★2026-07-22 인서트(그래픽/화면 전용) 컷엔 인물이 없어야 한다(실측: SNS 반응·투자규모
+    # 인서트인데 이영 V.O.의 얼굴 참조가 붙어 인물 초상이 그려짐). 인서트면 person 타입 참조를
+    # 전부 제외해 화면/그래픽만 그리게 한다(장소·소품·의상은 유지 — 화면 콘텐츠일 수 있음).
+    is_insert = bool(re.search(r"인서트|insert", tnorm, re.I))
+    if is_insert:
+        def _is_person_ref(nm: str) -> bool:
+            e = resolve_element(work, nm)
+            return bool(e) and (e.get("type") == "person" or str(e.get("id", "")).startswith("file:"))
+        mentions = [m for m in mentions if not _is_person_ref(m)]
     # ★2026-07-16: 사용자 실측 — "선우, 리안, 하진 다 같은 사람으로 만들었음". 원인: 이 텍스트
     # 스캔이 person 타입까지 훑어서, 캡션에 다른 인물 이름이 그저 "언급"만 돼도(예: 리안 단독
     # 클로즈업 캡션에 "시선이 선우를 향하다가 하진 쪽으로"처럼 서사상 이름이 나오는 경우) 그
