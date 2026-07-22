@@ -3506,6 +3506,29 @@ def _cut_has_dialogue(cut: dict) -> bool:
     cap = cut.get("caption") or ""
     return bool(_DIALOGUE_HAS_QUOTE_RE.search(cap) or _DIALOGUE_MARKER_RE.search(cap))
 
+_PENDING_STORYBOARD_FOR_STILLS: dict[str, dict] = {}   # 카드 ts -> {work, episode}
+
+
+@app.action("start_storyboard_for_stills")
+def _act_start_storyboard_for_stills(ack, body):
+    """스틸컷 요청했는데 콘티가 없을 때 뜬 카드 — [▶️ 씬 설계·콘티부터 만들기] → 스토리보드 시작."""
+    ack()
+    ch, tts = _action_ctx(body)
+    p = _PENDING_STORYBOARD_FOR_STILLS.pop(body["message"]["ts"], None)
+    if not p:
+        _disable_buttons(body, "⚠️ 만료된 요청이에요 — 다시 요청해주세요.")
+        return
+    ep = f" {p['episode']}화" if p.get("episode") else ""
+    _disable_buttons(body, f"▶️ <{p['work']}>{ep} 씬 설계·콘티부터 만들게요 — 완성되면 그 씬 스틸컷을 만들 수 있어요…")
+    _do_storyboard_auto(ch, tts, f"{p['work']}{ep}".strip())
+
+
+@app.action("start_storyboard_cancel")
+def _act_start_storyboard_cancel(ack, body):
+    ack()
+    _disable_buttons(body, "취소했어요.")
+
+
 def _do_stills(channel, thread_ts, rest, feedback=None, ref_data_url=None, ref_data_urls=None):
     """[스틸컷] <작품> 씬N — 한 씬만 스틸컷 생성. ★2026-07-16: "씬2,3,4"/"씬2-4"처럼
     콤마·하이픈으로 여러 씬을 지정하면(_parse_scene_filter로 감지, [합본]과 동일 문법) 씬마다
@@ -3558,8 +3581,24 @@ def _do_stills(channel, thread_ts, rest, feedback=None, ref_data_url=None, ref_d
     # 내부 조회다 — announce=True로 두면 매 [스틸컷] 호출마다 노션 토글을 불필요하게 재기록/재아카이브함
     conti = _thread_or_saved_conti(channel, thread_ts, msgs, work, episode, announce=False)
     if not conti:
-        _reply(channel, thread_ts,
-               "먼저 `[스토리보드] <작품>`로 씬 설계·상세 콘티를 만든 뒤, `[스틸컷] <작품> 씬2`처럼 씬을 지정해 주세요.")
+        # ★2026-07-22: 절차 설명("먼저 [스토리보드]…") 대신 이유 + 다음 행동 버튼. 스틸컷은 콘티
+        # (그 씬에 뭐가 나오는지)를 기준으로 그리므로 콘티가 먼저 필요하다. echo로 '이해했다'고
+        # 한 뒤 vague하게 끝나 어색했던 UX 수정. 첨부 이미지가 있으면 그 안내도 붙인다.
+        ep_label = f"{episode}화" if episode else ""
+        has_attach = bool(ref_data_url or ref_data_urls)
+        attach_note = (" 첨부한 이미지는 콘티가 준비된 뒤 그 씬 스틸컷의 구도 참조로 다시 올려 주시면 돼요."
+                       if has_attach else "")
+        text = (f"📌 요청은 이해했는데 — <{work}> {ep_label} 씬 설계·상세 콘티가 아직 없어요. "
+                "스틸컷은 콘티(그 씬에 뭐가 나오는지)를 기준으로 그리기 때문에 콘티가 먼저 필요해요."
+                f"{attach_note}\n지금 씬 설계·콘티부터 만들까요?")
+        resp = app.client.chat_postMessage(
+            channel=channel, thread_ts=thread_ts, text=text,
+            blocks=_with_text_block(text, [{"type": "actions", "elements": [
+                {"type": "button", "text": {"type": "plain_text", "text": "▶️ 씬 설계·콘티부터 만들기"},
+                 "style": "primary", "action_id": "start_storyboard_for_stills"},
+                {"type": "button", "text": {"type": "plain_text", "text": "취소"},
+                 "action_id": "start_storyboard_cancel"}]}]))
+        _PENDING_STORYBOARD_FOR_STILLS[resp["ts"]] = {"work": work, "episode": episode}
         return
     fb_note = (f"\n\n[재생성 피드백 — 이 지시를 반드시 반영해 다시 그려라: '{feedback}']"
                if feedback else "")
