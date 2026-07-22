@@ -7093,8 +7093,28 @@ def _maybe_stillcut_change_request(channel, thread_ts, query) -> bool:
 _BGM_HAS_RE = re.compile(r"배경\s*음악|브금|bgm", re.I)
 _BGM_MAKE_RE = re.compile(r"만들|생성|뽑|깔|제작")
 _BGM_NEG_RE = re.compile(r"필요\s*없|없이|말고|빼|끄|off", re.I)
-_BGM_OTHER_TARGET_RE = re.compile(r"스틸\s*컷|이미지|영상|동영상|비디오|합본|콘티|스토리보드|대본|씬\s*설계")
+# 다른 산출물이 '만들 대상'인 경우만 제외한다. 콘티·대본·영상·합본은 배경음악의 '참고 소스'로도
+# 흔히 언급되므로(예: '대본·콘티 읽고 그 회차에 맞는 배경음악') 여기 넣지 않는다 — 순수 이미지
+# 생성 대상(스틸컷/스토리보드)만 가드. (배경음악 부정 요청은 _BGM_NEG_RE가 따로 잡는다.)
+_BGM_OTHER_TARGET_RE = re.compile(r"스틸\s*컷|스토리보드")
 _BGM_DURATION_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(분|초)")
+# 회차 대본/콘티 내용에 맞춰 만들라는 신호 — 있으면 그 화 콘티를 읽어 분위기를 LLM으로 뽑는다.
+_BGM_FROM_EPISODE_RE = re.compile(r"대본|콘티|회차\s*내용|내용에\s*맞|어울리|이\s*화|스토리|줄거리|화\s*내용|회차에\s*맞|읽어")
+
+
+def _bgm_mood_from_conti(conti: str) -> str:
+    """드라마 회차 콘티/대본 텍스트 → 그 회차에 맞는 인스트루멘탈 배경음악 분위기 한 문장(영어)."""
+    sys_p = ("You are a film score supervisor. Read the given Korean drama episode script/storyboard "
+             "and describe, in ONE English sentence (<=40 words), the instrumental background music that "
+             "best fits the episode's overall mood — specify genre, key instruments, tempo, and emotion. "
+             "No vocals, instrumental only.")
+    try:
+        out = generator.complete(sys_p, (conti or "")[:6000], timeout=60)
+        out = (out or "").strip()
+        return out if len(out) >= 4 else ""
+    except Exception:
+        log.exception("회차 콘티 기반 배경음악 분위기 추출 실패")
+        return ""
 _BGM_VERB_RE = re.compile(r"만들어줘|만들어|만들|생성해줘|생성|뽑아줘|뽑아|뽑|깔아줘|깔아|깔|제작해줘|제작|해줘|주세요|줘")
 _BGM_DEFAULT_SEC = 30.0
 _BGM_MAX_SEC = 180.0
@@ -7166,8 +7186,23 @@ def _maybe_generate_bgm_request(channel, thread_ts, query) -> bool:
         return False
     if _BGM_NEG_RE.search(q) or _BGM_OTHER_TARGET_RE.search(q):
         return False   # '배경음악 빼줘' / '배경음악 필요없고 스틸컷 만들어줘' 등은 제외
-    work, _bible, _tail, _msgs = _resolve_work_bible(channel, thread_ts, q)
+    work, _bible, _tail, msgs = _resolve_work_bible(channel, thread_ts, q)
     mood, seconds = _bgm_mood_and_seconds(query, work)
+    # ★2026-07-22 '그 회차 대본/콘티 내용에 맞는' 요청 → 그 화 콘티를 읽어 분위기를 뽑는다.
+    if _BGM_FROM_EPISODE_RE.search(q):
+        epm = re.search(r"(\d+)\s*[화회]", q)
+        episode = int(epm.group(1)) if epm else (conti_state.get_episode(thread_ts) or {}).get("episode")
+        if work and episode:
+            conti = _thread_or_saved_conti(channel, thread_ts, msgs, work, episode,
+                                           announce=False, prefer_notion=True)
+            if conti:
+                derived = _bgm_mood_from_conti(conti)
+                if derived:
+                    mood = derived
+            else:
+                _reply(channel, thread_ts,
+                       f"⚠️ <{work}> {episode}화 콘티를 노션에서 못 찾아 회차 내용은 반영 못 하고 "
+                       f"작품 전체 톤으로 만들게요. (콘티를 만든 뒤 [💾 노션에 저장]했는지 확인해주세요.)")
     return _do_generate_bgm(channel, thread_ts, work, mood, seconds)
 
 
