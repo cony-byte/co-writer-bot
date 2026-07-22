@@ -2723,10 +2723,13 @@ def _post_still_buttons(channel, thread_ts, work, scene_num, title, rest, grid_p
 _PENDING_CUT_CONTI_FIX: dict[str, dict] = {}   # thread_ts -> {work, scene_num, episode, cuts}
 
 
+_PENDING_CUT_PICK: dict[str, dict] = {}   # 컷 선택 드롭다운 ts -> {work, scene_num, episode, cuts}
+
+
 @app.action("edit_cut_conti")
 def _act_edit_cut_conti(ack, body):
-    """[📝 콘티 수정하기] — 그 컷의 콘티만 이미지 잘 나오게 다시 쓰기. 어느 컷·어떻게를 물은 뒤
-    다음 발화로 받는다(_maybe_cut_conti_fix_reply, 라우터 앞 게이트라 양 백엔드 공통)."""
+    """[📝 콘티 수정하기] — 스틸컷이 여러 컷이면 '어느 컷?'을 드롭다운으로 먼저 고르게 한다
+    (모든 컷을 건드리지 않고 고른 컷만 수정). 컷이 하나면 바로 '어떻게?'로 넘어간다."""
     ack()
     ch, tts = _action_ctx(body)
     p = _PENDING_STILL.get(body["message"]["ts"])   # peek(확정/재생성 버튼 계속 쓸 수 있게 pop 안 함)
@@ -2734,27 +2737,66 @@ def _act_edit_cut_conti(ack, body):
         _reply(ch, tts, "⚠️ 어느 스틸컷인지 정보가 만료됐어요(봇 재시작 등) — 스틸컷을 다시 만든 뒤 눌러주세요.")
         return
     ep = (conti_state.get_episode(tts) or {}).get("episode")
+    cuts = [c for c in (p.get("cuts") or []) if isinstance(c, dict) and c.get("n") is not None]
+    if len(cuts) > 1:
+        opts = [{"text": {"type": "plain_text", "text": f"컷{c['n']}"}, "value": str(c["n"])}
+                for c in sorted(cuts, key=lambda c: c["n"])]
+        text = f"📝 씬{p['scene_num']} — 어느 컷의 콘티를 고칠까요? (고른 그 컷만 수정, 나머지 컷은 그대로)"
+        resp = app.client.chat_postMessage(
+            channel=ch, thread_ts=tts, text=text,
+            blocks=_with_text_block(text, [{"type": "actions", "elements": [
+                {"type": "static_select", "placeholder": {"type": "plain_text", "text": "컷 선택"},
+                 "action_id": "edit_cut_conti_pick", "options": opts}]}]))
+        _PENDING_CUT_PICK[resp["ts"]] = {"work": p["work"], "scene_num": p["scene_num"],
+                                         "episode": ep, "cuts": cuts}
+        return
+    # 컷이 하나(또는 미상) → 바로 '어떻게?'
+    cut = cuts[0]["n"] if cuts else None
     _PENDING_CUT_CONTI_FIX[tts] = {"work": p["work"], "scene_num": p["scene_num"],
-                                   "episode": ep, "cuts": p.get("cuts") or []}
+                                   "episode": ep, "cuts": p.get("cuts") or [], "cut": cut}
+    label = f"컷{cut} " if cut else ""
     _reply(ch, tts,
-           f"📝 씬{p['scene_num']}의 어느 컷을, 어떻게 바꿀까요? 예: `2컷 — 두 사람이 더 가까이 서게` / "
-           "`1컷 — 그래프가 급락하는 게 확실히 보이게`.\n(그 컷의 콘티만 이미지가 잘 나오게 다시 "
-           "써요 — 사건·대사·다른 컷은 절대 안 건드려요.)")
+           f"📝 씬{p['scene_num']} {label}콘티를 어떻게 바꿀까요? 예: `두 사람이 더 가까이 서게` / "
+           "`그래프가 급락하는 게 확실히 보이게`.\n(그 컷 콘티만 이미지가 잘 나오게 다시 써요 — "
+           "사건·대사·다른 컷은 절대 안 건드려요.)")
+
+
+@app.action("edit_cut_conti_pick")
+def _act_edit_cut_conti_pick(ack, body):
+    """컷 선택 드롭다운 → 그 컷 고정 후 '어떻게?'를 물음."""
+    ack()
+    ch, tts = _action_ctx(body)
+    p = _PENDING_CUT_PICK.pop(body["message"]["ts"], None)
+    if not p:
+        _disable_buttons(body, "⚠️ 만료된 요청이에요 — [📝 콘티 수정하기]를 다시 눌러주세요.")
+        return
+    try:
+        cut = int(body["actions"][0]["selected_option"]["value"])
+    except Exception:
+        _disable_buttons(body, "⚠️ 선택값을 못 읽었어요 — 다시 시도해주세요.")
+        return
+    _disable_buttons(body, f"✅ 씬{p['scene_num']} 컷{cut} 선택됨")
+    _PENDING_CUT_CONTI_FIX[tts] = {"work": p["work"], "scene_num": p["scene_num"],
+                                   "episode": p["episode"], "cuts": p["cuts"], "cut": cut}
+    _reply(ch, tts,
+           f"📝 씬{p['scene_num']} 컷{cut}을 어떻게 바꿀까요? 예: `두 사람이 더 가까이 서게` / "
+           "`그래프가 급락하는 게 확실히 보이게`.\n(이 컷 콘티만 다시 써요 — 사건·대사·다른 컷은 그대로.)")
 
 
 def _maybe_cut_conti_fix_reply(channel, thread_ts, query) -> bool:
-    """[📝 콘티 수정하기] 뒤 '2컷 — 이렇게' 답변 캡처(라우터 앞에서 호출). 대기 없으면 False."""
+    """[📝 콘티 수정하기] 뒤 '어떻게?' 답변 캡처(라우터 앞에서 호출). 대기 없으면 False.
+    드롭다운으로 이미 컷을 골랐으면(p['cut']) 그 컷을 쓰고 발화 전체를 의도로 본다."""
     p = _PENDING_CUT_CONTI_FIX.get(thread_ts)
     if not p:
         return False
     q = (query or "").strip()
-    m = re.search(r"컷\s*(\d{1,2})|(\d{1,2})\s*컷", q) or re.match(r"\s*(\d{1,2})", q)
-    if m:
-        cut = int(next(g for g in m.groups() if g))
-    elif len(p.get("cuts") or []) == 1 and isinstance(p["cuts"][0], dict):
-        cut = p["cuts"][0]["n"]                     # 그 씬에 컷이 하나면 그걸로
-    else:
-        cut = None
+    cut = p.get("cut")
+    if cut is None:   # 드롭다운 안 거친 경로(컷 하나 등) — 발화에서 컷 파싱
+        m = re.search(r"컷\s*(\d{1,2})|(\d{1,2})\s*컷", q) or re.match(r"\s*(\d{1,2})", q)
+        if m:
+            cut = int(next(g for g in m.groups() if g))
+        elif len(p.get("cuts") or []) == 1 and isinstance(p["cuts"][0], dict):
+            cut = p["cuts"][0]["n"]
     if cut is None:
         _reply(channel, thread_ts, "몇 컷인지 알려주세요 — 예: `2컷 — 더 가까이`.")
         return True   # 대기 유지(다음 답을 기다림)
