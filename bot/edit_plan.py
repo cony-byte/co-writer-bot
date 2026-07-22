@@ -82,6 +82,49 @@ def _probe_duration(path: str) -> float:
         return 0.0
 
 
+# ★2026-07-22 대사 컷은 이제 seedance generate_audio=True로 실제 발화 음성이 들어있다
+# (config.OPENROUTER_VIDEO_GENERATE_AUDIO, _cut_has_dialogue). 그래서 "대사가 언제 끝나는지"를
+# 클립 소리에서 직접 검출해(ffmpeg silencedetect) 발화가 끝난 뒤의 정적 꼬리만 잘라낼 수 있다 —
+# 발화 구간은 절대 건드리지 않으므로 대사가 중간에 끊길 위험이 없다. 오디오 스트림이 아예 없는
+# 컷(무음 생성분)은 silencedetect가 아무것도 못 잡아 None을 반환 → 기존 로직으로 폴백.
+_SILENCE_NOISE_DB = "-30dB"   # 이보다 조용하면 '정적'으로 간주
+_SILENCE_MIN_DUR = 0.5        # 이 길이(초) 이상 이어지는 정적만 정적으로 인정(호흡·짧은 사이 보존)
+_SPEECH_TAIL_PAD = 0.4        # 마지막 발화 끝 뒤 이만큼(초)은 남겨 자름(여운·호흡 보존)
+_SILENCE_START_RE = re.compile(r"silence_start:\s*(-?\d+(?:\.\d+)?)")
+_SILENCE_END_RE = re.compile(r"silence_end:\s*(-?\d+(?:\.\d+)?)")
+
+
+def _last_speech_end(path: str, total_dur: float) -> float | None:
+    """클립 오디오에서 '마지막 발화가 끝나는 시각(초)'을 검출한다. 클립이 끝에서 정적으로
+    끝나면 그 정적 시작 지점(=마지막 발화 끝)을, 발화로 끝나거나(끝 정적 없음) 오디오가 아예
+    없으면 None을 반환. None이면 호출자는 꼬리 트림을 하지 않는다(기존 동작 유지)."""
+    if total_dur <= 0:
+        return None
+    try:
+        out = subprocess.run(
+            [config.FFMPEG_BIN, "-i", path, "-vn",
+             "-af", f"silencedetect=noise={_SILENCE_NOISE_DB}:d={_SILENCE_MIN_DUR}",
+             "-f", "null", "-"],
+            capture_output=True, text=True, timeout=30,
+        )
+    except Exception:
+        log.exception(f"silencedetect 실패(꼬리 트림 생략): {path}")
+        return None
+    txt = out.stderr or ""   # ffmpeg는 로그를 stderr로 낸다
+    starts = [float(m) for m in _SILENCE_START_RE.findall(txt)]
+    ends = [float(m) for m in _SILENCE_END_RE.findall(txt)]
+    if not starts:
+        return None   # 정적 구간 자체가 없음 → 끝까지 발화/앰비언트 → 트림 안 함
+    last_start = max(0.0, starts[-1])
+    # 마지막 정적 구간이 파일 끝(EOF)까지 이어질 때만 '끝 정적'으로 본다:
+    #  (a) start만 있고 대응 end가 없으면(EOF까지 정적), 또는 (b) 마지막 end가 총길이에 근접.
+    if len(ends) < len(starts):
+        return last_start
+    if ends and ends[-1] >= total_dur - 0.15:
+        return last_start
+    return None   # 클립이 발화로 끝남 → 자를 꼬리 정적 없음
+
+
 def _norm(s: str) -> str:
     return unicodedata.normalize("NFC", re.sub(r"\s+", "", s or ""))
 
@@ -157,7 +200,18 @@ def _build_rough_plan(scenes: list[tuple], videos_with_dur: dict[int, list[dict]
             duration = v["duration"]
             iv = intended.get(v["cut_num"])
             has_dialogue = i < len(beat_texts) and bool(_BEAT_QUOTE_RE.search(beat_texts[i]))
-            if iv is not None and duration - iv > 0.3 and not has_dialogue:
+            # ★2026-07-22 음성 기반 꼬리 트림 — 클립 소리에서 마지막 발화 끝을 검출해, 그 뒤의
+            # 정적 꼬리만 잘라낸다(발화 구간은 절대 안 건드림). 오디오 없는 컷은 None → 폴백.
+            speech_end = _last_speech_end(v["path"], v["duration"])
+            if speech_end is not None:
+                trimmed = speech_end + _SPEECH_TAIL_PAD
+                floor = iv if iv is not None else 0.0   # 콘티 의도 길이 밑으로는 안 자름(안전)
+                new_dur = min(v["duration"], max(trimmed, floor))
+                if v["duration"] - new_dur > 0.3:
+                    log.info(f"러프 플랜 — 씬{num} 컷{v['cut_num']} 발화 끝 {speech_end:.1f}s "
+                             f"뒤 정적 꼬리 트림: {v['duration']:.1f}s → {new_dur:.1f}s")
+                    duration = new_dur
+            elif iv is not None and duration - iv > 0.3 and not has_dialogue:
                 duration = iv
             out.append({"scene_num": num, "cut_num": v["cut_num"], "video_path": v["path"],
                        "start": 0.0, "duration": duration, "narration_text": None,
