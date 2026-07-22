@@ -627,7 +627,8 @@ def _thread_conti(channel, thread_ts, msgs, episode=None):
             return m["content"]                              # 폴백: 옛 스레드/짧은 콘티(본문만)
     return ""
 
-def _thread_or_saved_conti(channel, thread_ts, msgs, work, episode, announce: bool = True):
+def _thread_or_saved_conti(channel, thread_ts, msgs, work, episode, announce: bool = True,
+                           prefer_notion: bool = False):
     """스레드에 콘티가 없어도, 그 작품·화의 상세 콘티가 이미 로컬/노션에 저장돼 있으면
     가져와서 스레드에 반영한다 — 새 스레드에서 [스틸컷]/[이미지]를 바로 요청했을 때 "콘티가
     없다"고 오판해 1단계(씬설계)부터 새로 돌려버리던 문제(2026-07-14, 실무자 지적:
@@ -637,6 +638,16 @@ def _thread_or_saved_conti(channel, thread_ts, msgs, work, episode, announce: bo
     사용자가 그 콘티를 보고 수정할 수도 있는 흐름에 적합). False면 조용히 conti_state만
     갱신하고 텍스트를 반환만 한다(2026-07-14, "노션에 있으면 확인만 하면 되는데 왜 통째로
     또 올라오냐" 지적 — [합본]처럼 이미 확정된 콘티를 그냥 갖다 쓰기만 하는 흐름에 씀)."""
+    # ★2026-07-22: 스틸컷/이미지 생성은 '노션 = 최종 기준'으로 통일(사용자 요청). 노션에서 고친
+    # 콘티가 실시간 반영되려면, 스레드에 남은 옛 콘티 전문보다 노션 최신본을 우선 fetch해야 한다
+    # (기존엔 스레드에 콘티가 있으면 그걸 써서 노션 편집이 무시됐다). 노션에 그 화 콘티가 없을
+    # 때만 스레드로 폴백. announce=False(조용히 사용)라 노션 것을 스레드에 다시 올리진 않는다.
+    if prefer_notion and work:
+        content, _src = _fetch_external_conti(work, episode)
+        if content:
+            conti_state.set_episode(thread_ts, work, episode, human_final=True)
+            return content
+        return _thread_conti(channel, thread_ts, msgs, episode=episode) or None
     conti = _thread_conti(channel, thread_ts, msgs, episode=episode)
     if conti or not work:
         return conti
@@ -2489,7 +2500,9 @@ def _do_images(channel, thread_ts, rest, feedback=None):
     episode = int(epm.group(1)) if epm else (conti_state.get_episode(thread_ts) or {}).get("episode")
     # 콘티를 사용자에게 "보여주는" 요청이 아니라 이미지 렌더링을 진행하기 위해 텍스트만 가져오는
     # 내부 조회다 — announce=True로 두면 매 [이미지] 호출마다 노션 토글을 불필요하게 재기록/재아카이브함
-    conti = _thread_or_saved_conti(channel, thread_ts, msgs, work, episode, announce=False)
+    # ★2026-07-22 prefer_notion: 노션 최신본 우선(노션 편집 실시간 반영, 노션 없을 때만 스레드 폴백)
+    conti = _thread_or_saved_conti(channel, thread_ts, msgs, work, episode, announce=False,
+                                   prefer_notion=True)
     if not conti:
         _reply(channel, thread_ts, "먼저 `[스토리보드] <작품>`로 씬 설계·상세 콘티를 만든 뒤, 이 스레드에서 `[이미지]`를 쳐주세요.")
         return
@@ -3579,7 +3592,9 @@ def _do_stills(channel, thread_ts, rest, feedback=None, ref_data_url=None, ref_d
         conti_state.set_episode(thread_ts, work, episode)
     # 콘티를 사용자에게 "보여주는" 요청이 아니라 스틸컷 렌더링을 진행하기 위해 텍스트만 가져오는
     # 내부 조회다 — announce=True로 두면 매 [스틸컷] 호출마다 노션 토글을 불필요하게 재기록/재아카이브함
-    conti = _thread_or_saved_conti(channel, thread_ts, msgs, work, episode, announce=False)
+    # ★2026-07-22 prefer_notion: 노션 최신본 우선(노션 편집 실시간 반영, 노션 없을 때만 스레드 폴백)
+    conti = _thread_or_saved_conti(channel, thread_ts, msgs, work, episode, announce=False,
+                                   prefer_notion=True)
     if not conti:
         # ★2026-07-22: 절차 설명("먼저 [스토리보드]…") 대신 이유 + 다음 행동 버튼. 스틸컷은 콘티
         # (그 씬에 뭐가 나오는지)를 기준으로 그리므로 콘티가 먼저 필요하다. echo로 '이해했다'고
