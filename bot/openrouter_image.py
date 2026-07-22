@@ -940,6 +940,21 @@ def _shot_mentions(work: str | None, shot: dict) -> list[str]:
                 m for m in mentions
                 if _nfc(str(m)).strip() == focus_n or not _is_person(m)
             ]
+            # ★2026-07-22 의상 오염 방지(실측: "김신우 위주 컷인데 김신우가 이영 의상으로 나옴")
+            # — focus(위주) 샷에서 non-focus 인물 전용 의상 참조가 focus 인물에게 입혀지는 사고.
+            # 의상 이름이 focus가 아닌 다른 '등장 인물' 이름을 포함하면(그 인물 전용 의상) 제외한다.
+            # 어깨만 보이는 걸침 인물의 의상보다 위주 인물이 제 옷을 입는 게 훨씬 중요. 캐릭터
+            # 이름이 안 붙은 일반 의상(연습복-A 등)은 소유자를 알 수 없어 안전하게 둔다.
+            others = [o for c in (shot.get("characters") or [])
+                      if (o := _nfc(str(c)).strip()) and o != focus_n]
+            if others:
+                def _is_other_costume(nm: str) -> bool:
+                    e = resolve_element(work, nm)
+                    if not e or e.get("type") != "costume":
+                        return False
+                    names = _nfc(" ".join(_element_names(e)))
+                    return focus_n not in names and any(o in names for o in others)
+                mentions = [m for m in mentions if not _is_other_costume(m)]
     # ★2026-07-15: 얼굴 참조 사진에 찍힌 원래 옷차림이 별도 의상 참조보다 우선시되는 사고
     # 실측(사용자 리포트: "잠옷" 의상을 등록했는데 인물 참조 사진 속 정장 차림으로 계속 나옴)
     # — 참조 이미지 순서에 민감한 생성기 특성(위 focus_char 설명과 동일 근거)을 활용해,
