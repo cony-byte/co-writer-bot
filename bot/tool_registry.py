@@ -179,11 +179,15 @@ def _sb(name: str, args: dict, ctx) -> None:
         # ★2026-07-21 실사용 사고: "씬5, 씬6 영상화"를 모델이 씬별 두 호출로 나눴는데 여기서
         # scene/cuts 인자를 버리고 instruction 원문만 넘겨서, 실행부가 텍스트에서 첫 씬(씬5)만
         # 두 번 파싱 — 씬6 호출까지 "씬5 확정 저장 안 됨" 경고가 중복으로 나갔다.
+        # ★2026-07-22: 그리드→영상 경로 — 스틸이 없어 스틸부터 만들 때, 첨부한 그리드 이미지를
+        # 스틸 생성의 구도 참조로 넘긴다(있으면 첫 이미지).
+        _grid_refs = _image_data_urls_in_order(ctx)
         ok = sb._do_video_from_last_still(channel, thread_ts,
                                           args.get("instruction") or "영상으로 만들어줘",
                                           work=args.get("work"),
                                           scene=args.get("scene"),
-                                          cut_nums=args.get("cuts"))
+                                          cut_nums=args.get("cuts"),
+                                          ref_data_url=(_grid_refs[0] if _grid_refs else None))
         if not ok:
             raise ValueError("영상화할 스틸컷을 찾지 못했습니다")
     elif name == "compile_episode":

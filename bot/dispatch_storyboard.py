@@ -5623,7 +5623,34 @@ def _maybe_video_from_last_still(channel, thread_ts, query) -> bool:
     return _do_video_from_last_still(channel, thread_ts, query)
 
 
-def _do_video_from_last_still(channel, thread_ts, query, work=None, scene=None, cut_nums=None) -> bool:
+_PENDING_STILL_THEN_VIDEO: dict[str, dict] = {}   # 카드 ts -> {work,scene,episode,cut_nums,ref_data_url}
+_PENDING_VIDEO_AFTER_STILL: dict[str, dict] = {}  # thread_ts -> {work,scene,cut_nums} — 확정 후 자동 영상화
+
+
+@app.action("still_then_video")
+def _act_still_then_video(ack, body):
+    """[▶️ 스틸컷부터 만들고 이어서 영상화] — 스틸을 만들고, 확정되면 그 씬 영상화까지 자동으로."""
+    ack()
+    ch, tts = _action_ctx(body)
+    p = _PENDING_STILL_THEN_VIDEO.pop(body["message"]["ts"], None)
+    if not p:
+        _disable_buttons(body, "⚠️ 만료된 요청이에요 — 다시 요청해주세요.")
+        return
+    _disable_buttons(body, "▶️ 스틸컷부터 만들게요 — 「✅ 확정 저장」하면 이어서 영상화할게요…")
+    # 확정 후 자동 영상화 예약(스레드 단위). still_confirm이 이 예약을 보고 이어간다.
+    _PENDING_VIDEO_AFTER_STILL[tts] = {"work": p["work"], "scene": p["scene"],
+                                       "cut_nums": p.get("cut_nums")}
+    _do_stills(ch, tts, f"{p['work']} 씬{p['scene']}".strip(), ref_data_url=p.get("ref_data_url"))
+
+
+@app.action("still_then_video_cancel")
+def _act_still_then_video_cancel(ack, body):
+    ack()
+    _disable_buttons(body, "취소했어요 — 아무것도 안 만들었어요.")
+
+
+def _do_video_from_last_still(channel, thread_ts, query, work=None, scene=None, cut_nums=None,
+                              ref_data_url=None) -> bool:
     """_maybe_video_from_last_still의 실행부(★2026-07-21 작업2, 트리거 판정과 분리) —
     라우터가 intent=video를 이미 확정했을 때 _VIDEO_FROM_STILL_RE 재심사 없이 바로 진입.
     work을 이미 알면(라우터가 확정) 아래 재탐색을 건너뛴다(★2026-07-21 후속 — 이 함수만
@@ -5690,15 +5717,24 @@ def _do_video_from_last_still(channel, thread_ts, query, work=None, scene=None, 
     episode = (conti_state.get_episode(thread_ts) or {}).get("episode")
     cuts = vp_store.load_latest_cuts(work, scene_num, episode=episode)
     if not cuts:
-        # ★2026-07-21 로드맵14/16: 막다른 안내 대신 스틸을 자동 생성해 이어준다 — 콘티만 있고
-        # 스틸을 확정 저장한 적 없는 씬을 영상화 요청하면(라이브 "7씬 첫 컷 영상화" 실패), 그
-        # 씬 스틸컷을 바로 만들어 확정 카드를 띄운다. 「✅ 확정 저장」하면 기존 흐름대로 영상화
-        # 드롭다운으로 이어진다 — 확정 게이트는 비용 안전상 유지(자동으로 영상까지 밀지 않음).
-        # (콘티/프로젝트가 아예 없으면 _do_stills가 자체적으로 안내하고 멈춘다.)
-        _reply(channel, thread_ts,
-              f"🎬 <{work}> 씬{scene_num}은 아직 컷별 스틸이 확정 저장돼 있지 않아, 먼저 스틸컷을 "
-              "만들어 드릴게요 — 뜬 카드에서 「✅ 확정 저장」을 누르면 영상화로 이어집니다.")
-        _do_stills(channel, thread_ts, f"{work} 씬{scene_num}".strip())
+        # ★2026-07-22: 아키텍처 설명("그리드는 미리보기용…") 대신 '다음 행동' 버튼 카드.
+        # 스틸이 없으면 → [스틸컷부터 만들고 이어서 영상화] 승인 시 스틸 생성 → 확정 →
+        # 그 씬 영상화까지 자동으로 이어간다(_PENDING_VIDEO_AFTER_STILL). 첨부 그리드가 있으면
+        # 스틸 생성의 구도 참조로 전달. (콘티/프로젝트가 없으면 _do_stills가 자체 안내.)
+        cut_txt = (f"컷{','.join(map(str, sorted(int(n) for n in cut_nums)))} "
+                   if cut_nums else "")
+        text = (f"🎬 영상을 만들려면 씬{scene_num}의 {cut_txt}스틸컷이 먼저 필요해요 "
+                "(아직 저장된 스틸컷이 없어요). 스틸컷부터 만들고 이어서 영상화할까요?")
+        resp = app.client.chat_postMessage(
+            channel=channel, thread_ts=thread_ts, text=text,
+            blocks=_with_text_block(text, [{"type": "actions", "elements": [
+                {"type": "button", "text": {"type": "plain_text", "text": "▶️ 스틸컷부터 만들고 이어서 영상화"},
+                 "style": "primary", "action_id": "still_then_video"},
+                {"type": "button", "text": {"type": "plain_text", "text": "취소"},
+                 "action_id": "still_then_video_cancel"}]}]))
+        _PENDING_STILL_THEN_VIDEO[resp["ts"]] = {
+            "work": work, "scene": scene_num, "episode": episode,
+            "cut_nums": list(cut_nums) if cut_nums else None, "ref_data_url": ref_data_url}
         return True
     title = f"스틸컷 씬{scene_num}" if scene_num else "스틸컷"
     # ★2026-07-21: 라우터가 확정한 컷 목록 — 텍스트 컷 파싱(범위/콤마/단일)보다 우선.
@@ -6112,7 +6148,18 @@ def _act_still_confirm(ack, body):
     if rel:
         _disable_buttons(body, f"✅ 확정 저장됨 — <{p['work']}> 프로젝트의 `{rel}` 폴더에 컷별로 저장됐어요")
         still_state.set_confirmed(tts, p["work"], p["scene_num"], p["rest"])
-        _post_video_button(ch, tts, p)
+        # ★2026-07-22: '스틸컷부터 만들고 이어서 영상화' 예약이 이 씬이면, 드롭다운 대신 바로
+        # 영상화까지 자동으로 이어간다(그리드→영상 요청의 자동 체이닝 완성).
+        pv = _PENDING_VIDEO_AFTER_STILL.pop(tts, None)
+        if pv and pv.get("scene") == p["scene_num"]:
+            _reply(ch, tts, f"✅ 스틸컷 확정 — 이어서 씬{p['scene_num']} 영상화를 시작할게요…")
+            threading.Thread(
+                target=lambda: _do_video_from_last_still(
+                    ch, tts, f"{pv['work']} 씬{pv['scene']}".strip(),
+                    work=pv["work"], scene=pv["scene"], cut_nums=pv.get("cut_nums")),
+                daemon=True).start()
+        else:
+            _post_video_button(ch, tts, p)
     else:
         _disable_buttons(body, "⚠️ 저장에 실패했어요.")
 
