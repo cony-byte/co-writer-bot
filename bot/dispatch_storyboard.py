@@ -87,6 +87,8 @@ CMD_REF = {"참조", "레퍼런스", "캐릭터", "얼굴", "인물참조", "ref
 CMD_CONTI_FINAL = {"콘티확정", "콘티반영", "최종콘티", "콘티최종"}
 
 CMD_COMPILE = {"합본", "합본만들기", "compile"}
+# ★2026-07-22 CapCut 내보내기는 아직 실험 단계라 자연어 인식은 빼고 [페이컷] 명령으로만 실행.
+CMD_CAPCUT = {"페이컷", "캡컷", "capcut", "cap cut"}
 
 CMD_RESET_EPISODE = {"화초기화", "출력초기화", "아웃풋초기화", "output초기화", "reset"}
 
@@ -7210,8 +7212,13 @@ def _maybe_generate_bgm_request(channel, thread_ts, query) -> bool:
 # ★2026-07-22 CapCut(캡컷) 프로젝트로 내보내기 — 이 회차 생성 영상들을 순서대로 얹은 CapCut
 # 드래프트를 만들어 미디어까지 zip으로 올린다(자동 합본과 별개, 일방향 정밀 편집용 핸드오프).
 # ============================================================================
-_CAPCUT_REQUEST_RE = re.compile(r"(캡\s*컷|capcut|cap\s*cut).{0,10}?(내보|export|프로젝트|draft|드래프트|만들|저장|넘겨|추출)",
-                                re.I | re.S)
+def _do_capcut_cmd(channel, thread_ts, rest) -> None:
+    """[페이컷] <작품> [N화] — 그 회차 생성 영상을 CapCut 프로젝트(zip)로 내보낸다.
+    실험 단계라 자연어 인식 없이 이 브래킷 명령으로만 실행한다(★2026-07-22)."""
+    work, _bible, tail, _msgs = _resolve_work_bible(channel, thread_ts, rest)
+    epm = re.search(r"(\d+)\s*[화회]", tail or (rest or ""))
+    episode = int(epm.group(1)) if epm else None
+    _do_export_capcut(channel, thread_ts, work, episode)
 
 
 def _do_export_capcut(channel, thread_ts, work, episode) -> bool:
@@ -7260,17 +7267,6 @@ def _do_export_capcut(channel, thread_ts, work, episode) -> bool:
         _update_note(channel, ph, "⚠️ 내보내기 실패", clear=True)
         _reply(channel, thread_ts, "⚠️ CapCut 내보내기 중 오류가 났어요. 로그를 확인할게요.")
     return True
-
-
-def _maybe_export_capcut_request(channel, thread_ts, query) -> bool:
-    """'저연프 1화 캡컷으로 내보내줘'류 → CapCut 프로젝트 zip 생성(양 백엔드 공통 게이트)."""
-    q = query or ""
-    if not _CAPCUT_REQUEST_RE.search(q):
-        return False
-    work, _bible, _tail, _msgs = _resolve_work_bible(channel, thread_ts, q)
-    epm = re.search(r"(\d+)\s*[화회]", q)
-    episode = int(epm.group(1)) if epm else None
-    return _do_export_capcut(channel, thread_ts, work, episode)
 
 
 @app.action("bg_change_conti")
