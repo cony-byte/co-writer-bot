@@ -7087,8 +7087,13 @@ def _maybe_stillcut_change_request(channel, thread_ts, query) -> bool:
 # ★2026-07-22 배경음악만 따로 생성 — 합본과 무관하게 mp3 하나를 뽑아 올린다(간단 기능).
 # "배경음악 만들어줘 [분위기] [N초]" 같은 요청을 결정적 게이트로 잡는다.
 # ============================================================================
-_BGM_REQUEST_RE = re.compile(r"(배경\s*음악|브금|bgm).{0,6}?(만들|생성|뽑|깔|제작)", re.I | re.S)
-_BGM_NEG_RE = re.compile(r"필요\s*없|없이|말고|빼|끄|off")
+# 트리거: '배경음악/브금/bgm'이 있고 만들-계열 동사가 있으며, 부정어도 없고 다른 산출물(스틸컷/
+# 영상/합본/콘티…)이 대상도 아닐 때. 분위기 설명이 길어 트리거어와 동사가 떨어져 있어도 잡히게
+# 근접(gap) 조건은 쓰지 않는다(★2026-07-22 '밝고 가벼운 분위기로 …만들어줘' 사례).
+_BGM_HAS_RE = re.compile(r"배경\s*음악|브금|bgm", re.I)
+_BGM_MAKE_RE = re.compile(r"만들|생성|뽑|깔|제작")
+_BGM_NEG_RE = re.compile(r"필요\s*없|없이|말고|빼|끄|off", re.I)
+_BGM_OTHER_TARGET_RE = re.compile(r"스틸\s*컷|이미지|영상|동영상|비디오|합본|콘티|스토리보드|대본|씬\s*설계")
 _BGM_DURATION_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(분|초)")
 _BGM_VERB_RE = re.compile(r"만들어줘|만들어|만들|생성해줘|생성|뽑아줘|뽑아|뽑|깔아줘|깔아|깔|제작해줘|제작|해줘|주세요|줘")
 _BGM_DEFAULT_SEC = 30.0
@@ -7099,11 +7104,14 @@ def _bgm_mood_and_seconds(query: str, work: str | None) -> tuple[str, float]:
     """요청문에서 곡 길이(초)와 분위기 텍스트를 뽑는다. 길이 없으면 기본 30초, 분위기 없으면
     작품 바이블 힌트(_work_mood_hint)로 폴백."""
     q = query or ""
-    seconds = _BGM_DEFAULT_SEC
-    dm = _BGM_DURATION_RE.search(q)
-    if dm:
-        val = float(dm.group(1))
-        seconds = min(_BGM_MAX_SEC, val * 60 if dm.group(2) == "분" else val)
+    # '2분 30초'처럼 분·초가 같이 오면 합산한다(★2026-07-22). 하나만 오면 그것만.
+    total = 0.0
+    found = False
+    for m in _BGM_DURATION_RE.finditer(q):
+        found = True
+        val = float(m.group(1))
+        total += val * 60 if m.group(2) == "분" else val
+    seconds = min(_BGM_MAX_SEC, total) if (found and total > 0) else _BGM_DEFAULT_SEC
     # 분위기 텍스트: 트리거어(배경음악/브금/bgm)·길이·명령동사·작품태그를 걷어낸 나머지 자유문
     mood = re.sub(r"배경\s*음악|브금|bgm", " ", q, flags=re.I)
     mood = _BGM_DURATION_RE.sub(" ", mood)
@@ -7111,8 +7119,10 @@ def _bgm_mood_and_seconds(query: str, work: str | None) -> tuple[str, float]:
     mood = mood.replace("<", " ").replace(">", " ")
     if work:
         mood = re.sub(re.escape(work), " ", mood)
-    mood = re.sub(r"분위기|느낌|스타일|으로|같은|풍|좀|그냥|이거|하나", " ", mood)
-    mood = re.sub(r"\s+", " ", mood).strip()
+    mood = re.sub(r"분위기|느낌|스타일|으로|같은|풍|좀|그냥|이거|하나|정도", " ", mood)
+    # 남은 조사성 토큰(로/으로/의/을/를…) 제거 — '분위기로'→'로', '정도로'→'로' 찌꺼기 정리.
+    _PARTICLES = {"로", "으로", "의", "을", "를", "이", "가", "은", "는", "도", "와", "과", "에"}
+    mood = " ".join(t for t in mood.split() if t not in _PARTICLES).strip()
     if len(mood) < 2:
         mood = _work_mood_hint(work)
     return mood, seconds
@@ -7151,9 +7161,12 @@ def _do_generate_bgm(channel, thread_ts, work, mood_text, seconds) -> bool:
 
 def _maybe_generate_bgm_request(channel, thread_ts, query) -> bool:
     """'배경음악 만들어줘 …'류 → 배경음악만 따로 생성(양 백엔드 공통 결정적 게이트)."""
-    if not _BGM_REQUEST_RE.search(query or "") or _BGM_NEG_RE.search(query or ""):
+    q = query or ""
+    if not (_BGM_HAS_RE.search(q) and _BGM_MAKE_RE.search(q)):
         return False
-    work, _bible, _tail, _msgs = _resolve_work_bible(channel, thread_ts, query)
+    if _BGM_NEG_RE.search(q) or _BGM_OTHER_TARGET_RE.search(q):
+        return False   # '배경음악 빼줘' / '배경음악 필요없고 스틸컷 만들어줘' 등은 제외
+    work, _bible, _tail, _msgs = _resolve_work_bible(channel, thread_ts, q)
     mood, seconds = _bgm_mood_and_seconds(query, work)
     return _do_generate_bgm(channel, thread_ts, work, mood, seconds)
 
