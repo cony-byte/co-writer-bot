@@ -85,7 +85,7 @@ _KNOWN_BRACKET_CMDS = {c.lower() for c in (
     | cw.CMD_IDEA | cw.CMD_SYNC | cw.CMD_CHECK | cw.CMD_ALIAS | cw.CMD_FEEDBACK | cw.CMD_FB_FUN
     | cw.CMD_FB_LOGIC | cw.CMD_FILE | cw.CMD_REF | cw.CMD_REFRESH | cw.CMD_RELOAD | cw.CMD_HELP
     | sb.CMD_STORYBOARD_ALL | sb.CMD_IMG | sb.CMD_STILL | sb.CMD_CONTI_FINAL | sb.CMD_COMPILE
-    | sb.CMD_CAPCUT | sb.CMD_RESET_EPISODE | sb.CMD_AUTOPILOT | sb.CMD_EPISODE_STATUS | sb.CMD_STYLE)}
+    | sb.CMD_CAPCUT | sb.CMD_CAPCUT_EDIT | sb.CMD_RESET_EPISODE | sb.CMD_AUTOPILOT | sb.CMD_EPISODE_STATUS | sb.CMD_STYLE)}
 
 def _promote_bracket_command(q: str) -> "str | None":
     """맨 앞이 아닌 곳에 있는 알려진 명령 브래킷([피드백] 등)을 맨 앞으로 옮긴 새 문자열 반환
@@ -104,7 +104,7 @@ def _promote_bracket_command(q: str) -> "str | None":
 # and dispatch.py is where both bots' vocabularies are already in scope together.
 _ALL_CMD_NAMES = sorted(set(cw._ALL_CMD_NAMES) | sb.CMD_STORYBOARD_ALL | sb.CMD_IMG | sb.CMD_STILL
                         | sb.CMD_FILE | sb.CMD_REF | sb.CMD_CONTI_FINAL | sb.CMD_COMPILE
-                        | sb.CMD_CAPCUT | sb.CMD_RESET_EPISODE | sb.CMD_AUTOPILOT | sb.CMD_EPISODE_STATUS
+                        | sb.CMD_CAPCUT | sb.CMD_CAPCUT_EDIT | sb.CMD_RESET_EPISODE | sb.CMD_AUTOPILOT | sb.CMD_EPISODE_STATUS
                         | sb.CMD_STYLE)
 
 
@@ -644,6 +644,8 @@ def _dispatch_bracket_command(channel: str, thread_ts: str, query: str, event: d
         sb._do_conti_final(channel, thread_ts, rest, event)
     elif cmd in sb.CMD_COMPILE:
         sb._do_compile(channel, thread_ts, rest_f)
+    elif cmd in sb.CMD_CAPCUT_EDIT:
+        sb._do_capcut_edit_cmd(channel, thread_ts, rest_f, event)
     elif cmd in sb.CMD_CAPCUT:
         sb._do_capcut_cmd(channel, thread_ts, rest_f)
     elif cmd in sb.CMD_RESET_EPISODE:

@@ -89,6 +89,8 @@ CMD_CONTI_FINAL = {"콘티확정", "콘티반영", "최종콘티", "콘티최종
 CMD_COMPILE = {"합본", "합본만들기", "compile"}
 # ★2026-07-22 CapCut 내보내기는 아직 실험 단계라 자연어 인식은 빼고 [페이컷] 명령으로만 실행.
 CMD_CAPCUT = {"페이컷", "캡컷", "capcut", "cap cut"}
+# ★2026-07-22 업로드된 CapCut draft를 자연어로 편집(PoC) — [페이컷편집] <지시> + draft 첨부.
+CMD_CAPCUT_EDIT = {"페이컷편집", "캡컷편집", "capcutedit", "cap cut edit", "페이컷 편집", "캡컷 편집"}
 
 CMD_RESET_EPISODE = {"화초기화", "출력초기화", "아웃풋초기화", "output초기화", "reset"}
 
@@ -7359,6 +7361,85 @@ def _do_capcut_cmd(channel, thread_ts, rest) -> None:
     epm = re.search(r"(\d+)\s*[화회]", tail or (rest or ""))
     episode = int(epm.group(1)) if epm else None
     _do_export_capcut(channel, thread_ts, work, episode)
+
+
+_CAPCUT_EDIT_SYS = (
+    "너는 CapCut 편집 지시를 JSON 연산으로 바꾸는 변환기다. 현재 컷 목록(index/name/dur_s/speed)과 "
+    "사용자 지시를 보고, 지시한 편집만 연산 배열로 출력해라. 지원 연산(이것만):\n"
+    '- {"op":"reorder","order":[새 순서의 원본 index 배열]}\n'
+    '- {"op":"drop","index":N}\n'
+    '- {"op":"trim","index":N,"duration_s":초}\n'
+    '- {"op":"speed","index":N,"speed":배속(0.5~2.0)}\n'
+    '- {"op":"transition","after_index":N,"name":"트랜지션이름","duration_s":초}\n'
+    "  (transition name은 다음 중 하나로: Cube_Rotate, Cubic_Flip, Flip_Page, Flash, White_Flash, "
+    "Flip_Zoom, Big_Wave, Film_Burn. 한글 요청은 그대로 넣어도 됨 — 큐브/회전→Cube_Rotate 등 매핑됨.)\n"
+    "규칙: index는 '현재 컷 목록'의 index 그대로. 지시 안 한 컷은 건드리지 마라. '두번째 컷'=index 1. "
+    "여러 편집이면 배열에 여러 개. 설명·코드펜스 없이 JSON 배열만 출력."
+)
+
+
+def _capcut_edit_ops(view, instruction):
+    user = ("[현재 컷 목록]\n" + json.dumps(view, ensure_ascii=False)
+            + f"\n\n[편집 지시]\n{instruction}")
+    ans = generator.complete(_CAPCUT_EDIT_SYS, user, timeout=90, model=config.COMPILE_EDIT_MODEL)
+    t = re.sub(r"^```(?:json)?\s*|\s*```$", "", (ans or "").strip(), flags=re.S).strip()
+    ops = json.loads(t)
+    return ops if isinstance(ops, list) else []
+
+
+def _do_capcut_edit_cmd(channel, thread_ts, rest, event) -> None:
+    """[페이컷편집] <지시> + draft(zip 또는 draft_content.json) 첨부 → 편집해 돌려준다(PoC).
+    지원: 순서/제거/길이/배속/트랜지션. draft는 평문 JSON이라 직접 편집한다."""
+    from bot import capcut_edit
+    if not capcut_edit.available():
+        _reply(channel, thread_ts, "CapCut 편집 모듈(pyCapCut)이 설치돼 있지 않아요 — 봇 관리자에게 문의해주세요.")
+        return
+    instr = (rest or "").strip()
+    if not instr:
+        _reply(channel, thread_ts, "어떻게 편집할지 지시를 적어주세요 — 예: `[페이컷편집] 3컷 빼고 1컷 2배속, 1·2컷 사이 큐브회전`.")
+        return
+    files = (event or {}).get("files") or []
+    df = next((f for f in files if (f.get("name") or "").lower().endswith((".zip", ".json"))), None)
+    if not df:
+        _reply(channel, thread_ts, "편집할 CapCut draft를 첨부해주세요 — `draft_content.json` 또는 draft 폴더 zip.")
+        return
+    url = df.get("url_private_download") or df.get("url_private")
+    try:
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {config.SLACK_BOT_TOKEN}"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            data = r.read()
+    except Exception:
+        log.exception("draft 첨부 다운로드 실패")
+        _reply(channel, thread_ts, "draft 파일을 내려받지 못했어요 — 다시 첨부해주세요.")
+        return
+    st = capcut_edit.read_draft(data, df.get("name", ""))
+    if not st or not st.get("content"):
+        _reply(channel, thread_ts, "draft를 읽지 못했어요 — CapCut draft(zip 또는 draft_content.json)가 맞는지 확인해주세요.")
+        return
+    view = capcut_edit.segment_view(st["content"])
+    if not view:
+        _reply(channel, thread_ts, "이 draft에서 비디오 컷을 찾지 못했어요.")
+        return
+    ph = _thinking(channel, thread_ts, f"✂️ CapCut draft 편집 중… ({len(view)}컷)")
+    try:
+        ops = _capcut_edit_ops(view, instr)
+    except Exception:
+        log.exception("CapCut 편집 지시 파싱 실패")
+        _update_note(channel, ph, "⚠️ 편집 지시 해석 실패", clear=True)
+        _reply(channel, thread_ts, f"'{instr}' 편집 지시를 이해하지 못했어요 — 더 구체적으로: '3컷 빼줘', '1컷 2배속', '1·2컷 사이 페이드'.")
+        return
+    if not ops:
+        _update_note(channel, ph, "적용할 편집 없음", clear=True)
+        _reply(channel, thread_ts, "적용할 편집을 못 찾았어요 — 지시를 다시 확인해주세요.")
+        return
+    logs = capcut_edit.apply_ops(st["content"], ops)
+    out, fn = capcut_edit.write_draft(st)
+    _update_note(channel, ph, "✅ CapCut draft 편집 완료", clear=True)
+    app.client.files_upload_v2(
+        channel=channel, thread_ts=thread_ts, file=out, filename=fn,
+        title="편집된 CapCut draft",
+        initial_comment=("✂️ 편집 완료 — " + " / ".join(logs) + "\n"
+                         "이 파일로 CapCut의 `draft_content.json`을 교체하면 반영돼요."))
 
 
 def _do_export_capcut(channel, thread_ts, work, episode) -> bool:
