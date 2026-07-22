@@ -422,6 +422,15 @@ def _handle_dispatch(event: dict) -> None:
         log.info("route=deterministic:compile_edit")
         return
 
+    # ★2026-07-22 '씬N 배경 바꾸고 싶어'류 모호 요청은 추측 실행 대신 선택 카드를 띄운다(양 백엔드
+    # 공통). 먼저 '어떤 배경?' 답변 대기가 있으면 그걸 잡고(재트리거 방지), 없으면 새 요청을 잡는다.
+    if sb._maybe_bg_regen_ask_reply(channel, thread_ts, query):
+        log.info("route=deterministic:bg_regen_reply")
+        return
+    if sb._maybe_background_change_request(channel, thread_ts, query):
+        log.info("route=deterministic:bg_change")
+        return
+
 
     # 레거시 pending matcher는 "응/네/그걸로" 같은 자연어를 실행 승인으로 소비한다.
     # Native router가 켜진 동안에는 절대 호출하지 않고, 정확한 pending_id가 담긴 Slack

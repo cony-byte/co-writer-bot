@@ -6945,6 +6945,100 @@ def _maybe_compile_edit_reply(channel, thread_ts, query) -> bool:
                  p["videos_by_scene"], feedback=q, base_plan=p["plan"])
     return True
 
+
+# ============================================================================
+# ★2026-07-22 "씬N 배경 자체를 바꾸고 싶어"류 모호 요청 — 봇이 콘티 수정으로 단정하고 실행하다
+# 중단하던 실사용자 버그. 이런 요청은 (1)콘티의 배경 '설정' 변경인지 (2)스틸컷에 나온 배경만
+# 다시 만들고 싶은지 둘로 갈려서, 추측하지 말고 선택지를 준다. (2)를 고르면 원하는 배경을
+# 물어보고 반드시 그 의견을 반영해 씬 전체를 재생성한다(재생성 feedback = 최우선 오버라이드).
+# ============================================================================
+_PENDING_BG_CHANGE: dict[str, dict] = {}       # 선택 카드 ts -> {work, scene, episode}
+_PENDING_BG_REGEN_ASK: dict[str, dict] = {}    # thread_ts -> {work, scene, episode} (어떤 배경? 대기)
+
+_BG_WORD_RE = re.compile(r"배경(?!\s*음악)|장소|로케이션|세트장?|무대|공간")
+_BG_CHANGE_VERB_RE = re.compile(r"바[꾸꿔]|변경|교체|갈아|바꿀|다시\s*만들|새\s*배경|다른\s*(배경|곳|장소)")
+
+
+def _maybe_bg_regen_ask_reply(channel, thread_ts, query) -> bool:
+    """[씬N 전체 재생성] 뒤 '어떤 배경으로?' 자유 답변을 잡아, 그 배경으로 씬 전체를 재생성."""
+    if thread_ts not in _PENDING_BG_REGEN_ASK or not (query or "").strip():
+        return False
+    if _LIST_WORKS_RE.search(query) or _THREAD_STATUS_RE.search(query) or _STOP_RE.match(query):
+        return False
+    p = _PENDING_BG_REGEN_ASK.pop(thread_ts)
+    q = query.strip()
+    _reply(channel, thread_ts, f"🎬 씬{p['scene']} 배경을 '{q}'로 바꿔서 전체 다시 만들게요…")
+    ep = f" {p['episode']}화" if p.get("episode") else ""
+    fb = (f"이 컷의 배경/장소를 다음으로 바꿔라(인물·의상·구도·행동·표정은 그대로 유지, "
+          f"배경만 교체): {q}")
+    _do_stills(channel, thread_ts, f"{p['work']}{ep} 씬{p['scene']}".strip(), feedback=fb)
+    return True
+
+
+def _maybe_background_change_request(channel, thread_ts, query) -> bool:
+    """'씬N 배경(을) 바꾸고 싶어'류 모호 요청 → 두 갈래 선택 카드를 띄운다(추측 실행 금지).
+    '콘티'가 명시됐거나(콘티 수정 의도 분명) 배경음악 얘기면 여기서 안 잡고 라우터로 넘긴다."""
+    q = query or ""
+    if thread_ts in _PENDING_BG_REGEN_ASK:      # '어떤 배경?' 답변 대기 중이면 여기서 안 잡음
+        return False
+    if not (_BG_WORD_RE.search(q) and _BG_CHANGE_VERB_RE.search(q)):
+        return False
+    if "콘티" in q or re.search(r"음악|bgm|brgm", q, re.I):   # 콘티 명시/배경음악은 제외
+        return False
+    sm = re.search(r"씬\s*(\d+)", q) or re.search(r"(\d+)\s*씬", q)
+    if not sm:
+        return False
+    scene = int(sm.group(1))
+    work, _bible, _tail, _msgs = _resolve_work_bible(channel, thread_ts, q)
+    if not work:
+        return False   # 작품을 특정 못 하면 라우터로 넘긴다(엉뚱한 카드 방지)
+    episode = (conti_state.get_episode(thread_ts) or {}).get("episode")
+    text = (f"'씬{scene} 배경을 바꾸고 싶다'고 이해했어요 — 두 가지 중 어느 쪽일까요?\n\n"
+            f"1️⃣ *콘티의 배경 설정 자체*를 바꾸고 싶으신가요?\n"
+            f"    → 콘티에서 직접 고치시거나, 저를 불러 `씬{scene} 콘티 배경을 …로 바꿔줘`라고 하시면 "
+            f"콘티를 수정해드려요(그 뒤 스틸컷/영상에 반영돼요).\n\n"
+            f"2️⃣ *스틸컷에 나온 배경*만 다시 만들고 싶으신가요?\n"
+            f"    → 아래 [씬{scene} 전체 재생성]을 누르고 원하는 배경을 알려주시면, 그 배경으로 "
+            f"씬{scene} 전체를 다시 만들어요(인물·의상·구도는 유지).")
+    resp = app.client.chat_postMessage(
+        channel=channel, thread_ts=thread_ts, text=text,
+        blocks=_with_text_block(text, [{"type": "actions", "elements": [
+            {"type": "button", "text": {"type": "plain_text", "text": f"🎬 씬{scene} 전체 재생성"},
+             "style": "primary", "action_id": "bg_change_regen"},
+            {"type": "button", "text": {"type": "plain_text", "text": "📝 콘티 배경 수정"},
+             "action_id": "bg_change_conti"},
+        ]}]))
+    _PENDING_BG_CHANGE[resp["ts"]] = {"work": work, "scene": scene, "episode": episode}
+    return True
+
+
+@app.action("bg_change_conti")
+def _act_bg_change_conti(ack, body):
+    ack()
+    ch, tts = _action_ctx(body)
+    p = _PENDING_BG_CHANGE.pop(body["message"]["ts"], None)
+    scene = p["scene"] if p else None
+    sc = f"씬{scene} " if scene else ""
+    _disable_buttons(body,
+        f"📝 콘티의 {sc}배경 설정을 바꾸려면 — 노션 콘티에서 그 씬의 배경 묘사를 직접 고치시거나, "
+        f"저에게 `{sc}콘티 배경을 …로 바꿔줘`라고 말씀해주세요. 콘티가 바뀌면 그다음 스틸컷/영상 "
+        f"생성부터 반영돼요.")
+
+
+@app.action("bg_change_regen")
+def _act_bg_change_regen(ack, body):
+    ack()
+    ch, tts = _action_ctx(body)
+    p = _PENDING_BG_CHANGE.pop(body["message"]["ts"], None)
+    if not p:
+        _disable_buttons(body, "⚠️ 만료된 요청이에요(봇 재시작 등) — 다시 요청해주세요."); return
+    _disable_buttons(body, f"🎬 씬{p['scene']} 전체 재생성 — 어떤 배경으로 바꿀지 알려주세요 ↓")
+    _PENDING_BG_REGEN_ASK[tts] = {"work": p["work"], "scene": p["scene"], "episode": p["episode"]}
+    _reply(ch, tts, f"씬{p['scene']}을 *어떤 배경*으로 바꿀까요? 예: '비 오는 밤 골목', "
+                    f"'햇살 드는 카페 창가', '눈 쌓인 한옥 마당'. 말씀해주시면 그 배경으로 "
+                    f"씬{p['scene']} 전체를 다시 만들게요(인물·의상·구도는 그대로).")
+
+
 @app.action("compile_confirm_final")
 def _act_compile_confirm_final(ack, body):
     ack()
