@@ -2993,10 +2993,50 @@ def _post_generated_video(channel, thread_ts, work, title, num, local_path, cost
             channel=channel, thread_ts=thread_ts, file=local_path,
             filename=f"{_work_safe_name(work)}_{title.replace(' ', '')}_컷{num}.mp4",
             initial_comment=f"✅ 영상 생성 완료 — <{work}> {title} 컷{num}{cost_s}")
+        # ★2026-07-22 영상까지 보고 나서도 "이 컷 콘티가 이상하다" 싶으면 바로 고칠 수 있게
+        # [📝 콘티 수정하기] 버튼 제공 — 그 컷 콘티만 이미지 잘 나오게 다시 쓰고 스틸컷 재생성.
+        _post_video_edit_button(channel, thread_ts, work, title, num)
     else:
         app.client.chat_postMessage(
             channel=channel, thread_ts=thread_ts,
             text=f"⚠️ 영상 생성은 완료됐지만 로컬 다운로드에 실패해 슬랙에 못 올렸어요 — <{work}> {title} 컷{num}. 재생성해주세요.")
+
+
+_PENDING_VIDEO_CONTI: dict[str, dict] = {}   # 영상 뒤 콘티수정 버튼 ts -> {work, scene, cut}
+
+
+def _post_video_edit_button(channel, thread_ts, work, title, num):
+    """영상 완료 메시지 뒤에 그 컷을 겨냥한 [📝 콘티 수정하기] 버튼 카드를 붙인다(★2026-07-22).
+    영상은 컷이 확정돼 있으므로 컷 선택 드롭다운 없이 바로 그 컷 콘티만 다시 쓰고 재생성한다."""
+    m = re.search(r"씬\s*(\d+)", title or "")
+    scene = int(m.group(1)) if m else None
+    if scene is None or num is None:
+        return   # 씬·컷을 특정 못 하면 버튼 안 붙임(엉뚱한 컷 수정 방지)
+    text = (f"🎬 이 영상(씬{scene} 컷{num})이 콘티 의도랑 다르게 나왔나요? "
+            "[📝 콘티 수정하기]를 누르면 그 컷 콘티만 이미지 잘 나오게 *알아서* 다시 쓰고 "
+            "스틸컷을 재생성해요 — 사건·대사·다른 컷은 그대로예요.")
+    resp = app.client.chat_postMessage(
+        channel=channel, thread_ts=thread_ts, text=text,
+        blocks=_with_text_block(text, [{"type": "actions", "elements": [
+            {"type": "button", "text": {"type": "plain_text", "text": "📝 콘티 수정하기"},
+             "action_id": "edit_cut_conti_video"}]}]))
+    _PENDING_VIDEO_CONTI[resp["ts"]] = {"work": work, "scene": scene, "cut": num}
+
+
+@app.action("edit_cut_conti_video")
+def _act_edit_cut_conti_video(ack, body):
+    """영상 뒤 [📝 콘티 수정하기] — 컷이 확정돼 있어 바로 그 컷을 자동 수정한다."""
+    ack()
+    ch, tts = _action_ctx(body)
+    p = _PENDING_VIDEO_CONTI.pop(body["message"]["ts"], None)
+    if not p:
+        _disable_buttons(body, "⚠️ 어느 컷인지 정보가 만료됐어요(봇 재시작 등) — 스틸컷을 다시 만든 뒤 눌러주세요.")
+        return
+    ep = (conti_state.get_episode(tts) or {}).get("episode")
+    _disable_buttons(body, f"✅ 씬{p['scene']} 컷{p['cut']} — 콘티를 이미지 잘 나오게 다시 쓰고 재생성할게요…")
+    threading.Thread(
+        target=lambda: _do_cut_conti_fix(ch, tts, p["work"], ep, p["scene"], p["cut"]),
+        daemon=True).start()
 
 def _generate_video_for_cut(channel, thread_ts, work, title, cut, num, scene_seconds,
                             post_confirm_buttons: bool = True,
