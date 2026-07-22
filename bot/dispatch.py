@@ -416,11 +416,6 @@ def _handle_dispatch(event: dict) -> None:
         sb._do_text_stop(channel, thread_ts)
         return
 
-    # ★2026-07-22 [📝 콘티 수정하기] 뒤 '2컷 — 이렇게' 답변 캡처(라우터 앞이라 양 백엔드 공통).
-    # 대기 중일 때만 소비 — 그 컷 콘티만 이미지 잘 나오게 다시 쓰고 재생성한다.
-    if sb._maybe_cut_conti_fix_reply(channel, thread_ts, query):
-        log.info("route=deterministic:cut_conti_fix")
-        return
 
     # 레거시 pending matcher는 "응/네/그걸로" 같은 자연어를 실행 승인으로 소비한다.
     # Native router가 켜진 동안에는 절대 호출하지 않고, 정확한 pending_id가 담긴 Slack

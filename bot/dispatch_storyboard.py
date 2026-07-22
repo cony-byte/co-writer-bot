@@ -2710,8 +2710,10 @@ def _post_still_buttons(channel, thread_ts, work, scene_num, title, rest, grid_p
     # 헷갈림" 실사용자 불만 → 버튼 카드에 title(컷 범위 포함)을 노출해 위 그리드와 시각적으로 묶는다.
     label = title[:40] if title and len(title) > 40 else title
     text = (f"'{label}' — 확정하면 이 작품의 visual-pipeline 프로젝트에 저장돼요.\n"
-            "🖼️ 스틸컷이 콘티랑 아예 다르게 나왔나요? [📝 콘티 수정하기]로 그 컷 콘티만 "
-            "이미지가 잘 나오게 다시 써드려요(사건·대사·다른 컷은 그대로).")
+            "🖼️ *스틸컷이 원하던 것과 아예 다르게 나왔나요?* (인물이 빠졌거나 엉뚱하게 들어갔거나, "
+            "화면·구도가 콘티랑 딴판이거나) → [📝 콘티 수정하기]를 누르면(여러 컷이면 어느 컷인지만 "
+            "고르면) 그 컷 콘티를 이미지가 잘 나오게 *알아서* 다시 쓰고 재생성해요 — 사건·대사·다른 "
+            "컷은 그대로예요.")
     resp = app.client.chat_postMessage(
         channel=channel, thread_ts=thread_ts,
         text=text, blocks=_with_text_block(text, _still_buttons_blocks()))
@@ -2720,7 +2722,6 @@ def _post_still_buttons(channel, thread_ts, work, scene_num, title, rest, grid_p
     _PENDING_STILL[resp["ts"]] = entry
     still_state.set_last(thread_ts, work, scene_num, rest)   # 재시작에도 남는 영구 기록
 
-_PENDING_CUT_CONTI_FIX: dict[str, dict] = {}   # thread_ts -> {work, scene_num, episode, cuts}
 
 
 _PENDING_CUT_PICK: dict[str, dict] = {}   # 컷 선택 드롭다운 ts -> {work, scene_num, episode, cuts}
@@ -2750,20 +2751,19 @@ def _act_edit_cut_conti(ack, body):
         _PENDING_CUT_PICK[resp["ts"]] = {"work": p["work"], "scene_num": p["scene_num"],
                                          "episode": ep, "cuts": cuts}
         return
-    # 컷이 하나(또는 미상) → 바로 '어떻게?'
+    # 컷이 하나(또는 미상) → 바로 자동 수정(어떻게?를 안 묻고 알아서 이미지-친화적으로 고침)
     cut = cuts[0]["n"] if cuts else None
-    _PENDING_CUT_CONTI_FIX[tts] = {"work": p["work"], "scene_num": p["scene_num"],
-                                   "episode": ep, "cuts": p.get("cuts") or [], "cut": cut}
-    label = f"컷{cut} " if cut else ""
-    _reply(ch, tts,
-           f"📝 씬{p['scene_num']} {label}콘티를 어떻게 바꿀까요? 예: `두 사람이 더 가까이 서게` / "
-           "`그래프가 급락하는 게 확실히 보이게`.\n(그 컷 콘티만 이미지가 잘 나오게 다시 써요 — "
-           "사건·대사·다른 컷은 절대 안 건드려요.)")
+    if cut is None:
+        _reply(ch, tts, "이 스틸컷의 컷 정보를 못 찾았어요 — 스틸컷을 다시 만든 뒤 눌러주세요.")
+        return
+    threading.Thread(
+        target=lambda: _do_cut_conti_fix(ch, tts, p["work"], ep, p["scene_num"], cut),
+        daemon=True).start()
 
 
 @app.action("edit_cut_conti_pick")
 def _act_edit_cut_conti_pick(ack, body):
-    """컷 선택 드롭다운 → 그 컷 고정 후 '어떻게?'를 물음."""
+    """컷 선택 드롭다운 → 그 컷을 바로 자동 수정(추가 질문 없음)."""
     ack()
     ch, tts = _action_ctx(body)
     p = _PENDING_CUT_PICK.pop(body["message"]["ts"], None)
@@ -2775,39 +2775,17 @@ def _act_edit_cut_conti_pick(ack, body):
     except Exception:
         _disable_buttons(body, "⚠️ 선택값을 못 읽었어요 — 다시 시도해주세요.")
         return
-    _disable_buttons(body, f"✅ 씬{p['scene_num']} 컷{cut} 선택됨")
-    _PENDING_CUT_CONTI_FIX[tts] = {"work": p["work"], "scene_num": p["scene_num"],
-                                   "episode": p["episode"], "cuts": p["cuts"], "cut": cut}
-    _reply(ch, tts,
-           f"📝 씬{p['scene_num']} 컷{cut}을 어떻게 바꿀까요? 예: `두 사람이 더 가까이 서게` / "
-           "`그래프가 급락하는 게 확실히 보이게`.\n(이 컷 콘티만 다시 써요 — 사건·대사·다른 컷은 그대로.)")
+    _disable_buttons(body, f"✅ 씬{p['scene_num']} 컷{cut} — 콘티를 이미지 잘 나오게 다시 쓰고 재생성할게요…")
+    threading.Thread(
+        target=lambda: _do_cut_conti_fix(ch, tts, p["work"], p["episode"], p["scene_num"], cut),
+        daemon=True).start()
 
 
-def _maybe_cut_conti_fix_reply(channel, thread_ts, query) -> bool:
-    """[📝 콘티 수정하기] 뒤 '어떻게?' 답변 캡처(라우터 앞에서 호출). 대기 없으면 False.
-    드롭다운으로 이미 컷을 골랐으면(p['cut']) 그 컷을 쓰고 발화 전체를 의도로 본다."""
-    p = _PENDING_CUT_CONTI_FIX.get(thread_ts)
-    if not p:
-        return False
-    q = (query or "").strip()
-    cut = p.get("cut")
-    if cut is None:   # 드롭다운 안 거친 경로(컷 하나 등) — 발화에서 컷 파싱
-        m = re.search(r"컷\s*(\d{1,2})|(\d{1,2})\s*컷", q) or re.match(r"\s*(\d{1,2})", q)
-        if m:
-            cut = int(next(g for g in m.groups() if g))
-        elif len(p.get("cuts") or []) == 1 and isinstance(p["cuts"][0], dict):
-            cut = p["cuts"][0]["n"]
-    if cut is None:
-        _reply(channel, thread_ts, "몇 컷인지 알려주세요 — 예: `2컷 — 더 가까이`.")
-        return True   # 대기 유지(다음 답을 기다림)
-    _PENDING_CUT_CONTI_FIX.pop(thread_ts, None)
-    _do_cut_conti_fix(channel, thread_ts, p["work"], p["episode"], p["scene_num"], cut, q)
-    return True
-
-
-def _do_cut_conti_fix(channel, thread_ts, work, episode, scene, cut, intent) -> bool:
+def _do_cut_conti_fix(channel, thread_ts, work, episode, scene, cut, intent=None) -> bool:
     """특정 컷의 콘티만 이미지 생성 모델 친화적으로 다시 쓰고(사건·대사·다른 컷 불변) 그 컷을
-    재생성한다(★2026-07-22). 콘티 원문의 다른 씬/컷은 절대 건드리지 않는다."""
+    재생성한다(★2026-07-22). 콘티 원문의 다른 씬/컷은 절대 건드리지 않는다.
+    intent가 없으면(버튼만 눌러 '알아서 고쳐줘') 의도와 다르게 나올 만한 애매·오해 표현을
+    스스로 찾아 명확화한다."""
     episode = episode or (conti_state.get_episode(thread_ts) or {}).get("episode")
     conti = _thread_or_saved_conti(channel, thread_ts, _thread_messages(channel, thread_ts),
                                    work, episode, announce=False, prefer_notion=True)
@@ -2828,11 +2806,20 @@ def _do_cut_conti_fix(channel, thread_ts, work, episode, scene, cut, intent) -> 
     beat_text = body[b_start:b_end].strip()
     ph = _thinking(channel, thread_ts, f"📝 씬{scene} 컷{cut} 콘티를 이미지 잘 나오게 다시 쓰는 중…")
     sys_p = "너는 K-드라마 상세 콘티를 이미지 생성 모델이 정확히 그릴 수 있게 다듬는 편집자다."
-    user_p = (f"[다시 쓸 컷 콘티]\n{beat_text}\n\n[사용자 의도]\n{intent}\n\n"
-              "이 컷 하나만 다시 써라. 반드시 지켜라: (1) 사건·행동·대사·등장인물·의상은 절대 바꾸지 "
-              "마라. (2) 카메라/구도/자세/시각 묘사만, 이미지 생성 모델이 정확히 그릴 수 있게 더 "
-              "구체적·명확하게(모호·추상 표현 제거, 화면에 보이는 것 중심). (3) 사용자 의도를 반영. "
-              "(4) 맨 앞을 원래처럼 '[N초]'로 시작하고 초수는 그대로. (5) 머리말·설명 없이 그 컷 "
+    intent_block = (f"[사용자 의도]\n{intent}\n\n" if (intent or "").strip() else "")
+    auto_hint = ("" if intent_block else
+                 "사용자가 특별한 요청 없이 '이미지가 콘티랑 아예 다르게 나왔으니 알아서 고쳐줘'라고 했다. "
+                 "그러니 이 컷이 이미지 생성 모델에서 의도와 다르게 나올 만한 애매·오해 소지 표현을 "
+                 "네가 찾아 고쳐라 — 자주 나오는 함정: (a) 화면 밖(off/V.O.) 인물을 대상에 넣음, "
+                 "(b) 모니터·화면으로 '보는' 장면인데 화면 속 인물을 직접 샷으로 씀(→ 보는 사람 OTS로), "
+                 "(c) 그래픽/UI 인서트에 인물이 끼어듦, (d) 읽어야만 뜻이 통하는 한글 문구 의존, "
+                 "(e) 모호·추상 표현. 화면에 실제 보이는 것 중심으로 구체화해라. ")
+    user_p = (f"[다시 쓸 컷 콘티]\n{beat_text}\n\n{intent_block}"
+              f"{auto_hint}이 컷 하나만 다시 써라. 반드시 지켜라: (1) 사건·행동·대사·등장인물·의상은 "
+              "절대 바꾸지 마라. (2) 카메라/구도/자세/시각 묘사만, 이미지 생성 모델이 정확히 그릴 수 "
+              "있게 더 구체적·명확하게. "
+              + ("(3) 사용자 의도를 반영. " if intent_block else "")
+              + "(4) 맨 앞을 원래처럼 '[N초]'로 시작하고 초수는 그대로. (5) 머리말·설명 없이 그 컷 "
               "본문만 출력.")
     try:
         new_beat = generator.complete(sys_p, user_p, timeout=config.AGENT_TIMEOUT, job_key=thread_ts).strip()
