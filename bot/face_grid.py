@@ -91,11 +91,28 @@ def detect_face_box(png_bytes: bytes):
     return box, detected
 
 
+def _heuristic_boxes_pil(png_bytes: bytes):
+    """★2026-07-22: ultralytics/opencv가 배포 서버에 없을 때를 대비한 의존성 없는 폴백.
+    PIL만으로 이미지 크기를 읽어 얼굴이 있을 법한 상단 중앙 영역을 넉넉히 덮는 박스를 만든다
+    (세로 9:16 인물 스틸컷 기준). 감지가 아니라 휴리스틱이라 완벽하진 않지만, YOLO/cv2 미설치로
+    폴백이 아예 no-op이 돼 안전필터를 못 피하던 것보다 훨씬 낫다."""
+    from PIL import Image
+    W, H = Image.open(io.BytesIO(png_bytes)).size
+    w = int(W * 0.72); h = int(H * 0.42)
+    return [((W - w) // 2, int(H * 0.06), w, h)]
+
+
 def overlay_grid(png_bytes: bytes) -> bytes:
-    """감지된 얼굴 영역마다(다중 인물 포함) 빨간 불투명 박스로 완전히 덮은 PNG bytes 반환."""
+    """감지된 얼굴 영역마다(다중 인물 포함) 빨간 불투명 박스로 완전히 덮은 PNG bytes 반환.
+    YOLO/opencv 감지가 (미설치·오류로) 실패하면 PIL 전용 휴리스틱 박스로 폴백해, 배포 상태와
+    무관하게 최소한의 얼굴 가림은 항상 되게 한다(★2026-07-22)."""
     from PIL import Image, ImageDraw
 
-    boxes, detected = detect_face_boxes(png_bytes)
+    try:
+        boxes, detected = detect_face_boxes(png_bytes)
+    except Exception:
+        log.exception("face_grid 감지 실패(ultralytics/opencv 미설치·오류 등) — PIL 휴리스틱 폴백")
+        boxes = _heuristic_boxes_pil(png_bytes)
 
     base = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
     overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
