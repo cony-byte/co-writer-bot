@@ -445,6 +445,11 @@ def _handle_dispatch(event: dict) -> None:
         log.info("route=deterministic:bgm")
         return
 
+    # ★2026-07-22 인물 시트 분할 후 '누구 시트?' 답변(텍스트만) — 시트 등록 게이트보다 먼저.
+    if sb._maybe_character_sheet_name_reply(channel, thread_ts, query):
+        log.info("route=deterministic:sheet_name_reply")
+        return
+
 
 
     # 레거시 pending matcher는 "응/네/그걸로" 같은 자연어를 실행 승인으로 소비한다.
@@ -461,6 +466,12 @@ def _handle_dispatch(event: dict) -> None:
     # 파일 메타데이터 복구만 코드로 수행한다. 첨부의 의미(등록/교체/재생성)는
     # 자연어 라우터가 answer/action/clarify로 판단한다.
     nl_router.recover_event_files(channel, thread_ts, event, query_text=query)
+
+    # ★2026-07-22 인물 참조 시트(첨부) + '분할/시트' 의도 → 자동 분할해 인물 참조로 저장(양 백엔드
+    # 공통). 첨부가 필요해 recover_event_files 뒤에 둔다.
+    if sb._maybe_character_sheet_register(channel, thread_ts, query, event):
+        log.info("route=deterministic:sheet_register")
+        return
 
     # Native tool-calling router. The model chooses an allowed function directly;
     # schema/risk validation and confirmation are owned by code, not model output.

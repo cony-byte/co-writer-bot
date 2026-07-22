@@ -4748,6 +4748,110 @@ def _maybe_natural_ref(channel, thread_ts, query, event) -> bool:
     _post_ref_confirm(channel, thread_ts, work, etype, pairs)
     return True
 
+# ============================================================================
+# ★2026-07-22 인물 참조 시트 자동 분할 저장 — 정면/3-4/측면/뒷모습/표정/전신이 흰 배경에 여러
+# 컷으로 배치된 시트 한 장을 첨부하면, 자동으로 컷을 나눠 그 인물의 참조로 저장한다(전면=대표,
+# 나머지=보조). 이름이 메시지에 없으면 물어보고 다음 답변으로 받는다.
+# ============================================================================
+_PENDING_SHEET: dict[str, dict] = {}   # thread_ts -> {work, panels}
+_SHEET_RE = re.compile(
+    r"인물\s*시트|캐릭터\s*시트|캐릭\s*시트|턴어라운드|설정화|참조\s*시트|레퍼런스\s*시트|"
+    r"인물\s*참조\s*이미지|분할\s*해?\s*서?\s*저장|나눠서?\s*저장|분할\s*등록|쪼개서?\s*저장")
+
+
+def _sheet_name_from_query(q: str) -> str | None:
+    q = q or ""
+    m = re.search(r"<\s*([^>]+?)\s*>", q)
+    if m and not _looks_like_mention(m.group(1)):
+        return unicodedata.normalize("NFC", m.group(1)).strip() or None
+    # '하루 인물시트'/'하루 캐릭터시트'처럼 시트 키워드 바로 앞의 한글 이름(2~5자)도 잡는다.
+    m2 = re.search(r"([가-힣]{2,5})\s*(?:인물\s*시트|캐릭터\s*시트|캐릭\s*시트|턴어라운드|설정화|시트)", q)
+    if m2:
+        return unicodedata.normalize("NFC", m2.group(1)).strip() or None
+    return None
+
+
+def _save_character_sheet(channel, thread_ts, work, name, panels) -> None:
+    name = unicodedata.normalize("NFC", (name or "")).strip()
+    if not name:
+        _reply(channel, thread_ts, "이름을 못 읽었어요 — 누구 시트인지 이름을 다시 알려주세요.")
+        return
+    vpfx = oi.vp_fixed_dir(work)
+    if vpfx is None:
+        _reply(channel, thread_ts, f"<{work}> visual-pipeline 프로젝트 폴더를 못 찾아 저장할 수 없어요.")
+        return
+    elem = oi.register_element(work, name, "person", aliases=[name], clear_file=True)
+    pdir = vpfx / elem["id"]
+    pdir.mkdir(parents=True, exist_ok=True)
+    for old in list(pdir.iterdir()):
+        if old.is_file() and old.suffix.lower() in _REF_SAVE_EXTS:
+            old.unlink()
+    base = time.time()
+    saved = 0
+    for i, png in enumerate(panels):
+        fp = pdir / f"{uuid.uuid4().hex}.png"
+        fp.write_bytes(png)
+        os.utime(fp, (base + i, base + i))   # 전면(i=0)이 mtime 최소 → 대표 이미지로 선택됨
+        saved += 1
+    _reply(channel, thread_ts,
+           f"✅ '{name}' 인물 시트를 {saved}개 뷰로 나눠 <{work}>에 저장했어요 — 정면을 대표 참조로, "
+           f"나머지(3/4·측면·뒷모습·표정·전신 등)는 보조 참조로. 이제 스틸컷 생성 때 여러 각도가 참고돼요.")
+
+
+def _maybe_character_sheet_register(channel, thread_ts, query, event) -> bool:
+    """인물 참조 시트(첨부) + '분할/시트' 의도 → 자동 분할해 인물 참조로 저장. 이름 없으면 물어봄."""
+    imgs = _image_files(event)
+    if not imgs:
+        return False
+    q = query or ""
+    if not _SHEET_RE.search(q):
+        return False
+    from bot import refsheet_split
+    if not refsheet_split.available():
+        _reply(channel, thread_ts, "시트 자동 분할 기능이 아직 설정되지 않았어요 — 봇 관리자에게 문의해주세요.")
+        return True
+    # 작품 확인(꺾쇠 안이 실제 작품이면 우선, 아니면 스레드에서)
+    work = None
+    wm = re.search(r"<\s*([^>]+?)\s*>", q)
+    if wm and works.resolve(wm.group(1).strip()):
+        work = works.resolve(wm.group(1).strip())
+        q = (q[:wm.start()] + q[wm.end():]).strip()
+    if not work:
+        joined = "\n".join(mm["content"] for mm in _thread_messages(channel, thread_ts))
+        work = _work_from_thread(joined, thread_ts)
+    if not work:
+        _reply(channel, thread_ts, _WORK_NOT_FOUND_MSG)
+        return True
+    panels = refsheet_split.split_panels(imgs[0][2])
+    if len(panels) < 2:
+        _reply(channel, thread_ts,
+               "이 이미지에서 여러 컷을 자동으로 나누지 못했어요 — 컷들이 흰 배경에 나뉘어 있는 "
+               "시트인지 확인해 주세요. (한 인물 한 장이면 그냥 `<작품> 이름 이 사진으로 등록해줘`로 등록돼요.)")
+        return True
+    name = _sheet_name_from_query(q)
+    if not name:
+        _PENDING_SHEET[thread_ts] = {"work": work, "panels": panels}
+        _reply(channel, thread_ts,
+               f"인물 시트에서 {len(panels)}개 컷을 나눴어요(정면·3/4·측면·뒷모습·표정·전신 등). "
+               f"누구 시트인가요? 이름을 알려주세요 — 예: `하루`.")
+        return True
+    _save_character_sheet(channel, thread_ts, work, name, panels)
+    return True
+
+
+def _maybe_character_sheet_name_reply(channel, thread_ts, query) -> bool:
+    """시트 분할 후 '누구 시트?' 답변을 받아 그 이름으로 저장."""
+    if thread_ts not in _PENDING_SHEET or not (query or "").strip():
+        return False
+    if _LIST_WORKS_RE.search(query) or _THREAD_STATUS_RE.search(query) or _STOP_RE.match(query):
+        return False
+    p = _PENDING_SHEET.pop(thread_ts)
+    name = re.sub(r"[<>]", "", query.strip())
+    name = re.split(r"\s", name)[0] if name else name   # 첫 토큰만(이름)
+    _save_character_sheet(channel, thread_ts, p["work"], name, p["panels"])
+    return True
+
+
 _ORDERED_REF_RE = re.compile(r"등록")   # 아래 핸들러는 이미지+이름목록이 있을 때만 최종 판단
 
 def _maybe_ordered_ref(channel, thread_ts, query, event) -> bool:
