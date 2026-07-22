@@ -7083,6 +7083,81 @@ def _maybe_stillcut_change_request(channel, thread_ts, query) -> bool:
     return True
 
 
+# ============================================================================
+# ★2026-07-22 배경음악만 따로 생성 — 합본과 무관하게 mp3 하나를 뽑아 올린다(간단 기능).
+# "배경음악 만들어줘 [분위기] [N초]" 같은 요청을 결정적 게이트로 잡는다.
+# ============================================================================
+_BGM_REQUEST_RE = re.compile(r"(배경\s*음악|브금|bgm).{0,6}?(만들|생성|뽑|깔|제작)", re.I | re.S)
+_BGM_NEG_RE = re.compile(r"필요\s*없|없이|말고|빼|끄|off")
+_BGM_DURATION_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(분|초)")
+_BGM_VERB_RE = re.compile(r"만들어줘|만들어|만들|생성해줘|생성|뽑아줘|뽑아|뽑|깔아줘|깔아|깔|제작해줘|제작|해줘|주세요|줘")
+_BGM_DEFAULT_SEC = 30.0
+_BGM_MAX_SEC = 180.0
+
+
+def _bgm_mood_and_seconds(query: str, work: str | None) -> tuple[str, float]:
+    """요청문에서 곡 길이(초)와 분위기 텍스트를 뽑는다. 길이 없으면 기본 30초, 분위기 없으면
+    작품 바이블 힌트(_work_mood_hint)로 폴백."""
+    q = query or ""
+    seconds = _BGM_DEFAULT_SEC
+    dm = _BGM_DURATION_RE.search(q)
+    if dm:
+        val = float(dm.group(1))
+        seconds = min(_BGM_MAX_SEC, val * 60 if dm.group(2) == "분" else val)
+    # 분위기 텍스트: 트리거어(배경음악/브금/bgm)·길이·명령동사·작품태그를 걷어낸 나머지 자유문
+    mood = re.sub(r"배경\s*음악|브금|bgm", " ", q, flags=re.I)
+    mood = _BGM_DURATION_RE.sub(" ", mood)
+    mood = _BGM_VERB_RE.sub(" ", mood)
+    mood = mood.replace("<", " ").replace(">", " ")
+    if work:
+        mood = re.sub(re.escape(work), " ", mood)
+    mood = re.sub(r"분위기|느낌|스타일|으로|같은|풍|좀|그냥|이거|하나", " ", mood)
+    mood = re.sub(r"\s+", " ", mood).strip()
+    if len(mood) < 2:
+        mood = _work_mood_hint(work)
+    return mood, seconds
+
+
+def _do_generate_bgm(channel, thread_ts, work, mood_text, seconds) -> bool:
+    """배경음악 mp3 하나를 생성해 올린다(합본과 별개). build_bgm_track 재사용."""
+    if not music.available():
+        _reply(channel, thread_ts, "배경음악 생성 기능이 아직 설정되지 않았어요 — 봇 관리자에게 문의해주세요.")
+        return True
+    hint = (mood_text or "").strip() or "calm cinematic korean drama background, gentle"
+    mood_prompt = music.build_mood_prompt(hint)
+    ph = _thinking(channel, thread_ts, f"🎵 배경음악 생성 중… (~{seconds:.0f}초 · {hint[:40]})", stop_button=True)
+    import tempfile
+    from pathlib import Path as _P
+    try:
+        with tempfile.TemporaryDirectory(prefix="sb_bgm_") as td:
+            outp = _P(td) / "bgm.mp3"
+            res = episode_compile.build_bgm_track(mood_prompt, float(seconds), outp)
+            if not res or not outp.exists():
+                _update_note(channel, ph, "⚠️ 배경음악 생성 실패", clear=True)
+                _reply(channel, thread_ts, "⚠️ 배경음악 생성에 실패했어요. 잠시 후 다시 시도해주세요.")
+                return True
+            _update_note(channel, ph, "✅ 배경음악 완성", clear=True)
+            app.client.files_upload_v2(
+                channel=channel, thread_ts=thread_ts, file=str(outp),
+                filename=f"bgm_{_work_safe_name(work) if work else 'clip'}.mp3",
+                title="배경음악",
+                initial_comment=f"🎵 배경음악 (~{seconds:.0f}초) — 분위기: {hint[:60]}")
+    except Exception:
+        log.exception("배경음악 단독 생성 실패")
+        _update_note(channel, ph, "⚠️ 배경음악 생성 실패", clear=True)
+        _reply(channel, thread_ts, "⚠️ 배경음악 생성 중 오류가 났어요. 잠시 후 다시 시도해주세요.")
+    return True
+
+
+def _maybe_generate_bgm_request(channel, thread_ts, query) -> bool:
+    """'배경음악 만들어줘 …'류 → 배경음악만 따로 생성(양 백엔드 공통 결정적 게이트)."""
+    if not _BGM_REQUEST_RE.search(query or "") or _BGM_NEG_RE.search(query or ""):
+        return False
+    work, _bible, _tail, _msgs = _resolve_work_bible(channel, thread_ts, query)
+    mood, seconds = _bgm_mood_and_seconds(query, work)
+    return _do_generate_bgm(channel, thread_ts, work, mood, seconds)
+
+
 @app.action("bg_change_conti")
 def _act_bg_change_conti(ack, body):
     ack()

@@ -440,6 +440,11 @@ def _handle_dispatch(event: dict) -> None:
         log.info("route=deterministic:stillcut_change")
         return
 
+    # ★2026-07-22 '배경음악 만들어줘' → 합본과 별개로 배경음악 mp3만 생성(양 백엔드 공통).
+    if sb._maybe_generate_bgm_request(channel, thread_ts, query):
+        log.info("route=deterministic:bgm")
+        return
+
 
     # 레거시 pending matcher는 "응/네/그걸로" 같은 자연어를 실행 승인으로 소비한다.
     # Native router가 켜진 동안에는 절대 호출하지 않고, 정확한 pending_id가 담긴 Slack
