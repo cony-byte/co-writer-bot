@@ -431,6 +431,15 @@ def _handle_dispatch(event: dict) -> None:
         log.info("route=deterministic:bg_change")
         return
 
+    # ★2026-07-22 '씬N 컷M 스틸컷 바꾸고 싶어'류 — 방법이 없으면 '어떻게?'를 먼저 묻는다(양 백엔드
+    # 공통). 답변 대기 먼저 잡고, 없으면 새 요청을 잡는다.
+    if sb._maybe_stillcut_change_ask_reply(channel, thread_ts, query):
+        log.info("route=deterministic:stillcut_change_reply")
+        return
+    if sb._maybe_stillcut_change_request(channel, thread_ts, query):
+        log.info("route=deterministic:stillcut_change")
+        return
+
 
     # 레거시 pending matcher는 "응/네/그걸로" 같은 자연어를 실행 승인으로 소비한다.
     # Native router가 켜진 동안에는 절대 호출하지 않고, 정확한 pending_id가 담긴 Slack

@@ -7012,6 +7012,77 @@ def _maybe_background_change_request(channel, thread_ts, query) -> bool:
     return True
 
 
+# ============================================================================
+# ★2026-07-22 "씬N 컷M 스틸컷(만) 바꾸고 싶어"류 요청 — 어떻게 바꿀지 안 물어보고 곧바로
+# 재생성해버리던 실사용자 버그. 방법(피드백)이 함께 안 오면 "어떻게 바꿀까요?"를 먼저 묻고,
+# 그 답을 최우선 오버라이드 feedback으로 반영해 그 컷/씬을 재생성한다. 방법을 이미 곁들였으면
+# (예: "…더 밝게 바꿔줘") 묻지 않고 기존 인라인-피드백 경로로 바로 처리하도록 넘긴다.
+# ============================================================================
+_PENDING_STILL_CHANGE_ASK: dict[str, dict] = {}   # thread_ts -> {work, scene, cuts, episode}
+
+_STILL_WORD_RE = re.compile(r"스틸\s*컷|스틸|이미지")
+_STILL_CHANGE_VERB_RE = re.compile(r"바[꾸꿔]|바꿀|변경|교체|다시\s*만들|다르게|수정|새로")
+
+
+def _stillcut_has_explicit_how(q: str) -> bool:
+    """변경 요청에 '어떻게'(방법 지시)가 이미 들어있는지 — 라우팅·스틸·변경·희망 표현과 조사를
+    걷어내고 의미 있는 잔여문(2자↑)이 남으면 방법이 있다고 본다."""
+    t = q or ""
+    for rx in _INLINE_ROUTING_RE:
+        t = rx.sub(" ", t)
+    t = _STILL_WORD_RE.sub(" ", t)
+    t = _STILL_CHANGE_VERB_RE.sub(" ", t)
+    t = re.sub(r"싶어|싶다|싶은|싶|하고|줘|주세요|해줘|할래|만|좀|그냥|다시|을|를|이|가|는|은|의|로|으로", " ", t)
+    t = re.sub(r"[\s,./!]+", " ", t).strip()
+    return len(t) >= 2
+
+
+def _maybe_stillcut_change_ask_reply(channel, thread_ts, query) -> bool:
+    """[스틸컷 변경 '어떻게?'] 답변을 잡아, 그 방법으로 해당 컷/씬을 재생성한다."""
+    if thread_ts not in _PENDING_STILL_CHANGE_ASK or not (query or "").strip():
+        return False
+    if _LIST_WORKS_RE.search(query) or _THREAD_STATUS_RE.search(query) or _STOP_RE.match(query):
+        return False
+    p = _PENDING_STILL_CHANGE_ASK.pop(thread_ts)
+    q = query.strip()
+    cuts = p.get("cuts") or []
+    cut_txt = f" 컷{','.join(str(c) for c in sorted(cuts))}" if cuts else ""
+    _reply(channel, thread_ts, f"🔄 씬{p['scene']}{cut_txt} 스틸컷을 '{q}' 반영해서 다시 만들게요…")
+    ep = f" {p['episode']}화" if p.get("episode") else ""
+    rest = f"{p['work']}{ep} 씬{p['scene']}{cut_txt}".strip()
+    _do_stills(channel, thread_ts, rest, feedback=q)
+    return True
+
+
+def _maybe_stillcut_change_request(channel, thread_ts, query) -> bool:
+    """'씬N (컷M) 스틸컷(만) 바꾸고 싶어'류 — 방법이 없으면 '어떻게?'를 먼저 묻는다."""
+    q = query or ""
+    if thread_ts in _PENDING_STILL_CHANGE_ASK:
+        return False
+    if not (_STILL_WORD_RE.search(q) and _STILL_CHANGE_VERB_RE.search(q)):
+        return False
+    if "콘티" in q or _BG_WORD_RE.search(q) or re.search(r"영상|동영상|비디오|합본", q):
+        return False   # 콘티/배경/영상은 각자 다른 흐름
+    if _stillcut_has_explicit_how(q):
+        return False   # 방법을 이미 곁들였으면 묻지 말고 기존 인라인-피드백 경로로
+    sm = re.search(r"씬\s*(\d+)", q) or re.search(r"(\d+)\s*씬", q)
+    if not sm:
+        return False
+    scene = int(sm.group(1))
+    cuts = sorted(_parse_cut_filter(q) or [])
+    work, _bible, _tail, _msgs = _resolve_work_bible(channel, thread_ts, q)
+    if not work:
+        return False
+    episode = (conti_state.get_episode(thread_ts) or {}).get("episode")
+    cut_txt = f" 컷{','.join(str(c) for c in cuts)}" if cuts else ""
+    _PENDING_STILL_CHANGE_ASK[thread_ts] = {"work": work, "scene": scene, "cuts": cuts, "episode": episode}
+    _reply(channel, thread_ts,
+           f"🔄 씬{scene}{cut_txt} 스틸컷을 *어떻게* 바꿀까요? 원하는 걸 말씀해주시면 그대로 반영해 "
+           f"다시 만들게요 — 예: '표정을 더 밝게', '카메라를 더 가까이', '조명을 어둡게', "
+           f"'인물을 왼쪽으로'. (사건·대사는 그대로, 말씀한 부분만 바꿔요.)")
+    return True
+
+
 @app.action("bg_change_conti")
 def _act_bg_change_conti(ack, body):
     ack()
