@@ -2509,6 +2509,9 @@ def _do_images(channel, thread_ts, rest, feedback=None):
     target = int(tm.group(1)) if tm else None
     epm = re.search(r"(\d{1,3})\s*[화회]", tail)
     episode = int(epm.group(1)) if epm else (conti_state.get_episode(thread_ts) or {}).get("episode")
+    # ★2026-07-22 최초 생성에서도 곁들인 지시를 콘티보다 우선(스틸컷과 동일). 재생성 feedback 유지.
+    if feedback is None:
+        feedback = _extract_inline_instruction(tail, work)
     # 콘티를 사용자에게 "보여주는" 요청이 아니라 이미지 렌더링을 진행하기 위해 텍스트만 가져오는
     # 내부 조회다 — announce=True로 두면 매 [이미지] 호출마다 노션 토글을 불필요하게 재기록/재아카이브함
     # ★2026-07-22 prefer_notion: 노션 최신본 우선(노션 편집 실시간 반영, 노션 없을 때만 스레드 폴백)
@@ -3722,6 +3725,45 @@ def _act_start_storyboard_cancel(ack, body):
     _disable_buttons(body, "취소했어요.")
 
 
+# ★2026-07-22 최초 생성에서도 곁들인 지시를 콘티보다 우선하기 위해, 라우팅 토큰(씬/컷/화/
+# N컷/자동컷 문구)과 명령·filler 상용어를 걷어낸 '진짜 지시 잔여문'만 뽑는다. 잔여문이 의미
+# 있을 때만(2자↑) feedback으로 써서 오인 주입을 막는다(예: "씬2 스틸컷 만들어줘"→None,
+# "씬2 스틸컷 만들어줘 좀 더 어둡게"→"더 어둡게").
+_INLINE_FILLER = {
+    "스틸컷", "스틸", "스토리보드", "이미지", "그리드", "컷", "씬", "화", "회",
+    "만들어줘", "만들어", "만들어주세요", "만들자", "만들어봐", "생성", "생성해줘", "생성해",
+    "생성해주세요", "그려줘", "그려", "그려주세요", "해줘", "해주세요", "해", "줘", "주세요",
+    "좀", "그리고", "근데", "그냥", "다시", "보여줘", "뽑아줘", "뽑아", "제작", "제작해줘",
+    "부탁", "부탁해", "부탁해요", "please", "적당히", "알아서", "자동으로",
+}
+_INLINE_ROUTING_RE = [
+    re.compile(r"\d+\s*[화회]"),                       # 화 번호
+    re.compile(r"씬\s*\d+(?:\s*[,~\-]\s*\d+)*"),        # 씬2 / 씬2,3 / 씬2~4
+    re.compile(r"\d+\s*번째?\s*씬"), re.compile(r"\d+\s*씬"),
+    re.compile(r"컷\s*\d+(?:\s*[,~\-]\s*\d+)*"),        # 컷1 / 컷1,3
+    re.compile(r"\d+\s*[~\-]\s*\d+\s*컷"), re.compile(r"\d+\s*컷"),
+]
+
+
+def _extract_inline_instruction(tail: str, work: str | None = None) -> str | None:
+    """생성 명령 메시지(tail)에서 라우팅·명령 상용어를 걷어낸 자유 지시문만 반환(없으면 None).
+    work가 주어지면(대개 <>로 안 감싸 tail에 그대로 남은 작품명) 함께 제거한다."""
+    t = tail or ""
+    if work:
+        t = re.sub(re.escape(work), " ", t)
+    t = t.replace("<", " ").replace(">", " ")
+    for rx in _INLINE_ROUTING_RE:
+        t = rx.sub(" ", t)
+    toks = []
+    for w in re.split(r"[\s,./!]+", t):
+        w2 = w.strip()
+        if not w2 or w2.isdigit() or w2 in _INLINE_FILLER:
+            continue
+        toks.append(w2)
+    out = " ".join(toks).strip()
+    return out if len(out) >= 2 else None
+
+
 def _do_stills(channel, thread_ts, rest, feedback=None, ref_data_url=None, ref_data_urls=None):
     """[스틸컷] <작품> 씬N — 한 씬만 스틸컷 생성. ★2026-07-16: "씬2,3,4"/"씬2-4"처럼
     콤마·하이픈으로 여러 씬을 지정하면(_parse_scene_filter로 감지, [합본]과 동일 문법) 씬마다
@@ -3753,6 +3795,10 @@ def _do_stills(channel, thread_ts, rest, feedback=None, ref_data_url=None, ref_d
     # 항상 우선한다(구체적 지정 > 막연한 "적당히") — 둘 다 있으면 auto는 무시하고 경고 없이
     # 넘어간다(사용자가 자동 지정을 먼저 쓰고 뒤에 마음 바꿔 N컷을 덧붙인 것으로 간주).
     auto_cut = bool(_AUTO_CUT_RE.search(tail)) and target is None and cut_filter is None
+    # ★2026-07-22 최초 생성이어도(=재생성 feedback이 없을 때) 메시지에 곁들인 지시를 뽑아
+    # 콘티보다 우선하는 오버라이드로 쓴다(재생성과 동일 취급). 재생성 feedback이 이미 있으면 유지.
+    if feedback is None:
+        feedback = _extract_inline_instruction(tail, work)
 
     # 화 번호를 지정했으면 그 화를 최우선으로 쓴다. ★2026-07-16: 예전엔 여기서 "스레드에 이미
     # 다른 화가 추적되고 있으면 새 스레드에서 시작하라"고 거부했는데, 그건 _thread_conti가
