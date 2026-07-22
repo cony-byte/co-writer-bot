@@ -4753,10 +4753,14 @@ def _maybe_natural_ref(channel, thread_ts, query, event) -> bool:
 # 컷으로 배치된 시트 한 장을 첨부하면, 자동으로 컷을 나눠 그 인물의 참조로 저장한다(전면=대표,
 # 나머지=보조). 이름이 메시지에 없으면 물어보고 다음 답변으로 받는다.
 # ============================================================================
-_PENDING_SHEET: dict[str, dict] = {}   # thread_ts -> {work, panels}
+_PENDING_SHEET: dict[str, dict] = {}   # thread_ts -> {work, panels, etype}
 _SHEET_RE = re.compile(
-    r"인물\s*시트|캐릭터\s*시트|캐릭\s*시트|턴어라운드|설정화|참조\s*시트|레퍼런스\s*시트|"
-    r"인물\s*참조\s*이미지|분할\s*해?\s*서?\s*저장|나눠서?\s*저장|분할\s*등록|쪼개서?\s*저장")
+    r"인물\s*시트|캐릭터\s*시트|캐릭\s*시트|의상\s*시트|옷\s*시트|턴어라운드|설정화|참조\s*시트|"
+    r"레퍼런스\s*시트|인물\s*참조\s*이미지|의상\s*참조\s*이미지|분할\s*해?\s*서?\s*저장|"
+    r"나눠서?\s*저장|분할\s*등록|쪼개서?\s*저장")
+# 시트 내용이 의상이면 costume, 아니면 person으로 저장한다.
+_SHEET_COSTUME_RE = re.compile(
+    r"의상|코스튬|복장|옷|후드|후디|자켓|재킷|셔츠|코트|교복|정장|니트|가디건|점퍼|치마|바지|costume|outfit|hoodie")
 
 
 def _sheet_name_from_query(q: str) -> str | None:
@@ -4764,23 +4768,27 @@ def _sheet_name_from_query(q: str) -> str | None:
     m = re.search(r"<\s*([^>]+?)\s*>", q)
     if m and not _looks_like_mention(m.group(1)):
         return unicodedata.normalize("NFC", m.group(1)).strip() or None
-    # '하루 인물시트'/'하루 캐릭터시트'처럼 시트 키워드 바로 앞의 한글 이름(2~5자)도 잡는다.
-    m2 = re.search(r"([가-힣]{2,5})\s*(?:인물\s*시트|캐릭터\s*시트|캐릭\s*시트|턴어라운드|설정화|시트)", q)
+    # '하루 인물시트'/'후드 의상시트'처럼 시트 키워드 앞의 한글 이름(2~5자)도 잡는다 — 이름과
+    # 시트 사이에 타입어(의상/인물/캐릭터/옷)가 끼어도 건너뛰고 진짜 이름을 잡는다.
+    m2 = re.search(r"([가-힣]{2,5})\s*(?:의상|인물|캐릭터|캐릭|옷)?\s*(?:시트|턴어라운드|설정화)", q)
     if m2:
-        return unicodedata.normalize("NFC", m2.group(1)).strip() or None
+        cand = unicodedata.normalize("NFC", m2.group(1)).strip()
+        if cand and cand not in {"의상", "인물", "캐릭터", "캐릭", "참조", "레퍼런스", "이미지"}:
+            return cand
     return None
 
 
-def _save_character_sheet(channel, thread_ts, work, name, panels) -> None:
+def _save_character_sheet(channel, thread_ts, work, name, panels, etype="person") -> None:
     name = unicodedata.normalize("NFC", (name or "")).strip()
+    tlabel = _REF_TLABEL.get(etype, "참조")
     if not name:
-        _reply(channel, thread_ts, "이름을 못 읽었어요 — 누구 시트인지 이름을 다시 알려주세요.")
+        _reply(channel, thread_ts, f"이름을 못 읽었어요 — 무슨 {tlabel}인지 이름/라벨을 다시 알려주세요.")
         return
     vpfx = oi.vp_fixed_dir(work)
     if vpfx is None:
         _reply(channel, thread_ts, f"<{work}> visual-pipeline 프로젝트 폴더를 못 찾아 저장할 수 없어요.")
         return
-    elem = oi.register_element(work, name, "person", aliases=[name], clear_file=True)
+    elem = oi.register_element(work, name, etype, aliases=[name], clear_file=True)
     pdir = vpfx / elem["id"]
     pdir.mkdir(parents=True, exist_ok=True)
     for old in list(pdir.iterdir()):
@@ -4794,8 +4802,8 @@ def _save_character_sheet(channel, thread_ts, work, name, panels) -> None:
         os.utime(fp, (base + i, base + i))   # 전면(i=0)이 mtime 최소 → 대표 이미지로 선택됨
         saved += 1
     _reply(channel, thread_ts,
-           f"✅ '{name}' 인물 시트를 {saved}개 뷰로 나눠 <{work}>에 저장했어요 — 정면을 대표 참조로, "
-           f"나머지(3/4·측면·뒷모습·표정·전신 등)는 보조 참조로. 이제 스틸컷 생성 때 여러 각도가 참고돼요.")
+           f"✅ '{name}' {tlabel} 시트를 {saved}개 뷰로 나눠 <{work}>에 저장했어요 — 정면을 대표 참조로, "
+           f"나머지(3/4·측면·뒷모습·전신 등)는 보조 참조로. 이제 스틸컷 생성 때 여러 각도가 참고돼요.")
 
 
 def _maybe_character_sheet_register(channel, thread_ts, query, event) -> bool:
@@ -4826,16 +4834,19 @@ def _maybe_character_sheet_register(channel, thread_ts, query, event) -> bool:
     if len(panels) < 2:
         _reply(channel, thread_ts,
                "이 이미지에서 여러 컷을 자동으로 나누지 못했어요 — 컷들이 흰 배경에 나뉘어 있는 "
-               "시트인지 확인해 주세요. (한 인물 한 장이면 그냥 `<작품> 이름 이 사진으로 등록해줘`로 등록돼요.)")
+               "시트인지 확인해 주세요. (한 장짜리면 그냥 `<작품> 이름 이 사진으로 등록해줘`로 등록돼요.)")
         return True
+    etype = "costume" if _SHEET_COSTUME_RE.search(q) else "person"
+    tlabel = _REF_TLABEL.get(etype, "참조")
     name = _sheet_name_from_query(q)
     if not name:
-        _PENDING_SHEET[thread_ts] = {"work": work, "panels": panels}
+        _PENDING_SHEET[thread_ts] = {"work": work, "panels": panels, "etype": etype}
+        ex = "후드셋" if etype == "costume" else "하루"
         _reply(channel, thread_ts,
-               f"인물 시트에서 {len(panels)}개 컷을 나눴어요(정면·3/4·측면·뒷모습·표정·전신 등). "
-               f"누구 시트인가요? 이름을 알려주세요 — 예: `하루`.")
+               f"{tlabel} 시트에서 {len(panels)}개 컷을 나눴어요(정면·3/4·측면·뒷모습·전신 등). "
+               f"무슨 {tlabel}인가요? 이름/라벨을 알려주세요 — 예: `{ex}`.")
         return True
-    _save_character_sheet(channel, thread_ts, work, name, panels)
+    _save_character_sheet(channel, thread_ts, work, name, panels, etype=etype)
     return True
 
 
@@ -4848,7 +4859,7 @@ def _maybe_character_sheet_name_reply(channel, thread_ts, query) -> bool:
     p = _PENDING_SHEET.pop(thread_ts)
     name = re.sub(r"[<>]", "", query.strip())
     name = re.split(r"\s", name)[0] if name else name   # 첫 토큰만(이름)
-    _save_character_sheet(channel, thread_ts, p["work"], name, p["panels"])
+    _save_character_sheet(channel, thread_ts, p["work"], name, p["panels"], etype=p.get("etype", "person"))
     return True
 
 
