@@ -3577,6 +3577,45 @@ def _do_stills(channel, thread_ts, rest, feedback=None, ref_data_url=None):
     # 정책이 없어(CONTI_SCENE_WORKERS는 텍스트 LLM 호출용) 안전한 쪽인 순차 처리를 기본으로 한다.
     # scene_filter가 씬 1개짜리("씬2")면 여기서 개입하지 않고 아래 기존 단일 씬 흐름을 그대로
     # 태워 동작을 바이트 단위로 그대로 유지한다(요구사항: 단일 씬 동작 불변).
+    # ★2026-07-22: 씬마다 '다른' 컷을 한 명령으로 지정('씬2 컷3, 씬1 컷7') → 씬별 컷으로 개별
+    # 생성(에이전트 판단과 무관하게 결정적으로). 균일 케이스('씬2,3 컷3')는 pairs=None이라 아래
+    # 기존 흐름 그대로.
+    scene_cut_pairs = _parse_scene_cut_pairs(tail)
+    if scene_cut_pairs:
+        _PENDING_SCENE_PICK.pop(thread_ts, None)
+        avail_nums = {s[0] for s in scenes}
+        do_pairs = [(n, cs) for n, cs in scene_cut_pairs.items() if n in avail_nums]
+        skip_nums = [n for n in scene_cut_pairs if n not in avail_nums]
+        if not do_pairs:
+            avail = ", ".join(f"씬{s[0]}" for s in scenes)
+            _reply(channel, thread_ts,
+                   f"콘티에 그 씬 번호들이 없어요 — {', '.join(f'씬{n}' for n in scene_cut_pairs)}. 있는 씬: {avail}")
+            return
+        label = ", ".join(f"씬{n} 컷{','.join(map(str, sorted(cs)))}" if cs else f"씬{n} 전체"
+                          for n, cs in do_pairs)
+        skip_txt = f" (씬{', '.join(str(n) for n in skip_nums)}은 콘티에 없어 건너뜀)" if skip_nums else ""
+        ph = _thinking(channel, thread_ts,
+                       f"{label} 스틸컷을 순서대로 만드는 중이에요…{skip_txt} (0/{len(do_pairs)})", stop_button=True)
+        results = []
+        for i, (num, cs) in enumerate(do_pairs, 1):
+            _update_note(channel, ph, f"스틸컷 생성 중… ({i}/{len(do_pairs)} · 씬{num})")
+            try:
+                ok, detail = _do_stills_render_one(channel, thread_ts, rest, work, bible, scenes, num,
+                                                   (cs or None), target, auto_cut, ctm, fb_note, episode,
+                                                   ref_data_url=ref_data_url)
+            except Exception:
+                log.exception(f"씬{num} 스틸컷 생성 실패(씬-컷 쌍 배치)")
+                _reply(channel, thread_ts, f"⚠️ 씬{num} 스틸컷 생성 중 오류 — 다음은 계속 진행할게요.")
+                ok, detail = False, "오류"
+            results.append((num, ok, detail))
+        ok_parts = [f"씬{n}: {d}" for n, ok, d in results if ok]
+        fail_parts = [f"씬{n}({d})" for n, ok, d in results if not ok]
+        summary = "✅ 완료 — " + " / ".join(ok_parts) if ok_parts else "⚠️ 생성된 씬이 없어요"
+        if fail_parts:
+            summary += f"\n실패: {', '.join(fail_parts)}"
+        _update_note(channel, ph, summary, clear=True)
+        return
+
     scene_filter = _parse_scene_filter(tail)
     if scene_filter and len(scene_filter) > 1:
         _PENDING_SCENE_PICK.pop(thread_ts, None)
@@ -6352,6 +6391,33 @@ def _parse_cut_filter(text: str) -> set[int] | None:
         return None
     group = m.group(1) or m.group(2)
     return _parse_num_list(group) or None
+
+
+_SCENE_TOKEN_RE = re.compile(r"씬\s*(\d+)")
+
+
+def _parse_scene_cut_pairs(text: str) -> "dict[int, set[int]] | None":
+    """★2026-07-22: 씬마다 '다른' 컷을 한 명령으로 지정한 경우를 결정적으로 파싱.
+    예) '씬2 컷3, 씬1 컷7' / '씬2:컷3 씬1:컷7' → {2:{3}, 1:{7}}.
+    조건: 명시적 '씬N' 토큰이 2개 이상이고, 그중 최소 하나에 자기 컷 지정이 붙어야 한다.
+    (컷 지정이 씬마다 안 붙은 '씬2,3,4' 균일 케이스는 None을 반환해 기존 처리로 넘긴다.)
+    컷 없이 나열된 씬은 빈 set(=그 씬 전체 컷)으로 담는다."""
+    if not text:
+        return None
+    toks = list(_SCENE_TOKEN_RE.finditer(text))
+    if len(toks) < 2:
+        return None   # 씬이 하나면 기존 단일/균일 흐름
+    pairs: dict[int, set[int]] = {}
+    any_cut = False
+    for i, m in enumerate(toks):
+        snum = int(m.group(1))
+        seg = text[m.end(): toks[i + 1].start() if i + 1 < len(toks) else len(text)]
+        cf = _parse_cut_filter(seg)   # 이 씬 토큰 뒤(다음 씬 전) 구간의 컷만
+        cur = pairs.setdefault(snum, set())
+        if cf:
+            cur.update(cf)
+            any_cut = True
+    return pairs if any_cut else None
 
 def _do_compile(channel, thread_ts, rest):
     work, bible, tail, msgs = _resolve_work_bible(channel, thread_ts, rest)
