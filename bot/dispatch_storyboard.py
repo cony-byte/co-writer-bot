@@ -2696,11 +2696,11 @@ def _still_buttons_blocks():
              "style": "primary", "action_id": "still_confirm"},
             {"type": "button", "text": {"type": "plain_text", "text": "🔄 재생성"},
              "style": "danger", "action_id": "still_regen"},
-            # ★2026-07-20 "안전필터 안 걸린 스틸컷도 그냥 피그마로 보내고 싶다" — 실패 시에만
-            # 붙던 버튼(_figma_send_blocks)과 별개로, 정상 생성된 스틸컷 배치에도 항상 붙여서
-            # 실패 여부와 무관하게 아무 컷이나 손보고 싶을 때 쓸 수 있게 한다.
-            {"type": "button", "text": {"type": "plain_text", "text": "🎨 피그마로 보내기"},
-             "action_id": "figma_send_stillbatch"},
+            # ★2026-07-22 피그마 버튼을 [📝 콘티 수정하기]로 교체 — 스틸컷이 아예 다르게 나오는 건
+            # 대개 콘티 지시를 이미지 모델이 못 알아듣게 적힌 경우라, 그 컷의 콘티만 이미지 잘
+            # 나오게 다시 쓰는 게 근본 수정이다(사건·대사·다른 컷은 안 건드림).
+            {"type": "button", "text": {"type": "plain_text", "text": "📝 콘티 수정하기"},
+             "action_id": "edit_cut_conti"},
         ],
     }]
 
@@ -2709,7 +2709,9 @@ def _post_still_buttons(channel, thread_ts, work, scene_num, title, rest, grid_p
     # ★2026-07-15: 배치 분할 시 버튼 메시지가 4개 연속으로 뒤섞여 올라와 "어느 그리드 버튼인지
     # 헷갈림" 실사용자 불만 → 버튼 카드에 title(컷 범위 포함)을 노출해 위 그리드와 시각적으로 묶는다.
     label = title[:40] if title and len(title) > 40 else title
-    text = f"'{label}' — 확정하면 이 작품의 visual-pipeline 프로젝트에 저장돼요."
+    text = (f"'{label}' — 확정하면 이 작품의 visual-pipeline 프로젝트에 저장돼요.\n"
+            "🖼️ 스틸컷이 콘티랑 아예 다르게 나왔나요? [📝 콘티 수정하기]로 그 컷 콘티만 "
+            "이미지가 잘 나오게 다시 써드려요(사건·대사·다른 컷은 그대로).")
     resp = app.client.chat_postMessage(
         channel=channel, thread_ts=thread_ts,
         text=text, blocks=_with_text_block(text, _still_buttons_blocks()))
@@ -2717,6 +2719,97 @@ def _post_still_buttons(channel, thread_ts, work, scene_num, title, rest, grid_p
              "cuts": cuts or [], "scene_seconds": scene_seconds}
     _PENDING_STILL[resp["ts"]] = entry
     still_state.set_last(thread_ts, work, scene_num, rest)   # 재시작에도 남는 영구 기록
+
+_PENDING_CUT_CONTI_FIX: dict[str, dict] = {}   # thread_ts -> {work, scene_num, episode, cuts}
+
+
+@app.action("edit_cut_conti")
+def _act_edit_cut_conti(ack, body):
+    """[📝 콘티 수정하기] — 그 컷의 콘티만 이미지 잘 나오게 다시 쓰기. 어느 컷·어떻게를 물은 뒤
+    다음 발화로 받는다(_maybe_cut_conti_fix_reply, 라우터 앞 게이트라 양 백엔드 공통)."""
+    ack()
+    ch, tts = _action_ctx(body)
+    p = _PENDING_STILL.get(body["message"]["ts"])   # peek(확정/재생성 버튼 계속 쓸 수 있게 pop 안 함)
+    if not p:
+        _reply(ch, tts, "⚠️ 어느 스틸컷인지 정보가 만료됐어요(봇 재시작 등) — 스틸컷을 다시 만든 뒤 눌러주세요.")
+        return
+    ep = (conti_state.get_episode(tts) or {}).get("episode")
+    _PENDING_CUT_CONTI_FIX[tts] = {"work": p["work"], "scene_num": p["scene_num"],
+                                   "episode": ep, "cuts": p.get("cuts") or []}
+    _reply(ch, tts,
+           f"📝 씬{p['scene_num']}의 어느 컷을, 어떻게 바꿀까요? 예: `2컷 — 두 사람이 더 가까이 서게` / "
+           "`1컷 — 그래프가 급락하는 게 확실히 보이게`.\n(그 컷의 콘티만 이미지가 잘 나오게 다시 "
+           "써요 — 사건·대사·다른 컷은 절대 안 건드려요.)")
+
+
+def _maybe_cut_conti_fix_reply(channel, thread_ts, query) -> bool:
+    """[📝 콘티 수정하기] 뒤 '2컷 — 이렇게' 답변 캡처(라우터 앞에서 호출). 대기 없으면 False."""
+    p = _PENDING_CUT_CONTI_FIX.get(thread_ts)
+    if not p:
+        return False
+    q = (query or "").strip()
+    m = re.search(r"컷\s*(\d{1,2})|(\d{1,2})\s*컷", q) or re.match(r"\s*(\d{1,2})", q)
+    if m:
+        cut = int(next(g for g in m.groups() if g))
+    elif len(p.get("cuts") or []) == 1 and isinstance(p["cuts"][0], dict):
+        cut = p["cuts"][0]["n"]                     # 그 씬에 컷이 하나면 그걸로
+    else:
+        cut = None
+    if cut is None:
+        _reply(channel, thread_ts, "몇 컷인지 알려주세요 — 예: `2컷 — 더 가까이`.")
+        return True   # 대기 유지(다음 답을 기다림)
+    _PENDING_CUT_CONTI_FIX.pop(thread_ts, None)
+    _do_cut_conti_fix(channel, thread_ts, p["work"], p["episode"], p["scene_num"], cut, q)
+    return True
+
+
+def _do_cut_conti_fix(channel, thread_ts, work, episode, scene, cut, intent) -> bool:
+    """특정 컷의 콘티만 이미지 생성 모델 친화적으로 다시 쓰고(사건·대사·다른 컷 불변) 그 컷을
+    재생성한다(★2026-07-22). 콘티 원문의 다른 씬/컷은 절대 건드리지 않는다."""
+    episode = episode or (conti_state.get_episode(thread_ts) or {}).get("episode")
+    conti = _thread_or_saved_conti(channel, thread_ts, _thread_messages(channel, thread_ts),
+                                   work, episode, announce=False, prefer_notion=True)
+    if not conti:
+        _reply(channel, thread_ts, "그 화 콘티를 노션에서 못 찾아 수정할 수 없어요.")
+        return True
+    match = next((s for s in _split_scenes(conti) if s[0] == scene), None)
+    if not match:
+        _reply(channel, thread_ts, f"콘티에 씬{scene}이 없어요.")
+        return True
+    _, hdr, body = match
+    tags = list(_BEAT_TAG_RE.finditer(body))
+    if cut < 1 or cut > len(tags):
+        _reply(channel, thread_ts, f"씬{scene}에 컷{cut}이 없어요(이 씬은 컷 {len(tags)}개).")
+        return True
+    b_start = tags[cut - 1].start()
+    b_end = tags[cut].start() if cut < len(tags) else len(body)
+    beat_text = body[b_start:b_end].strip()
+    ph = _thinking(channel, thread_ts, f"📝 씬{scene} 컷{cut} 콘티를 이미지 잘 나오게 다시 쓰는 중…")
+    sys_p = "너는 K-드라마 상세 콘티를 이미지 생성 모델이 정확히 그릴 수 있게 다듬는 편집자다."
+    user_p = (f"[다시 쓸 컷 콘티]\n{beat_text}\n\n[사용자 의도]\n{intent}\n\n"
+              "이 컷 하나만 다시 써라. 반드시 지켜라: (1) 사건·행동·대사·등장인물·의상은 절대 바꾸지 "
+              "마라. (2) 카메라/구도/자세/시각 묘사만, 이미지 생성 모델이 정확히 그릴 수 있게 더 "
+              "구체적·명확하게(모호·추상 표현 제거, 화면에 보이는 것 중심). (3) 사용자 의도를 반영. "
+              "(4) 맨 앞을 원래처럼 '[N초]'로 시작하고 초수는 그대로. (5) 머리말·설명 없이 그 컷 "
+              "본문만 출력.")
+    try:
+        new_beat = generator.complete(sys_p, user_p, timeout=config.AGENT_TIMEOUT, job_key=thread_ts).strip()
+    except Exception as exc:
+        _update_note(channel, ph, f"콘티 재작성 실패 — {_classify_fail_reason(str(exc))}. 다시 시도해주세요.", clear=True)
+        return True
+    if not _BEAT_TAG_RE.match(new_beat.lstrip()):
+        _update_note(channel, ph, "콘티를 형식에 맞게 다시 쓰지 못했어요 — 다시 시도해주세요.", clear=True)
+        return True
+    tail = body[b_end:].lstrip("\n")
+    new_body = body[:b_start] + new_beat.lstrip() + ("\n" + tail if tail else "\n")
+    new_conti = _replace_scene_block(conti, scene, f"■ {hdr}\n{new_body}".strip())
+    _upload_conti(channel, thread_ts, work, new_conti, episode=episode)   # 노션 저장(그 화 콘티 갱신)
+    _update_note(channel, ph,
+                 f"✅ 씬{scene} 컷{cut} 콘티만 다시 썼어요(다른 컷·사건·대사는 그대로) — 이어서 그 컷 스틸컷을 다시 만들게요…",
+                 clear=True)
+    _do_stills(channel, thread_ts, f"{work} 씬{scene} 컷{cut}")
+    return True
+
 
 _PENDING_VIDEO: dict[str, dict] = {}   # 버튼 메시지 ts -> {work, scene_num, title, grid_png}
 
