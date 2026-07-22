@@ -7206,6 +7206,73 @@ def _maybe_generate_bgm_request(channel, thread_ts, query) -> bool:
     return _do_generate_bgm(channel, thread_ts, work, mood, seconds)
 
 
+# ============================================================================
+# ★2026-07-22 CapCut(캡컷) 프로젝트로 내보내기 — 이 회차 생성 영상들을 순서대로 얹은 CapCut
+# 드래프트를 만들어 미디어까지 zip으로 올린다(자동 합본과 별개, 일방향 정밀 편집용 핸드오프).
+# ============================================================================
+_CAPCUT_REQUEST_RE = re.compile(r"(캡\s*컷|capcut|cap\s*cut).{0,10}?(내보|export|프로젝트|draft|드래프트|만들|저장|넘겨|추출)",
+                                re.I | re.S)
+
+
+def _do_export_capcut(channel, thread_ts, work, episode) -> bool:
+    from bot import capcut_export
+    if not capcut_export.available():
+        _reply(channel, thread_ts, "CapCut 내보내기 모듈(pyCapCut)이 설치돼 있지 않아요 — 봇 관리자에게 문의해주세요.")
+        return True
+    if not work:
+        _reply(channel, thread_ts, "어느 작품인지 못 찾았어요 — `<작품명>`을 붙여 다시 말해주세요.")
+        return True
+    episode = episode or (conti_state.get_episode(thread_ts) or {}).get("episode")
+    vids_by_scene = video_index.list_episode_videos(work, None, episode=episode) or {}
+    if not vids_by_scene:
+        ep_txt = f"{episode}화 " if episode else ""
+        _reply(channel, thread_ts, f"<{work}> {ep_txt}에 내보낼 생성 영상이 없어요 — 먼저 영상화를 해주세요.")
+        return True
+    # 씬→컷 순서대로 평탄화
+    ordered = []
+    for scn in sorted(vids_by_scene.keys()):
+        for v in sorted(vids_by_scene[scn], key=lambda x: x.get("cut_num") or 0):
+            ordered.append({"scene": scn, "cut": v.get("cut_num"), "path": v.get("path")})
+    ep_txt = f"{episode}화" if episode else "전체"
+    ph = _thinking(channel, thread_ts, f"🎬 <{work}> {ep_txt} CapCut 프로젝트로 내보내는 중… ({len(ordered)}컷)")
+    import tempfile
+    from pathlib import Path as _P
+    try:
+        with tempfile.TemporaryDirectory(prefix="sb_capcut_") as td:
+            name = f"{_work_safe_name(work)}_{episode or 'all'}"
+            draft_dir = capcut_export.build_episode_draft(name, ordered, _P(td))
+            if not draft_dir:
+                _update_note(channel, ph, "⚠️ 내보내기 실패", clear=True)
+                _reply(channel, thread_ts, "⚠️ CapCut 드래프트 생성에 실패했어요(추가된 컷 없음).")
+                return True
+            zip_path = capcut_export.zip_draft(draft_dir)
+            _update_note(channel, ph, "✅ CapCut 프로젝트 완성", clear=True)
+            app.client.files_upload_v2(
+                channel=channel, thread_ts=thread_ts, file=str(zip_path),
+                filename=f"{name}_capcut.zip", title=f"{work} {ep_txt} CapCut 프로젝트",
+                initial_comment=(
+                    f"🎬 <{work}> {ep_txt} CapCut 프로젝트({len(ordered)}컷)예요.\n"
+                    "① zip을 풀고 → ② 폴더를 CapCut 드래프트 폴더에 넣으면 CapCut에서 열려요.\n"
+                    "⚠️ 미디어가 '오프라인'으로 뜨면 폴더 안 `materials/`로 연결(relink)해 주세요 "
+                    "(경로 자동해결은 실측 후 개선 예정)."))
+    except Exception:
+        log.exception("CapCut 내보내기 실패")
+        _update_note(channel, ph, "⚠️ 내보내기 실패", clear=True)
+        _reply(channel, thread_ts, "⚠️ CapCut 내보내기 중 오류가 났어요. 로그를 확인할게요.")
+    return True
+
+
+def _maybe_export_capcut_request(channel, thread_ts, query) -> bool:
+    """'저연프 1화 캡컷으로 내보내줘'류 → CapCut 프로젝트 zip 생성(양 백엔드 공통 게이트)."""
+    q = query or ""
+    if not _CAPCUT_REQUEST_RE.search(q):
+        return False
+    work, _bible, _tail, _msgs = _resolve_work_bible(channel, thread_ts, q)
+    epm = re.search(r"(\d+)\s*[화회]", q)
+    episode = int(epm.group(1)) if epm else None
+    return _do_export_capcut(channel, thread_ts, work, episode)
+
+
 @app.action("bg_change_conti")
 def _act_bg_change_conti(ack, body):
     ack()

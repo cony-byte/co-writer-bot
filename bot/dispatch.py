@@ -445,6 +445,11 @@ def _handle_dispatch(event: dict) -> None:
         log.info("route=deterministic:bgm")
         return
 
+    # ★2026-07-22 '캡컷으로 내보내줘' → 이 회차 영상들을 CapCut 프로젝트(zip)로 내보냄.
+    if sb._maybe_export_capcut_request(channel, thread_ts, query):
+        log.info("route=deterministic:capcut_export")
+        return
+
 
     # 레거시 pending matcher는 "응/네/그걸로" 같은 자연어를 실행 승인으로 소비한다.
     # Native router가 켜진 동안에는 절대 호출하지 않고, 정확한 pending_id가 담긴 Slack

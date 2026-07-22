@@ -7,3 +7,5 @@ opencv-python>=4.8,<5     # [영상] face_grid 이미지 디코드(bytes→ndarr
                           # 깨짐(실측 확인, 2026-07-22) — GUI 포함판 필수, headless로 바꾸지 말 것
 numpy>=1.24              # [영상] opencv 디코드용
 ultralytics>=8.0          # [영상] face_grid 사람 감지(YOLOv8n, 안전필터 자동 대응) — 가중치는 bot/models/yolov8n.pt
+pycapcut>=0.0.3          # [내보내기] CapCut 프로젝트(draft) 생성 — 자동 합본과 별개, 정밀 편집 핸드오프용
+                        # (pymediainfo 네이티브 필요, darwin 동작 확인 2026-07-22 / uiautomation은 win 전용 가드)
