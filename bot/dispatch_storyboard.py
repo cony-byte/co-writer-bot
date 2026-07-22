@@ -4761,6 +4761,10 @@ _SHEET_RE = re.compile(
 # 시트 내용이 의상이면 costume, 아니면 person으로 저장한다.
 _SHEET_COSTUME_RE = re.compile(
     r"의상|코스튬|복장|옷|후드|후디|자켓|재킷|셔츠|코트|교복|정장|니트|가디건|점퍼|치마|바지|costume|outfit|hoodie")
+# ★2026-07-22 자동 감지: 시트 키워드 없이 그냥 등록해도, 이미지가 여러 컷으로 깔끔히 나뉘면
+# (=시트면) 자동 분할한다. 등록 의도가 있고 생성 요청이 아닐 때만 후보로 본다.
+_REG_INTENT_RE = re.compile(r"등록|저장|이\s*사진|이\s*이미지|이걸로|이거로|참조로")
+_GEN_EXCLUDE_RE = re.compile(r"스틸\s*컷|영상|동영상|합본|만들|생성|그려|처럼|같이|콘티|스토리보드")
 
 
 def _sheet_name_from_query(q: str) -> str | None:
@@ -4812,12 +4816,17 @@ def _maybe_character_sheet_register(channel, thread_ts, query, event) -> bool:
     if not imgs:
         return False
     q = query or ""
-    if not _SHEET_RE.search(q):
-        return False
+    explicit = bool(_SHEET_RE.search(q))
+    if not explicit:
+        # 자동 감지 후보: 등록 의도가 있고(등록/저장/이 사진으로…) 생성 요청이 아닐 때만.
+        if _GEN_EXCLUDE_RE.search(q) or not _REG_INTENT_RE.search(q):
+            return False
     from bot import refsheet_split
     if not refsheet_split.available():
-        _reply(channel, thread_ts, "시트 자동 분할 기능이 아직 설정되지 않았어요 — 봇 관리자에게 문의해주세요.")
-        return True
+        if explicit:
+            _reply(channel, thread_ts, "시트 자동 분할 기능이 아직 설정되지 않았어요 — 봇 관리자에게 문의해주세요.")
+            return True
+        return False   # 자동 감지 경로면 조용히 일반 등록으로 넘김
     # 작품 확인(꺾쇠 안이 실제 작품이면 우선, 아니면 스레드에서)
     work = None
     wm = re.search(r"<\s*([^>]+?)\s*>", q)
@@ -4831,14 +4840,24 @@ def _maybe_character_sheet_register(channel, thread_ts, query, event) -> bool:
         _reply(channel, thread_ts, _WORK_NOT_FOUND_MSG)
         return True
     panels = refsheet_split.split_panels(imgs[0][2])
-    if len(panels) < 2:
-        _reply(channel, thread_ts,
-               "이 이미지에서 여러 컷을 자동으로 나누지 못했어요 — 컷들이 흰 배경에 나뉘어 있는 "
-               "시트인지 확인해 주세요. (한 장짜리면 그냥 `<작품> 이름 이 사진으로 등록해줘`로 등록돼요.)")
-        return True
+    # 명시적 시트 요청은 2컷부터, 자동 감지는 오탐 방지를 위해 3컷 이상일 때만 시트로 본다.
+    min_panels = 2 if explicit else 3
+    if len(panels) < min_panels:
+        if explicit:
+            _reply(channel, thread_ts,
+                   "이 이미지에서 여러 컷을 자동으로 나누지 못했어요 — 컷들이 흰 배경에 나뉘어 있는 "
+                   "시트인지 확인해 주세요. (한 장짜리면 그냥 `<작품> 이름 이 사진으로 등록해줘`로 등록돼요.)")
+            return True
+        return False   # 시트가 아님 → 일반 등록(라우터)으로 넘김
     etype = "costume" if _SHEET_COSTUME_RE.search(q) else "person"
-    tlabel = _REF_TLABEL.get(etype, "참조")
     name = _sheet_name_from_query(q)
+    if not name:
+        nm = _NATURAL_REF_RE.search(q)   # '선우 이 사진으로 등록' 같은 일반 등록 어법의 이름도 시도
+        if nm:
+            name = unicodedata.normalize("NFC", nm.group("name")).strip() or None
+    if name and etype == "person":
+        etype = _guess_ref_type(work, name)   # 이름으로 장소/소품/인물 추정(의상 키워드 없을 때)
+    tlabel = _REF_TLABEL.get(etype, "참조")
     if not name:
         _PENDING_SHEET[thread_ts] = {"work": work, "panels": panels, "etype": etype}
         ex = "후드셋" if etype == "costume" else "하루"
