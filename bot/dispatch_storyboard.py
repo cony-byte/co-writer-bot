@@ -3588,9 +3588,18 @@ def _do_stills(channel, thread_ts, rest, feedback=None, ref_data_url=None, ref_d
         has_attach = bool(ref_data_url or ref_data_urls)
         attach_note = (" 첨부한 이미지는 콘티가 준비된 뒤 그 씬 스틸컷의 구도 참조로 다시 올려 주시면 돼요."
                        if has_attach else "")
-        text = (f"📌 요청은 이해했는데 — <{work}> {ep_label} 씬 설계·상세 콘티가 아직 없어요. "
-                "스틸컷은 콘티(그 씬에 뭐가 나오는지)를 기준으로 그리기 때문에 콘티가 먼저 필요해요."
-                f"{attach_note}\n지금 씬 설계·콘티부터 만들까요?")
+        # ★2026-07-22 진단형 안내: 봇은 '노션에 저장된' 콘티만 회수한다(로컬 폴백 없음). 그래서
+        # 실패 원인을 구분해준다 — (a) 작품이 노션에 연결 안 됨, (b) 연결은 됐는데 그 화 콘티가
+        # 노션에 없음(대개 콘티를 만든 뒤 [💾 노션에 저장]을 안 눌러 스레드에만 있던 경우).
+        if not works.page_of(work):
+            why = (f"<{work}>이 노션 페이지에 연결돼 있지 않아 콘티를 회수할 수 없어요 — 이 채널에 "
+                   "작품 노션 링크를 붙여 먼저 연결해 주세요.")
+        else:
+            why = (f"노션에서 <{work}> {ep_label} 상세 콘티를 못 찾았어요. 봇은 '노션에 저장된' 콘티만 "
+                   "읽어요 — 콘티를 만든 뒤 [💾 노션에 저장]을 눌렀는지 확인해 주세요(스레드에만 "
+                   "있고 노션 저장을 안 했으면 다음 요청 때 회수가 안 돼요).")
+        text = (f"📌 요청은 이해했는데 — {why}\n스틸컷은 콘티(그 씬에 뭐가 나오는지)를 기준으로 "
+                f"그리기 때문에 콘티가 먼저 필요해요.{attach_note}\n지금 씬 설계·콘티부터 만들까요?")
         resp = app.client.chat_postMessage(
             channel=channel, thread_ts=thread_ts, text=text,
             blocks=_with_text_block(text, [{"type": "actions", "elements": [

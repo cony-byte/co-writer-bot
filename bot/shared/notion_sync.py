@@ -607,9 +607,21 @@ def find_conti_toggle_for_episode(page_id: str, episode: int, token: str | None 
     conti_heading = f"상세 콘티 ({episode}화)"
     norm = lambda s: re.sub(r"\s+", "", s or "")
     scene_hdr_re = re.compile(r"■\s*씬\s*\d+")
+    # ★2026-07-22: 제목 형식 변형에도 관대하게. 봇 저장 형식('상세 콘티 (N화)')은 정확 매칭하되,
+    # 실무자가 '5화 상세콘티' / '콘티 (5화)' / '5화 콘티'처럼 다르게 써도 잡는다(콘티 + 그 화 번호).
+    # (?<!\d)로 '15화'가 '5화' 요청에 오매칭되는 것 방지.
+    ep_re = re.compile(rf"(?<!\d){episode}\s*화")
     flat = _flatten(page_id, token)  # 다른 토글 안에 중첩돼 있어도 찾도록 전체 트리 평탄화(2026-07-15)
-    candidates = [b for b in flat
-                  if b.get("type") == "toggle" and norm(_block_text(b)) == norm(conti_heading)]
+
+    def _is_conti_toggle(b: dict) -> bool:
+        if b.get("type") != "toggle":
+            return False
+        txt = _block_text(b)
+        if norm(txt) == norm(conti_heading):
+            return True
+        return ("콘티" in norm(txt)) and bool(ep_re.search(txt))
+
+    candidates = [b for b in flat if _is_conti_toggle(b)]
     if not candidates:
         return None
 
