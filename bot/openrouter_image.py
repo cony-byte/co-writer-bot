@@ -949,21 +949,10 @@ def _shot_mentions(work: str | None, shot: dict) -> list[str]:
                 m for m in mentions
                 if _nfc(str(m)).strip() == focus_n or not _is_person(m)
             ]
-            # ★2026-07-22 의상 오염 방지(실측: "김신우 위주 컷인데 김신우가 이영 의상으로 나옴")
-            # — focus(위주) 샷에서 non-focus 인물 전용 의상 참조가 focus 인물에게 입혀지는 사고.
-            # 의상 이름이 focus가 아닌 다른 '등장 인물' 이름을 포함하면(그 인물 전용 의상) 제외한다.
-            # 어깨만 보이는 걸침 인물의 의상보다 위주 인물이 제 옷을 입는 게 훨씬 중요. 캐릭터
-            # 이름이 안 붙은 일반 의상(연습복-A 등)은 소유자를 알 수 없어 안전하게 둔다.
-            others = [o for c in (shot.get("characters") or [])
-                      if (o := _nfc(str(c)).strip()) and o != focus_n]
-            if others:
-                def _is_other_costume(nm: str) -> bool:
-                    e = resolve_element(work, nm)
-                    if not e or e.get("type") != "costume":
-                        return False
-                    names = _nfc(" ".join(_element_names(e)))
-                    return focus_n not in names and any(o in names for o in others)
-                mentions = [m for m in mentions if not _is_other_costume(m)]
+            # ★2026-07-22: 걸침 인물 의상은 '제외'가 아니라 인물별로 강하게 '묶어서' 오염을 막는다
+            # (사용자 지침 — OTS에선 전경 어깨도 자기 의상을 입어야 하므로 의상을 빼면 안 됨).
+            # 각 참조의 소유 인물을 shot_ref_entries가 이름으로 담고, reference_priority_block이
+            # "각 인물은 자기 의상만, 서로 바꾸지 마라"로 못박는다.
     # ★2026-07-15: 얼굴 참조 사진에 찍힌 원래 옷차림이 별도 의상 참조보다 우선시되는 사고
     # 실측(사용자 리포트: "잠옷" 의상을 등록했는데 인물 참조 사진 속 정장 차림으로 계속 나옴)
     # — 참조 이미지 순서에 민감한 생성기 특성(위 focus_char 설명과 동일 근거)을 활용해,
@@ -1018,7 +1007,9 @@ def shot_ref_entries(work: str | None, shot: dict) -> list[tuple[str, str, str |
         if u:
             etype = e.get("type") or "person"
             gender = e.get("gender") if etype == "person" else None
-            out.append((etype, u, gender))
+            # ★2026-07-22: 4번째로 소유 이름(display)을 담는다 — reference_priority_block이
+            # 인물↔의상을 이름으로 묶어 "각 인물은 자기 의상만, 서로 바꾸지 마라"를 명시하게.
+            out.append((etype, u, gender, _nfc(e.get("display", "")) or m))
     return out
 
 
@@ -1056,12 +1047,30 @@ def reference_priority_block(entries: list[tuple[str, str, str | None]]) -> str:
         return ""
     lines = ["REFERENCE PRIORITY — each reference image below has ONE role only; "
              "ignore anything outside that role:"]
+    persons, costumes = [], []
     for i, entry in enumerate(entries, 1):
-        role, _url, gender = entry if len(entry) == 3 else (*entry, None)
+        role, gender = entry[0], (entry[2] if len(entry) > 2 else None)
+        name = entry[3] if len(entry) > 3 else None
         instr = _ROLE_INSTRUCTIONS.get(role, _ROLE_INSTRUCTIONS["prop"])
         if role == "person" and gender in ("male", "female"):
             instr += f" This character is {gender} — keep the generated character clearly {gender}."
-        lines.append(f"Reference image {i}: {instr}")
+        owner = f" (belongs to '{name}')" if name and role in ("person", "costume") else ""
+        lines.append(f"Reference image {i}: {instr}{owner}")
+        if role == "person" and name:
+            persons.append(name)
+        if role == "costume" and name:
+            costumes.append(name)
+    # ★2026-07-22 의상 오염 방지(사용자 지침) — 인물/의상 참조가 여럿이면, 화면 위치와 무관하게
+    # 각 인물이 '자기 의상만' 입도록 강하게 묶고 서로 바꾸지 못하게 못박는다. OTS에서 전경 어깨의
+    # 인물이 배경 인물 옷을 입어버리던 사고 대응(의상을 빼지 않고 묶어서 해결).
+    if len(persons) >= 2 or len(costumes) >= 2:
+        lines.append(
+            "STRICT WARDROBE SEPARATION: each character wears ONLY their own outfit reference. "
+            "Do NOT swap, merge, duplicate, blend, or transfer clothing between characters. "
+            "An outfit from one character's costume reference must NOT appear on any other character "
+            "— not even partially, and not on a shoulder/arm shown in the foreground of an "
+            "over-the-shoulder framing. Bind each person's identity and outfit strictly to that one "
+            "person by their screen position described in the scene text.")
     return "\n".join(lines)
 
 
