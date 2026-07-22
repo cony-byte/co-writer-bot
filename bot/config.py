@@ -15,6 +15,9 @@ BACKEND = os.environ.get("COWRITER_BACKEND", "agent")
 
 MODEL = os.environ.get("COWRITER_MODEL", "claude-opus-4-8")       # api 백엔드용
 AGENT_MODEL = os.environ.get("COWRITER_AGENT_MODEL", "claude-sonnet-5")  # agent 백엔드용 (Sonnet 고정)
+# ★2026-07-22 합본 편집 지시 해석만 별도 모델(기본 Sonnet 5) — 라우터/다른 LLM 콜은 AGENT_MODEL
+# 그대로 두고, 편집 지시 정확도만 올린다(사용자 요청 "편집 지시만 소넷 5로").
+COMPILE_EDIT_MODEL = os.environ.get("COWRITER_COMPILE_EDIT_MODEL", "claude-sonnet-5")
 MAX_TOKENS = int(os.environ.get("COWRITER_MAX_TOKENS", "16000"))
 AGENT_TIMEOUT = int(os.environ.get("COWRITER_AGENT_TIMEOUT", "150"))  # agent 생성 최대 대기(초)
 # agent 백엔드 최대 턴 수. 프롬프트 크기와 무관하게도 'max turns' 에러가 자주 나서 상향(2026-07-13).

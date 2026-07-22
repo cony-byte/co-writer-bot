@@ -415,7 +415,7 @@ def apply_edit_feedback(plan: list[dict], feedback: str) -> list[dict] | None:
             + json.dumps(view, ensure_ascii=False, indent=1)
             + f"\n\n[사용자 편집 요청]\n{feedback.strip()}")
     try:
-        ans = generator.complete(_EDIT_SYSTEM, user, timeout=90)
+        ans = generator.complete(_EDIT_SYSTEM, user, timeout=90, model=config.COMPILE_EDIT_MODEL)
         edits = _parse_llm_json(ans)
     except Exception:
         log.exception("합본 편집 지시 파싱 실패")

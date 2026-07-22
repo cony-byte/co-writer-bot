@@ -30,14 +30,15 @@ def _flatten_thread(thread_messages: list[dict]) -> str:
     return current
 
 
-async def _agent_generate(system_text: str, prompt: str, timeout: int | None = None) -> str:
+async def _agent_generate(system_text: str, prompt: str, timeout: int | None = None,
+                          model: str | None = None) -> str:
     from claude_agent_sdk import (
         AssistantMessage, ClaudeAgentOptions, TextBlock, query,
     )
 
     options = ClaudeAgentOptions(
         system_prompt=system_text,
-        model=config.AGENT_MODEL or None,   # None = Claude Code 기본 모델
+        model=model or config.AGENT_MODEL or None,   # None = Claude Code 기본 모델
         max_turns=config.AGENT_MAX_TURNS,    # 입력이 크면 1턴으로 못 끝내 'max turns' 에러 → 여유
         allowed_tools=[],                   # 순수 텍스트 생성 — 도구 사용 없음
     )
@@ -91,20 +92,23 @@ def generate(thread_messages: list[dict], query_text: str,
     return text or "(빈 응답)"
 
 
-def complete(system_text: str, user_text: str, timeout: int | None = None) -> str:
+def complete(system_text: str, user_text: str, timeout: int | None = None,
+             model: str | None = None) -> str:
     """단발 (system, user) → text. script_format 등 llm 콜러블용. 스레드/바이블 없이 순수 호출.
-    timeout: agent 백엔드 최대 대기(초) override — 큰 동기화 등 오래 걸리는 작업용."""
+    timeout: agent 백엔드 최대 대기(초) override — 큰 동기화 등 오래 걸리는 작업용.
+    model: 이 호출만 다른 모델로 처리하고 싶을 때 override(예: 합본 편집 지시는 Sonnet 5).
+    안 주면 백엔드 기본(api=config.MODEL, agent=config.AGENT_MODEL)."""
     if config.BACKEND == "api":
         import anthropic
         client = anthropic.Anthropic()
         with client.messages.stream(
-            model=config.MODEL, max_tokens=config.MAX_TOKENS,
+            model=model or config.MODEL, max_tokens=config.MAX_TOKENS,
             system=system_text, messages=[{"role": "user", "content": user_text}],
         ) as stream:
             message = stream.get_final_message()
         return "".join(b.text for b in message.content if b.type == "text")
     try:
-        return asyncio.run(_agent_generate(system_text, user_text, timeout=timeout))
+        return asyncio.run(_agent_generate(system_text, user_text, timeout=timeout, model=model))
     except (asyncio.TimeoutError, TimeoutError):
         return TIMEOUT_MSG
 
