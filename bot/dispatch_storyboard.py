@@ -1256,7 +1256,8 @@ def _render_cuts(channel, thread_ts, work, bible, source_text, *,
                  retry_shots=None, retry_results=None, retry_cost=0.0,
                  kind=None, orig_rest=None, skip_confirm=False, group_bounds=None,
                  cut_filter: "set[int] | None" = None, auto_cut_judgment: bool = False,
-                 state_key: str | None = None, ref_data_url: str | None = None):
+                 state_key: str | None = None, ref_data_url: str | None = None,
+                 feedback: str | None = None):
     """source_text(콘티 전체 또는 한 씬)를 컷 분해 → 인물 참조로 생성 → 그리드 업로드.
     ref_data_url: 2026-07-21 — 노션에서 회수한 "구도/연출 그대로" 참조 이미지의 data URL.
     주어지면 이 호출로 생성되는 모든 컷의 참조 목록 맨 뒤에 추가되고(다른 인물/장소/의상
@@ -1570,6 +1571,16 @@ def _render_cuts(channel, thread_ts, work, bible, source_text, *,
             role_block = oi.reference_priority_block(ref_entries)
             if role_block:
                 prompt = f"{prompt}\n\n{role_block}"
+            # ★2026-07-22 재생성 피드백(사용자 메시지)은 콘티보다 '우선'이다 — 샷 분해기가 만든
+            # 프롬프트(콘티 기반)를 소스에 note로만 넣으면 콘티에 눌려 무시되던 실사용자 문제.
+            # 최종 프롬프트 '맨 끝'에 최우선 오버라이드로 다시 못박아, 콘티와 충돌하면 사용자
+            # 지시가 이기게 한다(맨 끝 지시가 생성기에서 강하게 작동). 참조 이미지(외형)는 그대로.
+            if feedback:
+                prompt = (f"{prompt}\n\n[★ HIGHEST-PRIORITY USER INSTRUCTION — this overrides the "
+                          f"scene/conti description above wherever they conflict. Apply it first, "
+                          f"then follow the scene description for everything it does not touch. "
+                          f"Keep reference images (faces/costumes/places) unchanged. 사용자 지시: "
+                          f"'{feedback}']")
             gen_ar = aspect_ratio or config.OPENROUTER_PANEL_ASPECT
             try:
                 png, cost = img.generate(prompt, aspect_ratio=gen_ar, refs=refs)
@@ -2521,7 +2532,7 @@ def _do_images(channel, thread_ts, rest, feedback=None):
     fb_note = (f"\n\n[사용자 지시 — 이 지시를 반드시 반영해 그려라: '{feedback}']" if feedback else "")
     _render_cuts_tracked("images", rest, channel, thread_ts, work, bible, conti + fb_note, target=target,
                         title="스토리보드 그리드", filename=f"storyboard_{work or 'ep'}.png",
-                        style_suffix=_style_for_work(work))
+                        style_suffix=_style_for_work(work), feedback=feedback)
 
 STILL_CUTS_DEFAULT = 4    # 스틸컷은 기본 4컷·2x2 그리드 고정(스크린샷 레퍼런스와 동일)
 
@@ -3805,13 +3816,13 @@ def _do_stills(channel, thread_ts, rest, feedback=None, ref_data_url=None, ref_d
             res = _render_cuts_tracked("stills", rest, channel, thread_ts, work, bible, conti + fb_note,
                                        target=None, cols=min(t, 2), auto_cut_judgment=True,
                                        aspect_ratio=STILL_ASPECT, style_suffix=_style_for_work(work), no_text=True,
-                                       title=auto_title, filename=f"still_{work or 'ep'}.png")
+                                       title=auto_title, filename=f"still_{work or 'ep'}.png", feedback=feedback)
         else:
             t = target or STILL_CUTS_DEFAULT
             res = _render_cuts_tracked("stills", rest, channel, thread_ts, work, bible, conti + fb_note,
                                        target=t, cols=min(t, 2),
                                        aspect_ratio=STILL_ASPECT, style_suffix=_style_for_work(work), no_text=True,
-                                       title=auto_title, filename=f"still_{work or 'ep'}.png")
+                                       title=auto_title, filename=f"still_{work or 'ep'}.png", feedback=feedback)
         grid_png, cuts = res if res else (None, None)
         if grid_png:
             _post_still_buttons(channel, thread_ts, work, None, auto_title, rest, grid_png, cuts=cuts)
@@ -3852,7 +3863,7 @@ def _do_stills(channel, thread_ts, rest, feedback=None, ref_data_url=None, ref_d
             try:
                 ok, detail = _do_stills_render_one(channel, thread_ts, rest, work, bible, scenes, num,
                                                    (cs or None), target, auto_cut, ctm, fb_note, episode,
-                                                   ref_data_url=this_ref)
+                                                   ref_data_url=this_ref, feedback=feedback)
             except Exception:
                 log.exception(f"씬{num} 스틸컷 생성 실패(씬-컷 쌍 배치)")
                 _reply(channel, thread_ts, f"⚠️ 씬{num} 스틸컷 생성 중 오류 — 다음은 계속 진행할게요.")
@@ -3889,7 +3900,7 @@ def _do_stills(channel, thread_ts, rest, feedback=None, ref_data_url=None, ref_d
             try:
                 ok, detail = _do_stills_render_one(channel, thread_ts, rest, work, bible, scenes, num,
                                                    cut_filter, target, auto_cut, ctm, fb_note, episode,
-                                                   ref_data_url=this_ref)
+                                                   ref_data_url=this_ref, feedback=feedback)
             except Exception:
                 log.exception(f"씬{num} 스틸컷 생성 실패(다중 씬 배치)")
                 _reply(channel, thread_ts, f"⚠️ 씬{num} 스틸컷 생성 중 오류가 났어요 — 다음 씬은 계속 진행할게요.")
@@ -3953,10 +3964,11 @@ def _do_stills(channel, thread_ts, rest, feedback=None, ref_data_url=None, ref_d
             del _RECENTLY_MISSING_CUTS[thread_ts]
     _do_stills_render_one(channel, thread_ts, rest, work, bible, scenes, num,
                           cut_filter, target, auto_cut, ctm, fb_note, episode,
-                          ref_data_url=ref_data_url)
+                          ref_data_url=ref_data_url, feedback=feedback)
 
 def _do_stills_render_one(channel, thread_ts, rest, work, bible, scenes, num,
-                          cut_filter, target, auto_cut, ctm, fb_note, episode, ref_data_url=None):
+                          cut_filter, target, auto_cut, ctm, fb_note, episode, ref_data_url=None,
+                          feedback=None):
     """단일 씬 스틸컷 생성 — 2026-07-16 다중 씬 배치("씬2,3,4 스틸컷") 지원을 위해 _do_stills
     본문 하단에 있던 단일 씬 처리 로직을 그대로 떼어낸 것(동작 변경 없음). _do_stills가 씬
     1개일 때 직접 호출하고, 다중 씬 배치일 때는 씬마다 이 함수를 순서대로 반복 호출한다.
@@ -4044,7 +4056,7 @@ def _do_stills_render_one(channel, thread_ts, rest, work, bible, scenes, num,
                                        style_suffix=_style_for_work(work), no_text=True,
                                        title=f"스틸컷 씬{num} (컷{b_start}-{b_end}/{n_beats})",
                                        filename=f"still_{work or 'ep'}_s{num}_b{b_start}-{b_end}.png",
-                                       ref_data_url=ref_data_url)
+                                       ref_data_url=ref_data_url, feedback=feedback)
             grid_png, cuts = res if res else (None, None)
             if grid_png:
                 _post_still_buttons(channel, thread_ts, work, num,
@@ -4075,7 +4087,7 @@ def _do_stills_render_one(channel, thread_ts, rest, work, bible, scenes, num,
                                cols=min(t, 2), cut_filter=cut_filter, auto_cut_judgment=auto_cut,
                                aspect_ratio=STILL_ASPECT, style_suffix=_style_for_work(work), no_text=True,
                                title=f"스틸컷 씬{num}{cut_label}", filename=f"still_{work or 'ep'}_s{num}.png",
-                               ref_data_url=ref_data_url)
+                               ref_data_url=ref_data_url, feedback=feedback)
     grid_png, cuts = res if res else (None, None)
     if grid_png:
         _post_still_buttons(channel, thread_ts, work, num, f"스틸컷 씬{num}{cut_label} · {hdr}", rest, grid_png,
