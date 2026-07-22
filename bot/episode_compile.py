@@ -233,22 +233,33 @@ def _render(work: str, plan: list[dict], out_path: Path, tmpdir: Path, *,
     seg_paths = []
     cut_audio_clips: list[tuple[float, Path]] = []  # [(timeline_start_sec, wav_path), ...]
     cursor = 0.0
+    total_out = 0.0   # 출력(=타임라인) 총 길이 — 배속이 걸리면 소스 길이와 달라진다
     for i, seg in enumerate(plan):
         seg_path = tmpdir / f"seg_{i:04d}.mp4"
         vf = (f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
              f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1")
-        dur = seg["duration"]
-        fd = min(_FADE_SEC, dur / 2)
+        dur = seg["duration"]                       # 소스에서 뽑을 구간 길이(초)
+        # ★2026-07-22 배속 지원: speed>1 빠르게, <1 느리게. 소스 dur초를 뽑아 setpts로
+        # 재생속도를 바꾸면 출력 길이는 dur/speed가 된다. atempo 안정 구간에 맞춰 0.5~2.0로 클램프.
+        speed = float(seg.get("speed") or 1.0)
+        if speed <= 0:
+            speed = 1.0
+        speed = max(0.5, min(2.0, speed))
+        out_dur = dur / speed                       # 이 컷이 타임라인에서 차지하는 실제 길이
+        if abs(speed - 1.0) > 1e-3:
+            vf += f",setpts=PTS/{speed:.4f}"
+        fd = min(_FADE_SEC, out_dur / 2)
         # ★2026-07-14, "트랜지션이 필요할 때만" 요청 — edit_plan이 씬 전환·시간 점프처럼
         # 명백히 필요한 경우에만 각 컷의 transition_in을 "fade"로 표시한다. 이 컷 자신이
         # fade로 들어오면(직전과 이어지는 게 아니라 새로 시작) 앞쪽에 fade-in, 다음 컷이
         # fade로 들어오면(=이 컷에서 다음 컷으로 넘어갈 때 끊어져야 함) 이 컷 뒤쪽에 fade-out을
         # 미리 구워 넣는다 — 나머지 대부분(하드컷)은 그냥 이어붙이기만 하면 되니 손 안 댐.
+        # fade는 setpts 뒤(출력 타임라인)에 걸어 배속과 무관하게 정확히 동작하게 한다.
         if seg.get("transition_in") == "fade" and i > 0:
             vf += f",fade=t=in:st=0:d={fd:.2f}"
         next_seg = plan[i + 1] if i + 1 < len(plan) else None
         if next_seg and next_seg.get("transition_in") == "fade":
-            vf += f",fade=t=out:st={max(0, dur - fd):.2f}:d={fd:.2f}"
+            vf += f",fade=t=out:st={max(0, out_dur - fd):.2f}:d={fd:.2f}"
         # ★2026-07-15 "개별 컷은 소리가 나오는데 합본에서 소리가 안 나옴" 픽스: 이 -an은
         # concat용 비디오 트랙에서만 오디오를 뺀다(코덱 통일을 위해 그대로 둠) — 예전엔
         # OPENROUTER_VIDEO_GENERATE_AUDIO가 기본 False라 컷 자체에 오디오가 없어서 -an으로
@@ -266,10 +277,12 @@ def _render(work: str, plan: list[dict], out_path: Path, tmpdir: Path, *,
 
         if _has_audio_stream(seg["video_path"]):
             seg_audio_path = tmpdir / f"seg_audio_{i:04d}.wav"
+            # 배속이 걸리면 오디오도 같은 배율로 템포 조정(atempo) — 안 하면 영상과 길이가 어긋난다.
+            a_af = [] if abs(speed - 1.0) <= 1e-3 else ["-af", f"atempo={speed:.4f}"]
             try:
                 _run([
                     config.FFMPEG_BIN, "-y", "-ss", str(seg["start"]), "-t", str(dur),
-                    "-i", seg["video_path"], "-vn", "-ar", "44100", "-ac", "2",
+                    "-i", seg["video_path"], "-vn", *a_af, "-ar", "44100", "-ac", "2",
                     "-c:a", "pcm_s16le", str(seg_audio_path),
                 ], timeout=config.COMPILE_TIMEOUT)
                 cut_audio_clips.append((cursor, seg_audio_path))
@@ -277,7 +290,8 @@ def _render(work: str, plan: list[dict], out_path: Path, tmpdir: Path, *,
                 # 컷 자체 오디오는 부가 요소라 추출 실패해도 합본 전체를 막지 않는다 —
                 # 이 구간만 무음으로 두고(나레이션/배경음악은 정상 진행) 계속한다.
                 log.exception(f"컷 오디오 추출 실패, 이 구간은 무음 처리: seg {i}")
-        cursor += dur
+        cursor += out_dur
+        total_out += out_dur
         if progress_cb:
             progress_cb(i + 1, len(plan))
 
@@ -295,7 +309,7 @@ def _render(work: str, plan: list[dict], out_path: Path, tmpdir: Path, *,
     # 안정되지 않아 사용자가 마지막으로 직접 편집·확인할 여지를 남기려는 것(사용자 요청).
     # 배경음악은 compile_episode가 build_bgm_track으로 완전히 별도 mp3 파일을 만들고,
     # 호출자(dispatch_storyboard._run_compile)가 그 파일을 합본 영상과 별개로 올린다.
-    total_duration = sum(seg["duration"] for seg in plan)
+    total_duration = total_out   # 배속 반영된 실제 출력 길이(소스 길이 합이 아니라)
     # ★2026-07-15: 컷 자체 오디오(cut_audio_path)가 하나도 없으면(과거 무음 컷들만 있는 경우)
     # _build_cut_audio_track가 None을 반환하므로, 오디오가 진짜 하나도 없을 때(나레이션도
     # 꺼져있고 배경음악도 이제 안 섞을 때)는 기존과 완전히 동일하게 무음 mp4로 진행된다.
@@ -365,7 +379,8 @@ def compile_episode(work: str, episode_title: str, plan: list[dict],
 
     bgm_path = None
     if mood_prompt and config.OPENROUTER_MUSIC_ENABLED:
-        total_duration = sum(seg["duration"] for seg in plan)
+        total_duration = sum(seg["duration"] / max(0.5, min(2.0, float(seg.get("speed") or 1.0)))
+                             for seg in plan)
         bgm_out = out_dir / f"{episode_title}_bgm_{uid}.mp3"
         result = build_bgm_track(mood_prompt, total_duration, bgm_out)
         bgm_path = str(result) if result else None

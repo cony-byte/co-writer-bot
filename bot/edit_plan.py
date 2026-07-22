@@ -369,3 +369,82 @@ def build_edit_plan(work: str, episode_title: str, scenes: list[tuple],
     log.info(f"편집계획(러프): {len(plan)}개 항목, 실측 길이 0인 컷 "
             f"{sum(1 for vs in videos_with_dur.values() for v in vs if v['duration'] <= 0)}개")
     return plan
+
+
+# ============================================================================
+# ★2026-07-22 합본 편집 피드백 — 사용자가 명시한 편집만 반영하는 '제약된' 편집기.
+# 예전에 껐던 '자유 자동편집'(LLM이 알아서 컷을 재단)과 다르다: 여기서는 이미 만들어진
+# plan을 놓고, 사용자가 말한 것(길이 조정/제거/순서/배속/트랜지션)만 적용한다. 컷을 새로
+# 지어내거나 시키지 않은 재단은 금지 — LLM 출력은 아래에서 코드로 강하게 검증·클램프한다.
+# ============================================================================
+_EDIT_SYSTEM = (
+    "너는 숏폼 드라마 합본의 '편집 지시 적용기'다. 이미 완성된 편집 컷 리스트가 있고, "
+    "사용자가 자연어로 편집을 요청한다. 요청한 편집만 정확히 반영해라.\n\n"
+    "할 수 있는 것(이것만):\n"
+    "- 순서 바꾸기: 출력 배열의 순서가 곧 새 컷 순서다.\n"
+    "- 컷 제거: 그 컷의 항목을 배열에서 빼라.\n"
+    "- 길이 조정('더 짧게/길게', '앞/뒤 잘라'): duration(길이 초)과 start(시작 오프셋 초)를 바꿔라.\n"
+    "- 배속('배속/빠르게/느리게', '2배속'): speed를 바꿔라(1.0=원속, 2.0=2배 빠름, 0.5=절반 느림).\n"
+    "- 트랜지션: transition_in을 'cut'(하드컷) 또는 'fade'로.\n\n"
+    "엄격 규칙:\n"
+    "- 목록에 있는 컷만 써라. ref(원본 인덱스)는 그대로 유지하고 새 컷을 지어내지 마라.\n"
+    "- 사용자가 말하지 않은 컷은 절대 바꾸지 마라(그대로 둬라). 시키지 않은 재단·삭제 금지.\n"
+    "- '두번째 컷'=배열의 2번째 항목, 'N컷'/'씬N 컷M'=그 scene/cut 번호로 지목한 것으로 이해해라.\n"
+    "- duration은 그 컷의 src_max(소스 최대 길이) 이하, start≥0, start+duration≤src_max.\n"
+    "- speed는 0.5~2.0.\n\n"
+    "출력: 편집 후 컷 배열을 JSON으로만. 각 원소는 "
+    '{"ref": 원본인덱스(int), "start": 초, "duration": 초, "speed": 배속, "transition_in": "cut|fade"}. '
+    "설명·코드펜스 없이 JSON 배열만 출력해라."
+)
+
+
+def apply_edit_feedback(plan: list[dict], feedback: str) -> list[dict] | None:
+    """완성된 plan에 사용자 편집 지시(feedback)를 제약적으로 적용한 새 plan을 반환.
+    LLM이 편집 배열을 내면 코드로 검증(ref 실존/순서/클램프)해 안전한 plan만 만든다.
+    실패(파싱 불가·빈 결과 등)하면 None — 호출자는 '편집을 이해 못 했다'고 안내한다."""
+    if not plan or not (feedback or "").strip():
+        return None
+    src_max = [_probe_duration(s["video_path"]) for s in plan]
+    view = [{"ref": i, "scene": s["scene_num"], "cut": s["cut_num"],
+             "start": round(float(s.get("start") or 0), 2),
+             "duration": round(float(s["duration"]), 2),
+             "speed": round(float(s.get("speed") or 1.0), 2),
+             "transition_in": s.get("transition_in", "cut"),
+             "src_max": round(src_max[i], 2)} for i, s in enumerate(plan)]
+    user = ("[현재 편집 컷 리스트 — 배열 순서가 재생 순서]\n"
+            + json.dumps(view, ensure_ascii=False, indent=1)
+            + f"\n\n[사용자 편집 요청]\n{feedback.strip()}")
+    try:
+        ans = generator.complete(_EDIT_SYSTEM, user, timeout=90)
+        edits = _parse_llm_json(ans)
+    except Exception:
+        log.exception("합본 편집 지시 파싱 실패")
+        return None
+    if not isinstance(edits, list) or not edits:
+        return None
+    new_plan: list[dict] = []
+    for e in edits:
+        try:
+            ref = int(e["ref"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if ref < 0 or ref >= len(plan):
+            continue
+        base = dict(plan[ref])              # 원본 항목 복사(video_path/나레이션 등 유지)
+        smax = src_max[ref] or base["duration"]
+        try:
+            start = float(e.get("start", base.get("start") or 0))
+            dur = float(e.get("duration", base["duration"]))
+            speed = float(e.get("speed", base.get("speed") or 1.0))
+        except (TypeError, ValueError):
+            start, dur, speed = base.get("start") or 0.0, base["duration"], base.get("speed") or 1.0
+        start = max(0.0, min(start, max(0.0, smax - 0.1)))
+        dur = max(0.1, min(dur, smax - start))
+        speed = max(0.5, min(2.0, speed if speed > 0 else 1.0))
+        tin = e.get("transition_in") if e.get("transition_in") in ("cut", "fade") else base.get("transition_in", "cut")
+        base.update({"start": start, "duration": dur, "speed": speed, "transition_in": tin})
+        new_plan.append(base)
+    if not new_plan:
+        return None
+    log.info(f"합본 편집 적용: {len(plan)}컷 → {len(new_plan)}컷 (지시: {feedback.strip()[:60]!r})")
+    return new_plan

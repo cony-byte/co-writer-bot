@@ -6881,8 +6881,14 @@ def _act_compile_confirm_missing(ack, body):
 
 _PENDING_COMPILE_CONFIRM: dict[str, dict] = {}   # 확정/재생성 버튼 메시지 ts -> {work,episode_title,draft_path,scenes,videos_by_scene}
 
-def _post_compile_confirm_buttons(channel, thread_ts, work, episode_title, draft_path, scenes, videos_by_scene):
-    text = "이 합본을 최종본으로 저장할까요? (확정 안 하면 draft 상태로 남아요)"
+_PENDING_COMPILE_EDIT: dict[str, dict] = {}   # thread_ts -> {work,episode_title,scenes,videos_by_scene,plan,draft_path}
+
+
+def _post_compile_confirm_buttons(channel, thread_ts, work, episode_title, draft_path, scenes, videos_by_scene,
+                                  plan=None):
+    text = ("이 합본을 최종본으로 저장할까요? (확정 안 하면 draft 상태로 남아요)\n"
+            "✂️ 편집하고 싶으면 [편집 요청]을 눌러 자유롭게 말씀해주세요 — 예: "
+            "'1컷 더 짧게', '두번째 컷 2배속', '3컷 빼줘', '컷 순서 바꿔'.")
     resp = app.client.chat_postMessage(
         channel=channel, thread_ts=thread_ts, text=text,
         blocks=_with_text_block(text, [{
@@ -6890,13 +6896,54 @@ def _post_compile_confirm_buttons(channel, thread_ts, work, episode_title, draft
             "elements": [
                 {"type": "button", "text": {"type": "plain_text", "text": "✅ 최종본으로 확정"},
                  "style": "primary", "action_id": "compile_confirm_final"},
+                {"type": "button", "text": {"type": "plain_text", "text": "✂️ 편집 요청"},
+                 "action_id": "compile_edit"},
                 {"type": "button", "text": {"type": "plain_text", "text": "🔄 다시 만들기"},
                  "action_id": "compile_regenerate"},
             ],
         }]))
     _PENDING_COMPILE_CONFIRM[resp["ts"]] = {"work": work, "episode_title": episode_title,
                                             "draft_path": draft_path, "scenes": scenes,
-                                            "videos_by_scene": videos_by_scene}
+                                            "videos_by_scene": videos_by_scene, "plan": plan}
+
+
+@app.action("compile_edit")
+def _act_compile_edit(ack, body):
+    """[✂️ 편집 요청] — 어떻게 편집할지 자유 답변을 다음 메시지로 받아 반영(양 백엔드 공통
+    결정적 게이트 _maybe_compile_edit_reply가 잡는다). 편집은 현재 plan 위에 누적된다."""
+    ack()
+    ch, tts = _action_ctx(body)
+    p = _PENDING_COMPILE_CONFIRM.get(body["message"]["ts"])   # peek(확정/재생성 계속 쓰게)
+    if not p or not p.get("plan"):
+        _reply(ch, tts, "⚠️ 어느 합본인지 정보가 만료됐어요(봇 재시작 등) — 합본을 다시 만든 뒤 눌러주세요.")
+        return
+    _PENDING_COMPILE_EDIT[tts] = {"work": p["work"], "episode_title": p["episode_title"],
+                                  "scenes": p["scenes"], "videos_by_scene": p["videos_by_scene"],
+                                  "plan": p["plan"], "draft_path": p.get("draft_path")}
+    _reply(ch, tts, "✂️ 어떻게 편집할까요? 자유롭게 말씀해주세요 — 예: '1컷 더 짧게 잘라줘', "
+                    "'두번째 컷 2배속', '3컷 빼줘', '컷 순서를 2,1,3으로', '앞부분 1초 잘라'.")
+
+
+def _maybe_compile_edit_reply(channel, thread_ts, query) -> bool:
+    """[✂️ 편집 요청] 뒤 자유 답변을 잡아 현재 plan에 편집을 적용하고 재렌더한다.
+    양 백엔드 공통 결정적 게이트(dispatch.py)에서 라우터보다 먼저 호출된다. 명백히 다른
+    의도(작품목록/스레드상태/취소)면 삼키지 않고 넘긴다(대기 유지)."""
+    if thread_ts not in _PENDING_COMPILE_EDIT or not (query or "").strip():
+        return False
+    if _LIST_WORKS_RE.search(query) or _THREAD_STATUS_RE.search(query) or _STOP_RE.match(query):
+        return False
+    p = _PENDING_COMPILE_EDIT.pop(thread_ts)
+    q = query.strip()
+    _reply(channel, thread_ts, f"✂️ '{q}' 반영해서 합본을 다시 만들게요…")
+    # 이전 draft는 편집본으로 대체되므로 정리한다(있으면).
+    if p.get("draft_path"):
+        try:
+            episode_compile.discard_draft(p["draft_path"])
+        except Exception:
+            pass
+    _run_compile(channel, thread_ts, p["work"], p["episode_title"], p["scenes"],
+                 p["videos_by_scene"], feedback=q, base_plan=p["plan"])
+    return True
 
 @app.action("compile_confirm_final")
 def _act_compile_confirm_final(ack, body):
@@ -6924,17 +6971,31 @@ def _act_compile_regenerate(ack, body):
     ch, tts = _action_ctx(body)
     _run_compile(ch, tts, p["work"], p["episode_title"], p["scenes"], p["videos_by_scene"])
 
-def _run_compile(channel, thread_ts, work, episode_title, scenes, videos_by_scene):
+def _run_compile(channel, thread_ts, work, episode_title, scenes, videos_by_scene,
+                 feedback=None, base_plan=None):
     jid = job_ledger.start_job("compile", channel, thread_ts, f"{work}|{episode_title}")
-    ph = _thinking(channel, thread_ts, f"<{work}> {episode_title} 합본 편집 전략을 짜는 중…", stop_button=True)
+    note0 = "합본 편집 요청을 반영하는 중…" if feedback else "합본 편집 전략을 짜는 중…"
+    ph = _thinking(channel, thread_ts, f"<{work}> {episode_title} {note0}", stop_button=True)
     try:
-        plan = edit_plan.build_edit_plan(work, episode_title, scenes, videos_by_scene, job_key=thread_ts)
+        # base_plan이 주어지면(편집 요청) 그 plan 위에 편집을 누적한다. 아니면 새로 러프 플랜 생성.
+        plan = base_plan if base_plan is not None else \
+            edit_plan.build_edit_plan(work, episode_title, scenes, videos_by_scene, job_key=thread_ts)
         if not plan:
             _update_note(channel, ph, "편집 계획이 비었어요 — 실패", clear=True)
             _reply(channel, thread_ts,
                   "⚠️ 사용할 수 있는 컷을 찾지 못했어요. 콘티가 있는지, 원하시는 씬 번호가 맞는지 "
                   "다시 한번 확인해서 알려주세요 (예: '씬2 다시 만들어줘').")
             return
+        if feedback:
+            edited = edit_plan.apply_edit_feedback(plan, feedback)
+            if edited is None:
+                _update_note(channel, ph, "편집 지시를 이해 못 함", clear=True)
+                _reply(channel, thread_ts,
+                      f"⚠️ '{feedback}' 편집 지시를 정확히 이해하지 못했어요. 직전 합본은 그대로 있어요. "
+                      "더 구체적으로 말씀해주세요 — 예: '1컷 더 짧게', '두번째 컷 2배속', '3컷 빼줘', "
+                      "'컷 순서를 2,1,3으로'.")
+                return
+            plan = edited
         # 배경음악(config.OPENROUTER_MUSIC_ENABLED, 기본 OFF)이 켜져 있을 때만 분위기 프롬프트를
         # 준비 — 꺼져 있으면 _work_mood_hint 호출도 생략해 기존 흐름을 그대로 둔다.
         mood_prompt = None
@@ -6964,7 +7025,8 @@ def _run_compile(channel, thread_ts, work, episode_title, scenes, videos_by_scen
                 filename=f"{episode_title}_배경음악.mp3",
                 initial_comment="🎵 배경음악(별도 파일 — 합본 영상에는 안 섞었어요). 나레이션/편집이 "
                                 "안정되면 확인 후 직접 입혀주세요.")
-        _post_compile_confirm_buttons(channel, thread_ts, work, episode_title, path, scenes, videos_by_scene)
+        _post_compile_confirm_buttons(channel, thread_ts, work, episode_title, path, scenes, videos_by_scene,
+                                      plan=plan)
     except Exception as e:
         log.exception("합본 생성 실패")
         _update_note(channel, ph, "⚠️ 실패", clear=True)

@@ -416,6 +416,12 @@ def _handle_dispatch(event: dict) -> None:
         sb._do_text_stop(channel, thread_ts)
         return
 
+    # ★2026-07-22 합본 [✂️ 편집 요청] 뒤 자유 답변은 양 백엔드 공통으로 라우터보다 먼저 잡는다
+    # (에이전트 라우터에서도 확실히 편집이 적용되도록 — 재생성 답장 매처는 킬스위치 전용이라 미흡).
+    if sb._maybe_compile_edit_reply(channel, thread_ts, query):
+        log.info("route=deterministic:compile_edit")
+        return
+
 
     # 레거시 pending matcher는 "응/네/그걸로" 같은 자연어를 실행 승인으로 소비한다.
     # Native router가 켜진 동안에는 절대 호출하지 않고, 정확한 pending_id가 담긴 Slack
