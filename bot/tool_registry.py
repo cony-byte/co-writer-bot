@@ -668,7 +668,12 @@ _add("show_media",
       "cut_number": {"type": "integer", "minimum": 1, "description": "스틸컷·영상의 컷 번호"},
       "kind": {"type": "string",
                "description": "무엇을 보여줄지 힌트: 인물/의상/장소/소품/스틸컷/영상/합본 등"},
-      "name": {"type": "string", "description": "참조를 볼 때 그 이름(예: 이영 PD룩)"},
+      "name": {"type": "string",
+               "description": "참조를 볼 때 그 이름(예: 이영 PD룩). ★인물 참조를 '뒷모습/뒤태/옆모습/측면' "
+                              "등 특정 각도로 보고 싶다는 표현이 있으면 그 단어를 절대 빼지 말고 이름 "
+                              "뒤에 그대로 붙여서 넘긴다(예: '하루 뒷모습 보여줘' → name='하루 뒷모습', "
+                              "kind에도 넣지 말고 name에만). 이 단어가 빠지면 등록된 그 각도 참조를 "
+                              "못 찾고 기본(정면) 참조가 대신 보인다."},
       "all_scenes": {"type": "boolean",
                      "description": "'스틸컷 전부/전체/다 보여줘'처럼 그 화 전 씬을 다 보려면 true"}},
      [], LOW, _show_media)
