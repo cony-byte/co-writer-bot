@@ -222,13 +222,17 @@ _TRANSITION_ALIAS = {
 
 def _resolve_meta(name: str, enum_cls, alias: dict, default_member: str):
     """이름(영문 토큰/한글 별칭 부분일치)으로 pyCapCut enum 멤버 → (resource_id, pretty_name).
-    _resolve_transition/필터 공용 로직 — 못 찾으면 default_member로 폴백."""
+    _resolve_transition/필터/애니메이션 공용 로직 — 못 찾으면 default_member로 폴백.
+    ★2026-07-23: value 객체의 표시이름 필드가 타입마다 다르다(TransitionMeta/FilterMeta는
+    'name', AnimationMeta는 'title') — 둘 다 시도해서 있는 쪽을 쓴다."""
+    def _pretty(v):
+        return getattr(v, "name", None) or getattr(v, "title", None) or ""
     raw = (name or "").lower()
     for k, member in alias.items():
         if k in (name or ""):
             m = getattr(enum_cls, member, None)
             if m:
-                return str(m.value.resource_id), m.value.name
+                return str(m.value.resource_id), _pretty(m.value)
     key = re.sub(r"[^a-z]", "", raw)
     tokens = [t for t in re.findall(r"[a-z]+", raw) if len(t) >= 3]
     exact = all_hit = any_hit = None
@@ -242,7 +246,7 @@ def _resolve_meta(name: str, enum_cls, alias: dict, default_member: str):
         elif tokens and any(t in n for t in tokens):
             any_hit = any_hit or m
     m = exact or all_hit or any_hit or getattr(enum_cls, default_member, list(enum_cls)[0])
-    return str(m.value.resource_id), m.value.name
+    return str(m.value.resource_id), _pretty(m.value)
 
 
 def _resolve_transition(name: str):
@@ -260,6 +264,37 @@ _FILTER_ALIAS = {
 def _resolve_filter(name: str):
     import pycapcut as cc
     return _resolve_meta(name, cc.FilterType, _FILTER_ALIAS, "Blur")
+
+
+def _resolve_intro(name: str):
+    import pycapcut as cc
+    return _resolve_meta(name, cc.IntroType, {}, "Focus")
+
+
+def _resolve_outro(name: str):
+    import pycapcut as cc
+    return _resolve_meta(name, cc.OutroType, {}, "Cash_Out")
+
+
+def _resolve_text_intro(name: str):
+    import pycapcut as cc
+    return _resolve_meta(name, cc.TextIntro, {}, "Click")
+
+
+def _resolve_text_outro(name: str):
+    import pycapcut as cc
+    return _resolve_meta(name, cc.TextOutro, {}, "Wiping_Out")
+
+
+def _hex_to_rgb(s: str) -> list[float]:
+    """'#RRGGBB' → [r,g,b](0~1). 못 읽으면 흰색."""
+    s = (s or "").strip().lstrip("#")
+    if len(s) == 6:
+        try:
+            return [int(s[i:i + 2], 16) / 255.0 for i in (0, 2, 4)]
+        except ValueError:
+            pass
+    return [1.0, 1.0, 1.0]
 
 
 def _probe_media(path: str):
@@ -301,13 +336,14 @@ def _new_audio_material(path: str, name: str, duration_us: int) -> dict:
             "source_platform": 0, "type": "extract_music", "wave_points": []}
 
 
-def _new_text_material(text: str) -> dict:
-    """실측 확인된 text material 필드 구성 — content는 CapCut 내부 스타일 JSON 문자열."""
+def _new_text_material(text: str, size: float = 8.0, rgb: list[float] | None = None) -> dict:
+    """실측 확인된 text material 필드 구성 — content는 CapCut 내부 스타일 JSON 문자열.
+    size/rgb(★2026-07-23 자막 스타일 확장): 글자 크기·색상(각 0~1 RGB, 기본 흰색)."""
     mid = uuid.uuid4().hex
     content_json = json.dumps({
         "styles": [{"fill": {"alpha": 1.0, "content": {"render_type": "solid",
-                    "solid": {"alpha": 1.0, "color": [1.0, 1.0, 1.0]}}},
-                   "range": [0, len(text)], "size": 8.0, "bold": False, "italic": False,
+                    "solid": {"alpha": 1.0, "color": rgb or [1.0, 1.0, 1.0]}}},
+                   "range": [0, len(text)], "size": size, "bold": False, "italic": False,
                    "underline": False, "strokes": []}],
         "text": text,
     }, ensure_ascii=False)
@@ -316,13 +352,32 @@ def _new_text_material(text: str) -> dict:
             "force_apply_line_max_width": False, "check_flag": 7, "type": "text", "global_alpha": 1.0}
 
 
-def _new_text_segment(material_id: str, start: int, duration: int) -> dict:
+def _new_text_segment(material_id: str, start: int, duration: int, x: float = 0.0, y: float = 0.0) -> dict:
+    """x/y(★2026-07-23 위치 확장): 화면 중앙 기준 -1~1 오프셋(예: y=-0.8은 화면 하단 근처)."""
     return {"id": uuid.uuid4().hex, "material_id": material_id,
             "target_timerange": {"start": start, "duration": duration},
             "source_timerange": None, "speed": 1.0, "volume": 1.0, "extra_material_refs": [],
             "clip": {"alpha": 1.0, "flip": {"horizontal": False, "vertical": False}, "rotation": 0.0,
-                     "scale": {"x": 1.0, "y": 1.0}, "transform": {"x": 0.0, "y": 0.0}},
+                     "scale": {"x": 1.0, "y": 1.0}, "transform": {"x": x, "y": y}},
             "render_index": 0}
+
+
+def _new_animation_material(rid: str, pretty: str, kind: str, panel: str, material_type: str,
+                            duration_us: int) -> dict:
+    """입장/퇴장 애니메이션 material(실측 확인, 2026-07-23) — kind는 'in'(인트로) 또는
+    'out'(아웃트로). panel='video'/material_type='video'는 클립 애니메이션,
+    panel=''/material_type='sticker'는 텍스트 애니메이션(실측: 텍스트도 sticker로 잡힘)."""
+    anim = {"anim_adjust_params": None, "platform": "all", "panel": panel,
+            "material_type": material_type, "name": pretty, "id": rid, "type": kind,
+            "resource_id": rid, "start": 0, "duration": duration_us}
+    return {"id": uuid.uuid4().hex, "type": "sticker_animation", "multi_language_current": "none",
+            "animations": [anim]}
+
+
+def _new_audio_fade_material(fade_in_us: int, fade_out_us: int) -> dict:
+    """오디오 페이드인/아웃 material(실측 확인, 2026-07-23)."""
+    return {"id": uuid.uuid4().hex, "fade_in_duration": fade_in_us, "fade_out_duration": fade_out_us,
+            "fade_type": 0, "type": "audio_fade"}
 
 
 def _new_audio_segment(material_id: str, start: int, duration: int, volume: float = 1.0) -> dict:
@@ -473,10 +528,13 @@ def apply_ops(state: dict, ops: list[dict], media_dir=None) -> list[str]:
                 if not text:
                     logs.append("자막 내용 없음 — 건너뜀")
                     continue
-                tmat = _new_text_material(text)
+                size = float(op["size"]) if "size" in op else 8.0
+                rgb = _hex_to_rgb(op["color"]) if "color" in op else None
+                tmat = _new_text_material(text, size=size, rgb=rgb)
                 content.setdefault("materials", {}).setdefault("texts", []).append(tmat)
                 tt = _ensure_track(content, "text")
-                tt["segments"].append(_new_text_segment(tmat["id"], tr["start"], tr["duration"]))
+                x = float(op.get("x", 0.0)); y = float(op.get("y", 0.0))
+                tt["segments"].append(_new_text_segment(tmat["id"], tr["start"], tr["duration"], x=x, y=y))
                 logs.append(f"컷#{cut_no}에 자막 추가: '{text[:20]}'")
             elif kind == "edit_text":
                 tt = _track(content, "text")
@@ -500,6 +558,78 @@ def apply_ops(state: dict, ops: list[dict], media_dir=None) -> list[str]:
                     logs.append(f"자막#{text_no} 수정: '{new_text[:20]}'")
                 else:
                     logs.append(f"자막#{text_no} 수정 실패")
+            elif kind == "style_text":
+                tt = _track(content, "text")
+                text_no = int(op.get("text_no", 1))
+                if not tt or not (1 <= text_no <= len(tt["segments"])):
+                    logs.append(f"자막#{text_no} 없음 — 스타일 변경 건너뜀")
+                    continue
+                seg = tt["segments"][text_no - 1]
+                mid = seg["material_id"]
+                tmat = next((t for t in content.get("materials", {}).get("texts", [])
+                            if t.get("id") == mid), None)
+                if tmat:
+                    try:
+                        c = json.loads(tmat["content"])
+                    except Exception:
+                        c = {"styles": [{}], "text": ""}
+                    if c.get("styles"):
+                        if "size" in op:
+                            c["styles"][0]["size"] = float(op["size"])
+                        if "color" in op:
+                            c["styles"][0].setdefault("fill", {}).setdefault(
+                                "content", {}).setdefault("solid", {})["color"] = _hex_to_rgb(op["color"])
+                        tmat["content"] = json.dumps(c, ensure_ascii=False)
+                if "x" in op or "y" in op:
+                    clip = seg.setdefault("clip", {"alpha": 1.0, "flip": {"horizontal": False, "vertical": False},
+                                                    "rotation": 0.0, "scale": {"x": 1.0, "y": 1.0},
+                                                    "transform": {"x": 0.0, "y": 0.0}})
+                    if "x" in op:
+                        clip["transform"]["x"] = float(op["x"])
+                    if "y" in op:
+                        clip["transform"]["y"] = float(op["y"])
+                logs.append(f"자막#{text_no} 스타일 변경")
+
+            # ── 애니메이션(입장/퇴장) ────────────────────────────
+            elif kind == "clip_animation":
+                cut_no = int(op.get("cut_no", 1))
+                if not (1 <= cut_no <= len(vt["segments"])):
+                    logs.append(f"컷#{cut_no} 없음 — 애니메이션 건너뜀")
+                    continue
+                anim_kind = "out" if op.get("kind") == "out" else "in"
+                dur = int(float(op.get("duration_s", 1.0)) * _US)
+                rid, pretty = (_resolve_outro if anim_kind == "out" else _resolve_intro)(op.get("name", ""))
+                amat = _new_animation_material(rid, pretty, anim_kind, "video", "video", dur)
+                content.setdefault("materials", {}).setdefault("material_animations", []).append(amat)
+                vt["segments"][cut_no - 1].setdefault("extra_material_refs", []).append(amat["id"])
+                logs.append(f"컷#{cut_no} {'퇴장' if anim_kind=='out' else '입장'} 애니메이션 '{pretty}'")
+            elif kind == "text_animation":
+                tt = _track(content, "text")
+                text_no = int(op.get("text_no", 1))
+                if not tt or not (1 <= text_no <= len(tt["segments"])):
+                    logs.append(f"자막#{text_no} 없음 — 애니메이션 건너뜀")
+                    continue
+                anim_kind = "out" if op.get("kind") == "out" else "in"
+                dur = int(float(op.get("duration_s", 1.0)) * _US)
+                rid, pretty = (_resolve_text_outro if anim_kind == "out" else _resolve_text_intro)(op.get("name", ""))
+                amat = _new_animation_material(rid, pretty, anim_kind, "", "sticker", dur)
+                content.setdefault("materials", {}).setdefault("material_animations", []).append(amat)
+                tt["segments"][text_no - 1].setdefault("extra_material_refs", []).append(amat["id"])
+                logs.append(f"자막#{text_no} {'퇴장' if anim_kind=='out' else '입장'} 애니메이션 '{pretty}'")
+
+            # ── 오디오 페이드 ────────────────────────────────────
+            elif kind == "audio_fade":
+                at = _track(content, "audio")
+                audio_no = int(op.get("audio_no", 1))
+                if not at or not (1 <= audio_no <= len(at["segments"])):
+                    logs.append(f"오디오#{audio_no} 없음 — 페이드 건너뜀")
+                    continue
+                fin = int(float(op.get("fade_in_s", 0)) * _US)
+                fout = int(float(op.get("fade_out_s", 0)) * _US)
+                fmat = _new_audio_fade_material(fin, fout)
+                content.setdefault("materials", {}).setdefault("audio_fades", []).append(fmat)
+                at["segments"][audio_no - 1].setdefault("extra_material_refs", []).append(fmat["id"])
+                logs.append(f"오디오#{audio_no} 페이드인 {fin/_US:.1f}s/페이드아웃 {fout/_US:.1f}s")
 
             # ── 필터 ────────────────────────────────────────────
             elif kind == "filter":
