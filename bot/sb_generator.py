@@ -54,11 +54,12 @@ def cancel_prefix(thread_ts: str) -> bool:
     return bool(targets)
 
 
-async def _agent_generate(system_text: str, prompt: str, timeout: int | None = None) -> str:
+async def _agent_generate(system_text: str, prompt: str, timeout: int | None = None,
+                          model: str | None = None) -> str:
     from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, TextBlock, query
     options = ClaudeAgentOptions(
         system_prompt=system_text,
-        model=config.AGENT_MODEL or None,
+        model=model or config.AGENT_MODEL or None,
         max_turns=1,
         allowed_tools=[],
     )
@@ -71,27 +72,29 @@ async def _agent_generate(system_text: str, prompt: str, timeout: int | None = N
     return await asyncio.wait_for(_run(), timeout=timeout or config.AGENT_TIMEOUT)
 
 
-def complete(system_text: str, user_text: str, timeout: int | None = None, job_key: str | None = None) -> str:
+def complete(system_text: str, user_text: str, timeout: int | None = None, job_key: str | None = None,
+             model: str | None = None) -> str:
     """(system, user) → text. 스토리보드 씬설계/콘티/샷분해용 단발 호출.
-    job_key(보통 thread_ts)를 주면 cancel(job_key)로 이 호출만 중간에 끊을 수 있다."""
+    job_key(보통 thread_ts)를 주면 cancel(job_key)로 이 호출만 중간에 끊을 수 있다.
+    model: 이 호출만 다른 모델로(예: 합본/CapCut 편집 지시는 Sonnet 5). 안 주면 백엔드 기본."""
     if config.BACKEND == "api":
         import anthropic
         client = anthropic.Anthropic()
         with client.messages.stream(
-            model=config.MODEL, max_tokens=config.MAX_TOKENS,
+            model=model or config.MODEL, max_tokens=config.MAX_TOKENS,
             system=system_text, messages=[{"role": "user", "content": user_text}],
         ) as stream:
             message = stream.get_final_message()
         return "".join(b.text for b in message.content if b.type == "text")
     if job_key is None:
         try:
-            return asyncio.run(_agent_generate(system_text, user_text, timeout=timeout))
+            return asyncio.run(_agent_generate(system_text, user_text, timeout=timeout, model=model))
         except (asyncio.TimeoutError, TimeoutError):
             return TIMEOUT_MSG
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        task = loop.create_task(_agent_generate(system_text, user_text, timeout=timeout))
+        task = loop.create_task(_agent_generate(system_text, user_text, timeout=timeout, model=model))
         with _ACTIVE_LOCK:
             _ACTIVE[job_key] = (loop, task)
         try:

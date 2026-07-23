@@ -7364,8 +7364,10 @@ def _do_capcut_cmd(channel, thread_ts, rest) -> None:
 
 
 _CAPCUT_EDIT_SYS = (
-    "너는 CapCut 편집 지시를 JSON 연산으로 바꾸는 변환기다. 현재 컷 목록(index/name/dur_s/speed)과 "
-    "사용자 지시를 보고, 지시한 편집만 연산 배열로 출력해라. 지원 연산(이것만):\n"
+    "너는 CapCut 편집 지시를 JSON 연산으로 바꾸는 변환기다. 현재 컷 목록(각 항목에 index와 "
+    "cut_no가 같이 있다 — index=0부터 시작하는 배열 위치, cut_no=1부터 시작하는 사람이 부르는 "
+    "컷 번호, cut_no=index+1)과 사용자 지시를 보고, 지시한 편집만 연산 배열로 출력해라. "
+    "지원 연산(이것만) — **출력 JSON의 index/after_index는 항상 배열 위치(0-based)를 써라**:\n"
     '- {"op":"reorder","order":[새 순서의 원본 index 배열]}\n'
     '- {"op":"drop","index":N}\n'
     '- {"op":"trim","index":N,"duration_s":초}\n'
@@ -7373,8 +7375,10 @@ _CAPCUT_EDIT_SYS = (
     '- {"op":"transition","after_index":N,"name":"트랜지션이름","duration_s":초}\n'
     "  (transition name은 다음 중 하나로: Cube_Rotate, Cubic_Flip, Flip_Page, Flash, White_Flash, "
     "Flip_Zoom, Big_Wave, Film_Burn. 한글 요청은 그대로 넣어도 됨 — 큐브/회전→Cube_Rotate 등 매핑됨.)\n"
-    "규칙: index는 '현재 컷 목록'의 index 그대로. 지시 안 한 컷은 건드리지 마라. '두번째 컷'=index 1. "
-    "여러 편집이면 배열에 여러 개. 설명·코드펜스 없이 JSON 배열만 출력."
+    "규칙: 사용자가 '1컷'/'3컷' 또는 '두번째 컷'/'세번째 컷'이라고 말하면, 컷 목록에서 그 "
+    "cut_no(또는 서수를 cut_no로 변환한 값)와 일치하는 항목을 찾아 **그 항목의 index 값**을 "
+    "출력에 써라(직접 -1 계산하지 말고 목록에서 cut_no로 찾아라 — 계산 실수 방지). 지시 안 한 "
+    "컷은 건드리지 마라. 여러 편집이면 배열에 여러 개. 설명·코드펜스 없이 JSON 배열만 출력."
 )
 
 

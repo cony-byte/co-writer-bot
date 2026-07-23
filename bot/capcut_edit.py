@@ -114,14 +114,17 @@ def _mat_name(content: dict, seg: dict) -> str:
 
 
 def segment_view(content: dict) -> list[dict]:
-    """LLM/사용자에게 보여줄 컷 요약 — [{index, name, start_s, dur_s, speed}]."""
+    """LLM/사용자에게 보여줄 컷 요약 — [{index, cut_no, name, start_s, dur_s, speed}].
+    cut_no는 1-based 컷 번호(사용자가 말하는 '1컷'/'3컷'과 그대로 대응) — LLM이 계산으로
+    index=N-1을 유도하다 실수하지 않게, index(0-based)와 나란히 명시적으로 준다
+    (★2026-07-23 실측: '1컷 2배속'을 index=1로 잘못 매핑하던 오프바이원 버그 대응)."""
     vt = _video_track(content)
     if not vt:
         return []
     out = []
     for i, s in enumerate(vt["segments"]):
         tr = s.get("target_timerange", {})
-        out.append({"index": i, "name": _mat_name(content, s),
+        out.append({"index": i, "cut_no": i + 1, "name": _mat_name(content, s),
                     "start_s": round(tr.get("start", 0) / _US, 2),
                     "dur_s": round(tr.get("duration", 0) / _US, 2),
                     "speed": float(s.get("speed", 1.0))})
