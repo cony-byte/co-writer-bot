@@ -598,6 +598,23 @@ def element_image_bytes(work: str | None, e: dict) -> "tuple[bytes, str] | None"
         return None
 
 
+def element_back_image_bytes(work: str | None, e: dict) -> "tuple[bytes, str] | None":
+    """등록 엘리먼트의 뒷모습 보조 참조 bytes + 확장자(없으면 None). '~뒷모습 보여줘' 열람용
+    (★2026-07-23) — element_image_bytes와 같은 패턴, back_ref_url이 반환하는 data URL을 그대로
+    디코딩."""
+    name = _nfc(e.get("display", ""))
+    u = back_ref_url(work, name) if name else None
+    if not u or not u.startswith("data:"):
+        return None
+    try:
+        header, b64 = u.split(",", 1)
+        mt = header[5:].split(";")[0] or "image/png"
+        ext = "." + mt.split("/")[-1].replace("jpeg", "jpg")
+        return base64.b64decode(b64), ext
+    except Exception:
+        return None
+
+
 def delete_element(work: str, *, name: str, etype: str | None = None) -> "tuple[bool, str]":
     """등록된 참조 엘리먼트를 삭제한다(★2026-07-21 — 기존엔 등록/교체/개명만 되고 삭제가
     없어서, 잘못 등록한 참조가 계속 살아있었다). 파괴적이므로 실제 이미지 바이트는 지우지

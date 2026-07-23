@@ -5008,7 +5008,21 @@ def _do_show_refs(channel, thread_ts, work=None, name=None, kind=None) -> bool:
 
     if name:
         e = oi.resolve_element(work, name)
-        got = oi.element_image_bytes(work, e) if e else None
+        # ★2026-07-23: '하루 뒷모습 보여줘'처럼 name/kind에 뒷모습이 언급되면, 인물 시트
+        # 등록 때 자동 분류해 저장한 뒷모습 보조 참조를 대신 보여준다(front 대표 참조가 아님).
+        want_back = bool(oi._BACK_VIEW_RE.search(oi._nfc(f"{name} {kind or ''}")))
+        got = None
+        if want_back and e and e.get("type") == "person":
+            got = oi.element_back_image_bytes(work, e)
+            if not got:
+                _reply(channel, thread_ts,
+                       f"'{name}'의 등록된 정면 참조는 있는데, 뒷모습 참조는 아직 없어요 — "
+                       "인물 시트에 뒷모습 컷이 포함돼 있으면 시트를 다시 등록해보거나, "
+                       f"`[뒷모습] <{work}> {oi._nfc(e.get('display','')) or name}` + 뒷모습 사진으로 "
+                       "따로 등록해주세요.")
+                return True
+        if got is None:
+            got = oi.element_image_bytes(work, e) if e else None
         if not got:
             _reply(channel, thread_ts,
                    f"'{name}' 참조의 이미지를 찾지 못했어요 — 이름이 정확한지, 이미지가 등록돼 "
@@ -5017,10 +5031,11 @@ def _do_show_refs(channel, thread_ts, work=None, name=None, kind=None) -> bool:
         data, ext = got
         disp = oi._nfc(e.get("display", "")) or name
         tlabel = _ELEM_KR.get(e.get("type"), "참조")
+        label = f"{tlabel} · {disp} (뒷모습)" if want_back and got else f"{tlabel} · {disp}"
         app.client.files_upload_v2(
             channel=channel, thread_ts=thread_ts, file=data,
-            filename=f"{disp}{ext}", title=f"{tlabel} · {disp}",
-            initial_comment=f"등록된 {tlabel} 참조 「{disp}」이에요.")
+            filename=f"{disp}{ext}", title=label,
+            initial_comment=f"등록된 {tlabel} 참조 「{disp}」{'뒷모습이에요.' if want_back else '이에요.'}")
         return True
 
     # 이름 없음 → (kind 필터) 등록 참조 전체를 그리드로.
