@@ -45,6 +45,14 @@ def _files_text(event: dict) -> tuple[str, int]:
             else:
                 log.warning("hwpx 본문 추출 실패(빈 결과)")
             continue
+        # ★2026-07-23 실사고: zip(.docx/.pdf 등 압축 기반 바이너리 포함)은 어떤 인코딩으로도
+        # 정상 디코딩이 안 되는데, _decode_text가 최후엔 errors="replace"로 강제 디코딩해
+        # 압축 바이트가 깨진 문자열(예: "PK�Q�\\...")로 그대로 "첨부 참고 자료"에
+        # 섞여 나갔다(CapCut draft zip 첨부 시 실측). hwpx처럼 알려진 텍스트 추출법이 없는
+        # zip 계열은 안전하게 건너뛴다(이미지와 동일한 이유).
+        if name.endswith((".zip", ".docx", ".pptx", ".xlsx")) or ftype == "zip" or data[:2] == b"PK":
+            log.info("텍스트 추출 미지원 압축 파일 건너뜀(zip 계열): %s", name or ftype)
+            continue
         body = _decode_text(data)
         if body.lstrip()[:200].lower().find("<!doctype html") >= 0 or body.lstrip().lower().startswith("<html"):
             log.warning("첨부 다운로드가 로그인 HTML 반환 — files:read 권한 필요")
