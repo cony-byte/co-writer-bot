@@ -92,6 +92,10 @@ CMD_CAPCUT = {"페이컷", "캡컷", "capcut", "cap cut"}
 # ★2026-07-22 업로드된 CapCut draft를 자연어로 편집(PoC) — [페이컷편집] <지시> + draft 첨부.
 CMD_CAPCUT_EDIT = {"페이컷편집", "캡컷편집", "capcutedit", "cap cut edit", "페이컷 편집", "캡컷 편집"}
 
+# ★2026-07-23 뒷모습(back-view) 보조 참조 등록 — [뒷모습] <작품> <인물이름> + 이미지 첨부.
+# 기존 정면 참조는 안 건드리고 별도 슬롯에 추가 저장(HANDOFF_영상화_인물일관성.md §6).
+CMD_BACK_REF = {"뒷모습", "뒷모습등록", "뒤태", "backview", "back view"}
+
 CMD_RESET_EPISODE = {"화초기화", "출력초기화", "아웃풋초기화", "output초기화", "reset"}
 
 CMD_AUTOPILOT = {"자동주행", "자율주행", "autopilot"}
@@ -6569,6 +6573,49 @@ def sb_do_ref(channel, thread_ts, rest, event):
         _reply(channel, thread_ts, err); return
 
     _post_ref_confirm(channel, thread_ts, work, etype, pairs)
+
+
+def _do_back_ref_cmd(channel, thread_ts, rest, event) -> None:
+    """[뒷모습] <작품> <인물이름> + 이미지 첨부 → 그 인물의 뒷모습 보조 참조로 저장(기존 정면
+    참조는 안 건드림, 확정 카드 없이 즉시 저장 — 추가 전용이라 위험이 낮음). 이제 그 인물이
+    등장하는 '뒷모습' 컷 생성 시 이 이미지가 머리/체형 보조 참조로 자동 붙는다."""
+    q = (rest or "").strip()
+    work = None
+    wm = SUB_RE.match(q)
+    if wm and not _looks_like_mention(wm.group(1)):
+        work = wm.group(1).strip()
+        q = (wm.group(2) or "").strip()
+    if not work:
+        joined = "\n".join(m["content"] for m in _thread_messages(channel, thread_ts))
+        work = _work_from_thread(joined, thread_ts)
+    if not work:
+        _reply(channel, thread_ts,
+               "작품을 못 찾았어요. `[뒷모습] <작품> 강태혁`처럼 작품을 적거나, 작품이 잡힌 스레드에서 보내주세요.")
+        return
+    work = works.resolve(work) or work
+    name = unicodedata.normalize("NFC", re.sub(r"^<\s*|\s*>$", "", q)).strip()
+    imgs = _image_files(event)
+    if not imgs:
+        _reply(channel, thread_ts,
+               f"이미지 첨부가 없어요. `[뒷모습] <{work}> 강태혁` + 뒷모습이 나온 이미지를 함께 올려주세요.")
+        return
+    if not name:
+        name = imgs[0][0]   # 파일명을 이름 후보로(다른 등록 흐름과 동일)
+        name = unicodedata.normalize("NFC", name).strip()
+    if not name or not oi.resolve_element(work, name):
+        _reply(channel, thread_ts,
+               f"<{work}>에 등록된 '{name or '(이름 없음)'}' 인물을 못 찾았어요 — 먼저 "
+               f"`[참조] <{work}> {name or '이름'}`으로 정면 참조를 등록한 뒤 뒷모습을 추가해주세요.")
+        return
+    _, ext, data, _url = imgs[0]
+    ok = oi.save_back_view(work, name, data, ext)
+    if not ok:
+        _reply(channel, thread_ts, f"<{work}> visual-pipeline 프로젝트 폴더를 못 찾아 저장할 수 없어요.")
+        return
+    _reply(channel, thread_ts,
+           f"✅ '{name}' 뒷모습 보조 참조를 저장했어요 — 이제 그 인물이 나오는 '뒷모습' 컷 생성 시 "
+           "자동으로 함께 참조돼요. (정면 참조는 그대로 유지됩니다.)")
+
 
 @app.action("ref_confirm")
 def _act_ref_confirm(ack, body):

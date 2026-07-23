@@ -278,6 +278,56 @@ def _vp_person_images(work: str | None) -> dict:
     return out
 
 
+def _back_angle_dir(pdir) -> "Path":
+    return pdir / "_angles"
+
+
+def _vp_person_back_images(work: str | None) -> dict:
+    """{인물이름(NFC): 뒷모습 참조 이미지 Path} — fixed-images/<id>/_angles/의 보조 이미지.
+    ★2026-07-23: 뒷모습 컷에서도 정체성이 흐트러지는 문제(정면 참조만 쓰다 보니 뒤에서 본
+    머리/체형이 뒤바뀜) 대응 — `_first_image`와 같은 폴더 구조(id 기준)를 따르지만, 대표
+    이미지가 있는 pdir 바로 아래가 아니라 `_angles/` 하위 폴더를 써서 register_element의
+    "재확정 시 기존 파일 전부 삭제" 로직(파일만 지움, 하위 폴더는 안 건드림)과 충돌하지
+    않게 분리했다."""
+    fx = vp_fixed_dir(work)
+    out = {}
+    if not fx or not fx.exists():
+        return out
+    for e in load_elements(work):
+        eid, display = e.get("id"), _nfc(e.get("display", ""))
+        if not eid or not display or eid.startswith("file:"):
+            continue
+        img = _first_image(_back_angle_dir(fx / eid))
+        if img:
+            out[display] = img
+    return out
+
+
+def back_ref_url(work: str | None, name: str) -> str | None:
+    """이름(별칭/부분이름 허용) → 등록된 뒷모습 참조 이미지 data URL. 없으면 None."""
+    stem = resolve_ref_name(work, name)
+    if not stem:
+        return None
+    p = _vp_person_back_images(work).get(_nfc(stem))
+    return _data_url(p) if p else None
+
+
+def save_back_view(work: str | None, name: str, data: bytes, ext: str) -> bool:
+    """뒷모습 참조 이미지를 등록(기존 정면/대표 참조는 건드리지 않고 별도 저장, 인물 1명당 1장
+    — 재등록하면 덮어씀). 실패(visual-pipeline 프로젝트 없음)하면 False."""
+    vpfx = vp_fixed_dir(work)
+    if vpfx is None:
+        return False
+    elem = register_element(work, name, "person", aliases=[name])
+    bdir = _back_angle_dir(vpfx / elem["id"])
+    bdir.mkdir(parents=True, exist_ok=True)
+    for old in list(bdir.iterdir()):
+        if old.is_file() and old.suffix.lower() in _REF_EXTS:
+            old.unlink()
+    (bdir / f"back{ext}").write_bytes(data)
+    return True
+
+
 def registered_refs(work: str | None) -> list[str]:
     """그 작품에 등록된 참조 인물(정본 NFC) 목록 — data/refs + visual-pipeline fixed-images 통합."""
     out = set()
@@ -986,7 +1036,19 @@ _ROLE_INSTRUCTIONS = {
     "mood": "mood/lighting reference — use ONLY for this image's overall color grading, lighting "
             "tone, and atmosphere. Ignore any objects, shapes, architecture, or content shown in "
             "it — it exists purely to set the color/light mood, not to contribute visual elements.",
+    "person_back": "back-view identity reference — this shows the SAME character from behind. "
+                   "Use it ONLY for this character's hair (length/style/color) and body silhouette "
+                   "as seen from behind. This shot is framed from behind the character (뒷모습) — "
+                   "match this reference's hair and back silhouette rather than inventing a "
+                   "different one. Do not use it for the face (not visible from behind) or clothing.",
 }
+
+# ★2026-07-23 뒷모습(back-view) 컷 감지 — 콘티/샷 텍스트에 이 표현이 있으면 그 인물의 등록된
+# 뒷모습 보조 참조(save_back_view)를 추가로 붙인다. 정면 참조만 쓰면 뒤에서 본 머리/체형이
+# 컷마다 달라지는 드리프트가 있었음(HANDOFF_영상화_인물일관성.md §3 레버 3).
+_BACK_VIEW_RE = re.compile(
+    r"뒷모습|뒷태|뒤에서\s*본|뒤에서\s*보는|등을\s*보이|등\s*돌린|뒤통수|"
+    r"back\s*view|back\s*shot|from\s*behind|rear\s*view")
 
 
 def shot_ref_entries(work: str | None, shot: dict) -> list[tuple[str, str, str | None]]:
@@ -997,6 +1059,8 @@ def shot_ref_entries(work: str | None, shot: dict) -> list[tuple[str, str, str |
     만들 때만 쓰임) 얼굴 참조 이미지 하나에만 100% 의존하고 있었다. 참조가 그 컷에 어떤 이유로
     안 붙으면 텍스트에 성별 앵커가 전혀 없어 모델이 이름만 보고 추측(오추측 가능)했다. 이
     gender를 reference_priority_block에서 텍스트로도 명시해 이중 안전장치로 쓴다."""
+    tnorm = _nfc(f"{shot.get('prompt', '')} {shot.get('caption', '')}")
+    is_back_view = bool(_BACK_VIEW_RE.search(tnorm))
     out, seen = [], set()
     for m in _shot_mentions(work, shot):
         e = resolve_element(work, m)
@@ -1007,9 +1071,16 @@ def shot_ref_entries(work: str | None, shot: dict) -> list[tuple[str, str, str |
         if u:
             etype = e.get("type") or "person"
             gender = e.get("gender") if etype == "person" else None
+            name = _nfc(e.get("display", "")) or m
             # ★2026-07-22: 4번째로 소유 이름(display)을 담는다 — reference_priority_block이
             # 인물↔의상을 이름으로 묶어 "각 인물은 자기 의상만, 서로 바꾸지 마라"를 명시하게.
-            out.append((etype, u, gender, _nfc(e.get("display", "")) or m))
+            out.append((etype, u, gender, name))
+            # ★2026-07-23 뒷모습 컷 + 이 인물의 뒷모습 참조가 등록돼 있으면, 정면 참조 바로
+            # 뒤에 보조로 붙인다(정면 참조가 여전히 얼굴/기본 정체성의 우선 근거).
+            if is_back_view and etype == "person":
+                bu = back_ref_url(work, name)
+                if bu:
+                    out.append(("person_back", bu, gender, name))
     return out
 
 
@@ -1054,7 +1125,7 @@ def reference_priority_block(entries: list[tuple[str, str, str | None]]) -> str:
         instr = _ROLE_INSTRUCTIONS.get(role, _ROLE_INSTRUCTIONS["prop"])
         if role == "person" and gender in ("male", "female"):
             instr += f" This character is {gender} — keep the generated character clearly {gender}."
-        owner = f" (belongs to '{name}')" if name and role in ("person", "costume") else ""
+        owner = f" (belongs to '{name}')" if name and role in ("person", "costume", "person_back") else ""
         lines.append(f"Reference image {i}: {instr}{owner}")
         if role == "person" and name:
             persons.append(name)
