@@ -224,8 +224,15 @@ def _sb(name: str, args: dict, ctx) -> None:
         if not record:
             raise ValueError("재개할 작업이 없습니다")
         sb.interrupted_state.clear(thread_ts)
-        sb.sb_do_storyboard(channel, thread_ts, record["rest"],
-                            stage=1 if record["kind"] == "plan" else 2)
+        # ★2026-07-23: kind!="plan"(콘티 재개)은 stage=2를 직접 호출했는데, 중단 이후 이
+        # 스레드의 1단계 기록이 사라졌으면(예: 다른 화로 넘어감) generate_detail_conti와 같은
+        # "화 번호도 다른 예시로 반려" 사고가 재현될 수 있다 — _do_storyboard_auto(1단계 없으면
+        # 1단계부터, 있으면 2단계로)에 위임해 정상 케이스는 그대로 stage 2로 가고, 예외
+        # 케이스만 안전하게 1단계부터 다시 잡게 한다.
+        if record["kind"] == "plan":
+            sb.sb_do_storyboard(channel, thread_ts, record["rest"], stage=1)
+        else:
+            sb._do_storyboard_auto(channel, thread_ts, record["rest"])
 
 
 def _reference(name: str, args: dict, ctx) -> None:
@@ -625,12 +632,18 @@ _add("explain_stage_skip",
      "첨부 파일로 제작 단계를 건너뛰는 방법을 안내한다. 사용자가 '첨부로 단계 건너뛰는 법'을 묻거나, 지원되지 않는 조합(예: 스토리보드 그리드를 콘티 없이 스틸컷으로 쓰려는 경우)을 시도해 명확한 실행 경로가 없을 때 호출한다.",
      {}, [], LOW, lambda args, ctx: _sb("explain_stage_skip", args, ctx))
 
+_REF_NAME_DESC = (
+    "참조 이름. ★뒷모습/뒤태/측면/(과거) 같은 각도·시점·버전 구분 단어나 '-A'/'-B' 같은 "
+    "버전 접미사가 있으면 절대 빼지 말고 이름에 그대로 포함해서 넘긴다 — 이 등록/조회는 "
+    "정확한 이름 일치로 동작해서, 이 단어가 빠지면 다른(엉뚱한) 참조를 등록/조회/삭제/복원"
+    "하게 된다.")
+
 _ref_props = {
     "work": WORK,
     "episode": EPISODE,
     # 로고는 일반 소품 참조로 오등록하지 않고 아래 replace_logo 전용 tool이 처리한다.
     "kind": {"type": "string", "enum": ["인물", "의상", "장소", "소품"]},
-    "name": {"type": "string"},
+    "name": {"type": "string", "description": _REF_NAME_DESC},
     "attachment_id": ATTACHMENT_ID,
     "instruction": INSTRUCTION,
 }
@@ -689,14 +702,14 @@ _add("delete_reference",
      "이미 등록된 참조(인물·의상·장소·소품)를 삭제한다. '과 배경 참조 삭제해줘', '이 인물 지워줘'처럼 잘못 등록했거나 필요 없어진 참조 제거 요청. 되돌릴 수 없는 작업이라 확인 버튼을 띄운 뒤 삭제한다. kind는 알면 넣고 애매하면 생략한다.",
      {"work": WORK,
       "kind": {"type": "string", "enum": ["인물", "의상", "장소", "소품"]},
-      "name": {"type": "string", "description": "삭제할 참조 이름"}},
+      "name": {"type": "string", "description": f"삭제할 {_REF_NAME_DESC}"}},
      ["name"], HIGH, _delete_reference)
 
 _add("restore_reference",
      "참조를 등록 당시의 원본 이미지로 되돌린다. '원본으로 되돌려줘', '얼굴 원래대로'처럼 face_ref 중화나 재생성 이전 원본으로 복원하려는 요청. 원본 백업(_originals)이 있는 참조만 가능하다.",
      {"work": WORK,
       "kind": {"type": "string", "enum": ["인물", "의상", "장소", "소품"]},
-      "name": {"type": "string", "description": "되돌릴 참조 이름"}},
+      "name": {"type": "string", "description": f"되돌릴 {_REF_NAME_DESC}"}},
      ["name"], HIGH, _restore_reference)
 
 _add("still_variant",
