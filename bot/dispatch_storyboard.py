@@ -2216,7 +2216,17 @@ def _post_element_candidate(channel, thread_ts, work, name, etype, context, forc
                                                  feedback=feedback)
     except Exception as e:
         log.exception("엘리먼트 AI 생성 실패")
-        app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"⚠️ 이미지 생성에 실패했어요 — {_classify_fail_reason(str(e))}. 잠시 후 다시 시도하고, 계속되면 관리자에게 알려주세요.")
+        # ★2026-07-23 실측: "하루 뒷모습 이미지 만들어줘"가 반복 실패했는데, 실제 원인
+        # (노션에 '하루' 캐릭터 카드가 없어서 _generate_element_candidate가 던진 구체적
+        # RuntimeError)이 아래 _classify_fail_reason(안전필터 vs 그 외 "생성 오류")을 거치며
+        # 뭉뚱그려져 사라졌다 — 사용자는 "생성 오류"만 보고 원인을 전혀 알 수 없었다.
+        # _generate_element_candidate가 직접 던지는(=이미 완성된 한국어 안내문인) 두 경우는
+        # 분류기를 거치지 않고 그대로 보여준다.
+        msg = str(e)
+        if "캐릭터 카드를 못 찾았어요" in msg or "외형'도 '설명'도 없어요" in msg:
+            app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"⚠️ {msg}")
+        else:
+            app.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"⚠️ 이미지 생성에 실패했어요 — {_classify_fail_reason(msg)}. 잠시 후 다시 시도하고, 계속되면 관리자에게 알려주세요.")
         return
     cap = f"🎨 {label} 후보 — {name}" + (f" · ~${cost:.3f}" if cost else "")
     app.client.files_upload_v2(channel=channel, thread_ts=thread_ts, file=png,
