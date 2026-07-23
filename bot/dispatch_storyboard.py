@@ -4761,9 +4761,9 @@ def _maybe_natural_ref(channel, thread_ts, query, event) -> bool:
 # ============================================================================
 _PENDING_SHEET: dict[str, dict] = {}   # thread_ts -> {work, panels, etype}
 _SHEET_RE = re.compile(
-    r"인물\s*시트|캐릭터\s*시트|캐릭\s*시트|의상\s*시트|옷\s*시트|턴어라운드|설정화|참조\s*시트|"
-    r"레퍼런스\s*시트|인물\s*참조\s*이미지|의상\s*참조\s*이미지|분할\s*해?\s*서?\s*저장|"
-    r"나눠서?\s*저장|분할\s*등록|쪼개서?\s*저장")
+    r"인물\s*시트|캐릭터\s*시트|캐릭\s*시트|의상\s*시트|옷\s*시트|이미지\s*시트|사진\s*시트|"
+    r"턴어라운드|설정화|참조\s*시트|레퍼런스\s*시트|인물\s*참조\s*이미지|의상\s*참조\s*이미지|"
+    r"분할\s*해?\s*서?\s*저장|나눠서?\s*저장|분할\s*등록|쪼개서?\s*저장")
 # 시트 내용이 의상이면 costume, 아니면 person으로 저장한다.
 _SHEET_COSTUME_RE = re.compile(
     r"의상|코스튬|복장|옷|후드|후디|자켓|재킷|셔츠|코트|교복|정장|니트|가디건|점퍼|치마|바지|costume|outfit|hoodie")
@@ -4835,7 +4835,11 @@ def _maybe_character_sheet_register(channel, thread_ts, query, event) -> bool:
     if not imgs:
         return False
     q = query or ""
-    explicit = bool(_SHEET_RE.search(q))
+    # ★2026-07-23 실측 사고: "<겨울 하루>의 하루 이미지 시트 첨부할게."는 메시지 문구가
+    # _SHEET_RE/_REG_INTENT_RE 어느 것도 안 걸려서(등록/저장/이 사진 같은 정형 표현이 없음)
+    # 시트 분할 없이 일반 단일 이미지 등록 경로로 새버렸다 — 정작 첨부 파일명("하루 시트
+    # 최종.webp")엔 '시트'가 명시돼 있었는데 메시지 텍스트만 봤다. 첨부 파일명도 같이 본다.
+    explicit = bool(_SHEET_RE.search(q)) or any(_SHEET_RE.search(im[0]) for im in imgs)
     if not explicit:
         # 자동 감지 후보: 등록 의도가 있고(등록/저장/이 사진으로…) 생성 요청이 아닐 때만.
         if _GEN_EXCLUDE_RE.search(q) or not _REG_INTENT_RE.search(q):
