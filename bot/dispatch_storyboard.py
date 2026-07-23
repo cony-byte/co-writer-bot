@@ -1084,17 +1084,30 @@ def sb_do_storyboard(channel, thread_ts, rest, stage=1):
             base_note2 = ((f"씬{scene_num}만 " if target_scene else "") + "상세 콘티(GPT 이미지용) 만드는 중이에요… (보통 1~5분, 길면 최대 10분)"
                            + (f" (목표 {cut_target}컷)" if cut_target else ""))
             ph = _thinking(channel, thread_ts, base_note2, stop_button=True)
+            # ★2026-07-23(사용자 요청): 스틸컷 재생성 피드백(★HIGHEST-PRIORITY, ~L1596)과 동일한
+            # 우선순위를 상세 콘티 수정에도 명시한다 — 이 시스템 프롬프트(STORYBOARD_ROLE)의
+            # "대본 내용 불변" 원칙은 콘티가 대본을 임의로 창작·왜곡하지 못하게 막는 기본값일
+            # 뿐, 사용자가 지금 명시적으로 요청한 수정(예: 대사·행동을 바꿔달라는 지시)까지
+            # 막는 게 아니다 — 그런 지시가 있으면 그 지시를 그대로 따르고, 지시가 언급 안 한
+            # 부분에만 "대본 불변" 기본값을 적용한다. 이전 문구("이 수정 지시를 반영해 다시
+            # 써라")는 지시가 있어도 여전히 콘티/대본 쪽이 이긴다고 오해될 수 있었다.
             if target_scene:
                 num, hdr, body = target_scene
                 user = (f"[해당 씬의 현재 콘티]\n■ {hdr}\n{body}\n\n" + ref_block
-                        + f"\n\n(이 씬 하나만 이 수정 지시를 반영해 다시 써라: '{instr}'. "
+                        + f"\n\n(이 씬 하나만 다시 써라. [★최우선] 아래 사용자 지시가 위 [해당 씬의 "
+                        f"현재 콘티]·대본과 충돌하면 사용자 지시가 이긴다 — 지시가 명시한 부분은 "
+                        "그대로 따르고, 지시가 언급 안 한 나머지 사건·행동·대사만 대본/기존 콘티를 "
+                        f"그대로 유지하라. 사용자 지시: '{instr}'. "
                         "같은 헤더 형식(■ 씬N · N초 · 제목)으로 시작해 이 씬의 샷 콘티만 출력하라. "
-                        "다른 씬은 언급도 수정도 하지 마라. 대본의 사건·행동·대사는 하나도 바꾸지 마라.)")
+                        "다른 씬은 언급도 수정도 하지 마라.)")
             elif treat_as_revision:
                 # 콘티는 스레드 텍스트로 전체를 다시 올리므로 수정도 전체 콘티를 다시 출력 → [이미지]가 항상 전체를 읽음
                 user = (f"[현재 상세 콘티]\n{prior_conti}\n\n" + ref_block
-                        + f"\n\n(위 [현재 상세 콘티]에 이 수정을 반영해 **전체 콘티를 다시** 출력하라: '{instr}'. "
-                        "맨 위에 '바꾼 점: …' 한 줄 요약 후, **씬별 헤더(■ 씬N · N초 · 제목)로 나눠서** 전체 콘티. 대본의 사건·행동·대사는 하나도 바꾸지 마라.)")
+                        + "\n\n(위 [현재 상세 콘티]를 **전체 다시** 출력하라. [★최우선] 아래 사용자 "
+                        "지시가 위 콘티·대본과 충돌하면 사용자 지시가 이긴다 — 지시가 명시한 부분은 "
+                        "그대로 따르고, 지시가 언급 안 한 나머지 사건·행동·대사만 대본/기존 콘티를 "
+                        f"그대로 유지하라. 사용자 지시: '{instr}'. "
+                        "맨 위에 '바꾼 점: …' 한 줄 요약 후, **씬별 헤더(■ 씬N · N초 · 제목)로 나눠서** 전체 콘티.)")
             else:
                 # 씬 설계안에서 씬 목록을 못 뽑았을 때(옛 형식 등)만 예전처럼 통짜로 한 번에 생성
                 user = (_convo_text(msgs) + ref_block
@@ -2560,7 +2573,12 @@ def _do_images(channel, thread_ts, rest, feedback=None):
     # [이미지] 그리드 경로는 모델 기본값에 맡겨져 매번 다른 화풍(사진/애니메 등)으로 나왔다.
     # ★2026-07-22: 사용자 메시지의 지시사항을 그리드 생성 프롬프트에도 반영(스틸컷은 이미
     # feedback로 반영 중이었으나 그리드 경로만 빠져 있었다).
-    fb_note = (f"\n\n[사용자 지시 — 이 지시를 반드시 반영해 그려라: '{feedback}']" if feedback else "")
+    # ★2026-07-23: 마커를 "[재생성 피드백 — ...]"로 통일 — 3단계 샷분해 시스템 프롬프트
+    # (storyboard_shots_system)의 우선순위 규칙이 이 정확한 마커 문자열을 찾아서 "콘티와
+    # 충돌하면 이 지시가 이긴다"를 적용한다. 예전 "[사용자 지시 — ...]" 마커는 그 규칙이
+    # 못 찾아서 스틸컷 경로와 달리 그리드 경로만 우선순위가 안 걸렸다.
+    fb_note = (f"\n\n[재생성 피드백 — 이 지시가 콘티/대본과 충돌하면 이 지시가 이긴다. "
+              f"지시가 언급 안 한 부분만 콘티를 그대로 따르라: '{feedback}']" if feedback else "")
     _render_cuts_tracked("images", rest, channel, thread_ts, work, bible, conti + fb_note, target=target,
                         title="스토리보드 그리드", filename=f"storyboard_{work or 'ep'}.png",
                         style_suffix=_style_for_work(work), feedback=feedback)
@@ -3874,8 +3892,8 @@ def _do_stills(channel, thread_ts, rest, feedback=None, ref_data_url=None, ref_d
                  "action_id": "start_storyboard_cancel"}]}]))
         _PENDING_STORYBOARD_FOR_STILLS[resp["ts"]] = {"work": work, "episode": episode}
         return
-    fb_note = (f"\n\n[재생성 피드백 — 이 지시를 반드시 반영해 다시 그려라: '{feedback}']"
-               if feedback else "")
+    fb_note = (f"\n\n[재생성 피드백 — 이 지시가 콘티/대본과 충돌하면 이 지시가 이긴다. "
+              f"지시가 언급 안 한 부분만 콘티를 그대로 따르라: '{feedback}']" if feedback else "")
     scenes = _split_scenes(conti)
     if not scenes:      # 씬 헤더 없는 옛 콘티 → 전체를 스틸로 (폴백, [N초] 비트 표기 없음 전제)
         # 옛 콘티([N초] 표기 없음)는 원래부터 "구도 비슷하면 합침" 판단이 기본이라 auto_cut이
