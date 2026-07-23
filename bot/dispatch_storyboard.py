@@ -5260,7 +5260,38 @@ def _show_document(channel, thread_ts, work, episode, kind) -> bool:
     return True
 
 
-_SHOW_VIDEO_CAP = 6   # 한 번에 올리는 영상 최대 개수(플러딩 방지)
+_SHOW_VIDEO_CAP = 6   # 한 번에 올리는 영상 최대 개수(플러딩 방지) — zip 묶음에는 적용 안 함
+
+_ZIP_VIDEO_CAP = 60   # zip 한 번에 담는 영상 최대 개수(비대해지는 것 방지)
+
+
+def _upload_videos_as_zip(channel, thread_ts, work, episode, items) -> bool:
+    """(snum, cnum, path) 목록을 zip 하나로 묶어 올린다(★2026-07-23, 사용자 요청 — '지금까지
+    만든 영상 다 보여줘'는 개별 업로드 대신 zip으로). 존재하지 않는/못 읽는 파일은 조용히
+    건너뛴다(부분 실패로 전체를 막지 않음)."""
+    import tempfile
+    import zipfile
+    capped = items[:_ZIP_VIDEO_CAP]
+    with tempfile.TemporaryDirectory(prefix="sb_videos_zip_") as td:
+        zpath = os.path.join(td, f"videos_{_work_safe_name(work)}_{episode}화.zip")
+        added = 0
+        with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as zf:
+            for snum, cnum, path in capped:
+                try:
+                    zf.write(path, arcname=f"씬{snum}_컷{cnum}.mp4")
+                    added += 1
+                except OSError:
+                    log.warning("영상 zip 포함 실패(건너뜀): %s", path)
+        if added == 0:
+            _reply(channel, thread_ts, f"<{work}> {episode}화 영상 파일을 못 읽어서 zip을 못 만들었어요.")
+            return True
+        extra = len(items) - len(capped)
+        note = f" (…외 {extra}개는 너무 많아 제외 — 씬/컷을 지정하면 그것만 볼 수 있어요.)" if extra > 0 else ""
+        app.client.files_upload_v2(
+            channel=channel, thread_ts=thread_ts, file=zpath,
+            filename=os.path.basename(zpath), title=f"<{work}> {episode}화 영상 {added}개",
+            initial_comment=f"<{work}> {episode}화 영상 {added}개를 zip으로 묶었어요.{note}")
+    return True
 
 
 def _show_videos(channel, thread_ts, work, episode, scene, cut, want_compiled=False) -> bool:
@@ -5296,6 +5327,12 @@ def _show_videos(channel, thread_ts, work, episode, scene, cut, want_compiled=Fa
                f"<{work}> {episode}화에 저장된 영상이 없어요"
                + (f" (씬{scene}{f' 컷{cut}' if cut else ''})." if scene else "."))
         return True
+    # ★2026-07-23(사용자 요청) — 영상이 2개 이상 나오는 요청은(씬/컷 지정 여부와 무관 — "지금까지
+    # 만든 영상 다 보여줘"든 "씬1 2컷,5컷 보여줘"든 "2씬 전부 다 보여줘"든) 개별 업로드
+    # (_SHOW_VIDEO_CAP개 캡) 대신 zip 하나로 묶어 보낸다 — 캡 때문에 일부만 보이는 문제도 없고,
+    # 여러 파일을 한 번에 내려받기도 편하다. 정확히 1개만 나올 때만 기존처럼 그 자리에 바로 올린다.
+    if len(items) > 1:
+        return _upload_videos_as_zip(channel, thread_ts, work, episode, items)
     for snum, cnum, path in items[:_SHOW_VIDEO_CAP]:
         try:
             app.client.files_upload_v2(
