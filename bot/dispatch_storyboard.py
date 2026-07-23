@@ -7364,26 +7364,47 @@ def _do_capcut_cmd(channel, thread_ts, rest) -> None:
 
 
 _CAPCUT_EDIT_SYS = (
-    "너는 CapCut 편집 지시를 JSON 연산으로 바꾸는 변환기다. 현재 컷 목록(각 항목에 index와 "
-    "cut_no가 같이 있다 — index=0부터 시작하는 배열 위치, cut_no=1부터 시작하는 사람이 부르는 "
-    "컷 번호, cut_no=index+1)과 사용자 지시를 보고, 지시한 편집만 연산 배열로 출력해라. "
-    "지원 연산(이것만) — **출력 JSON의 index/after_index는 항상 배열 위치(0-based)를 써라**:\n"
+    "너는 CapCut 편집 지시를 JSON 연산으로 바꾸는 변환기다. 아래에 현재 영상 컷 목록/오디오(음악) "
+    "목록/자막 목록과, 이번 요청에 함께 첨부된 미디어 파일 이름들, 사용자 지시가 주어진다. "
+    "지시한 편집만 연산 배열로 출력해라. 각 목록의 index=0부터 시작하는 배열 위치, "
+    "cut_no/audio_no/text_no=1부터 시작하는 사람이 부르는 번호(=index+1). "
+    "**출력 JSON의 index/after_index/audio_no/text_no/cut_no는 아래 [규칙]대로 채워라.**\n\n"
+    "지원 연산(이것만):\n"
     '- {"op":"reorder","order":[새 순서의 원본 index 배열]}\n'
     '- {"op":"drop","index":N}\n'
     '- {"op":"trim","index":N,"duration_s":초}\n'
     '- {"op":"speed","index":N,"speed":배속(0.5~2.0)}\n'
     '- {"op":"transition","after_index":N,"name":"트랜지션이름","duration_s":초}\n'
-    "  (transition name은 다음 중 하나로: Cube_Rotate, Cubic_Flip, Flip_Page, Flash, White_Flash, "
-    "Flip_Zoom, Big_Wave, Film_Burn. 한글 요청은 그대로 넣어도 됨 — 큐브/회전→Cube_Rotate 등 매핑됨.)\n"
-    "규칙: 사용자가 '1컷'/'3컷' 또는 '두번째 컷'/'세번째 컷'이라고 말하면, 컷 목록에서 그 "
-    "cut_no(또는 서수를 cut_no로 변환한 값)와 일치하는 항목을 찾아 **그 항목의 index 값**을 "
-    "출력에 써라(직접 -1 계산하지 말고 목록에서 cut_no로 찾아라 — 계산 실수 방지). 지시 안 한 "
-    "컷은 건드리지 마라. 여러 편집이면 배열에 여러 개. 설명·코드펜스 없이 JSON 배열만 출력."
+    "  (transition name: Cube_Rotate, Cubic_Flip, Flip_Page, Flash, White_Flash, Flip_Zoom, "
+    "Big_Wave, Film_Burn 중 하나 또는 한글 표현 그대로 — 큐브/회전→Cube_Rotate 등 매핑됨.)\n"
+    '- {"op":"add_audio","media":"첨부파일명","audio_no":기존 오디오 있으면 그 번호(선택)}\n'
+    "  (배경음악 교체/추가. audio_no 없으면 새로 추가하거나 기존 유일한 음악을 교체.)\n"
+    '- {"op":"volume","audio_no":N,"level":0.0~2.0}\n'
+    '- {"op":"mute","audio_no":N}\n'
+    '- {"op":"add_text","cut_no":N,"text":"자막 내용"}  (그 컷 구간에 맞춰 자막 추가)\n'
+    '- {"op":"edit_text","text_no":N,"text":"새 자막 내용"}\n'
+    '- {"op":"filter","cut_no":N,"name":"필터 이름 또는 느낌(빈티지/청량/흑백/블러/몽환 등)"}\n'
+    '- {"op":"replace_clip","cut_no":N,"media":"첨부파일명"}  (그 컷의 영상을 첨부 파일로 교체)\n'
+    '- {"op":"insert","after_cut_no":N,"media":"첨부파일명"}  (N번 컷 뒤에 첨부 영상을 새 컷으로 삽입, '
+    "맨 앞에 넣으려면 after_cut_no=0)\n\n"
+    "[규칙]\n"
+    "- 'N컷'/'N번째 컷'은 cut_no로, 'N번째 음악'은 audio_no로, 'N번째 자막'은 text_no로 먼저 "
+    "매칭하고, 출력할 때 reorder/drop/trim/speed/transition의 index·after_index는 그 목록에서 "
+    "찾은 항목의 index(0-based) 값을 써라(직접 -1 계산하지 말고 목록에서 찾아라 — 계산 실수 방지). "
+    "add_audio/volume/mute/add_text/edit_text/filter/replace_clip/insert의 cut_no/audio_no/"
+    "text_no/after_cut_no는 **1-based 그대로** 출력해라(이 연산들은 index가 아니라 번호를 받는다).\n"
+    "- media를 쓰는 연산(add_audio/replace_clip/insert)은 반드시 [첨부된 미디어 파일] 목록에 있는 "
+    "이름만 써라(지어내지 마라). 목록에 없는 파일을 요구하는 지시면 그 연산은 생략해라.\n"
+    "- 지시 안 한 컷/음악/자막은 건드리지 마라. 여러 편집이면 배열에 여러 개. "
+    "설명·코드펜스 없이 JSON 배열만 출력."
 )
 
 
-def _capcut_edit_ops(view, instruction):
-    user = ("[현재 컷 목록]\n" + json.dumps(view, ensure_ascii=False)
+def _capcut_edit_ops(view, audio, text, media_names, instruction):
+    user = ("[현재 영상 컷 목록]\n" + json.dumps(view, ensure_ascii=False)
+            + "\n\n[현재 오디오(음악) 목록]\n" + json.dumps(audio, ensure_ascii=False)
+            + "\n\n[현재 자막 목록]\n" + json.dumps(text, ensure_ascii=False)
+            + "\n\n[첨부된 미디어 파일]\n" + json.dumps(media_names, ensure_ascii=False)
             + f"\n\n[편집 지시]\n{instruction}")
     ans = generator.complete(_CAPCUT_EDIT_SYS, user, timeout=90, model=config.COMPILE_EDIT_MODEL)
     t = re.sub(r"^```(?:json)?\s*|\s*```$", "", (ans or "").strip(), flags=re.S).strip()
@@ -7391,27 +7412,39 @@ def _capcut_edit_ops(view, instruction):
     return ops if isinstance(ops, list) else []
 
 
+_CAPCUT_MEDIA_EXTS = (".mp4", ".mov", ".m4v", ".mp3", ".wav", ".m4a", ".aac")
+
+
 def _do_capcut_edit_cmd(channel, thread_ts, rest, event) -> None:
-    """[페이컷편집] <지시> + draft(zip 또는 draft_content.json) 첨부 → 편집해 돌려준다(PoC).
-    지원: 순서/제거/길이/배속/트랜지션. draft는 평문 JSON이라 직접 편집한다."""
+    """[페이컷편집] <지시> + draft(zip/json) + (선택) 교체·삽입용 미디어 첨부 → 편집해 돌려준다.
+    지원: 순서/제거/길이/배속/트랜지션/배경음악 교체·볼륨·음소거/자막 추가·수정/필터/클립 교체·삽입.
+    draft는 평문 JSON이라 직접 편집한다(★2026-07-22, ★2026-07-23 오디오·자막·필터·클립 확장)."""
     from bot import capcut_edit
     if not capcut_edit.available():
         _reply(channel, thread_ts, "CapCut 편집 모듈(pyCapCut)이 설치돼 있지 않아요 — 봇 관리자에게 문의해주세요.")
         return
     instr = (rest or "").strip()
     if not instr:
-        _reply(channel, thread_ts, "어떻게 편집할지 지시를 적어주세요 — 예: `[페이컷편집] 3컷 빼고 1컷 2배속, 1·2컷 사이 큐브회전`.")
+        _reply(channel, thread_ts,
+              "어떻게 편집할지 지시를 적어주세요 — 예: `[페이컷편집] 3컷 빼고 1컷 2배속, 배경음악 바꿔줘`"
+              "(음악/클립 교체·삽입이면 그 파일도 같이 첨부해주세요).")
         return
     files = (event or {}).get("files") or []
     df = next((f for f in files if (f.get("name") or "").lower().endswith((".zip", ".json"))), None)
     if not df:
         _reply(channel, thread_ts, "편집할 CapCut draft를 첨부해주세요 — `draft_content.json` 또는 draft 폴더 zip.")
         return
-    url = df.get("url_private_download") or df.get("url_private")
-    try:
+    media_files = [f for f in files if f is not df
+                   and (f.get("name") or "").lower().endswith(_CAPCUT_MEDIA_EXTS)]
+
+    def _download(f):
+        url = f.get("url_private_download") or f.get("url_private")
         req = urllib.request.Request(url, headers={"Authorization": f"Bearer {config.SLACK_BOT_TOKEN}"})
         with urllib.request.urlopen(req, timeout=60) as r:
-            data = r.read()
+            return r.read()
+
+    try:
+        data = _download(df)
     except Exception:
         log.exception("draft 첨부 다운로드 실패")
         _reply(channel, thread_ts, "draft 파일을 내려받지 못했어요 — 다시 첨부해주세요.")
@@ -7425,25 +7458,39 @@ def _do_capcut_edit_cmd(channel, thread_ts, rest, event) -> None:
         _reply(channel, thread_ts, "이 draft에서 비디오 컷을 찾지 못했어요.")
         return
     ph = _thinking(channel, thread_ts, f"✂️ CapCut draft 편집 중… ({len(view)}컷)")
-    try:
-        ops = _capcut_edit_ops(view, instr)
-    except Exception:
-        log.exception("CapCut 편집 지시 파싱 실패")
-        _update_note(channel, ph, "⚠️ 편집 지시 해석 실패", clear=True)
-        _reply(channel, thread_ts, f"'{instr}' 편집 지시를 이해하지 못했어요 — 더 구체적으로: '3컷 빼줘', '1컷 2배속', '1·2컷 사이 페이드'.")
-        return
-    if not ops:
-        _update_note(channel, ph, "적용할 편집 없음", clear=True)
-        _reply(channel, thread_ts, "적용할 편집을 못 찾았어요 — 지시를 다시 확인해주세요.")
-        return
-    logs = capcut_edit.apply_ops(st["content"], ops)
+    import tempfile
+    from pathlib import Path as _P
+    with tempfile.TemporaryDirectory(prefix="sb_capcut_edit_") as td:
+        media_names = []
+        for f in media_files:
+            nm = f.get("name") or ""
+            try:
+                (_P(td) / nm).write_bytes(_download(f))
+                media_names.append(nm)
+            except Exception:
+                log.exception("편집용 미디어 첨부 다운로드 실패: %s", nm)
+        try:
+            ops = _capcut_edit_ops(view, capcut_edit.audio_view(st["content"]),
+                                   capcut_edit.text_view(st["content"]), media_names, instr)
+        except Exception:
+            log.exception("CapCut 편집 지시 파싱 실패")
+            _update_note(channel, ph, "⚠️ 편집 지시 해석 실패", clear=True)
+            _reply(channel, thread_ts,
+                  f"'{instr}' 편집 지시를 이해하지 못했어요 — 더 구체적으로: '3컷 빼줘', '1컷 2배속', "
+                  "'배경음악 바꿔줘'(+음악 파일 첨부), '1컷에 자막 넣어줘: 안녕'.")
+            return
+        if not ops:
+            _update_note(channel, ph, "적용할 편집 없음", clear=True)
+            _reply(channel, thread_ts, "적용할 편집을 못 찾았어요 — 지시를 다시 확인해주세요.")
+            return
+        logs = capcut_edit.apply_ops(st, ops, media_dir=td)
     out, fn = capcut_edit.write_draft(st)
     _update_note(channel, ph, "✅ CapCut draft 편집 완료", clear=True)
     app.client.files_upload_v2(
         channel=channel, thread_ts=thread_ts, file=out, filename=fn,
         title="편집된 CapCut draft",
         initial_comment=("✂️ 편집 완료 — " + " / ".join(logs) + "\n"
-                         "이 파일로 CapCut의 `draft_content.json`을 교체하면 반영돼요."))
+                         "이 파일로 CapCut의 draft를 교체하면 반영돼요."))
 
 
 def _do_export_capcut(channel, thread_ts, work, episode) -> bool:
