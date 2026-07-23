@@ -30,21 +30,50 @@ def available() -> bool:
 
 
 # ── draft 읽기/쓰기 ─────────────────────────────────────────────
+# ★2026-07-23 Mac CapCut 앱은 pyCapCut(Windows CapCut/JianYing 기준)이 다루는
+# 'draft_content.json'이 아니라 'draft_info.json'을 쓴다(실측: 최상위 draft_info.json은
+# 보통 비어있고, 실제 트랙/소재는 Timelines/<uuid>/draft_info.json에 들어있음 — 멀티타임라인
+# 구조). 두 파일명을 다 인식하고, 후보가 여럿이면 '트랙이 실제로 있는' 것을 우선한다.
+_DRAFT_FILENAMES = ("draft_content.json", "draft_info.json")
+
+
+def _has_content(d: dict) -> bool:
+    """이 draft JSON에 실제로 편집할 게 있는지(트랙에 세그먼트가 하나라도 있는지)."""
+    for t in d.get("tracks", []) or []:
+        if t.get("segments"):
+            return True
+    return False
+
+
 def read_draft(data: bytes, filename: str) -> dict | None:
-    """업로드 파일(zip 또는 draft_content.json) → {content, zip_names?} 형태. 실패 시 None.
-    zip이면 draft_content.json을 찾아 파싱하고, 나중에 재-zip할 수 있게 원본 항목을 들고 있는다."""
+    """업로드 파일(zip 또는 draft_content.json/draft_info.json) → {content, zip, content_arcname}.
+    실패 시 None. zip이면 후보 파일들을 다 파싱해보고, 실제 트랙(세그먼트)이 있는 걸 고른다
+    (Mac CapCut은 최상위 draft_info.json이 비어있고 Timelines/<uuid>/ 안에 실제 데이터가 있음).
+    나중에 재-zip할 수 있게 고른 항목의 arcname을 들고 있는다."""
     name = (filename or "").lower()
     try:
         if name.endswith(".json") or data[:1] == b"{":
             return {"content": json.loads(data.decode("utf-8")), "zip": None}
         if name.endswith(".zip") or data[:2] == b"PK":
             zf = zipfile.ZipFile(io.BytesIO(data))
-            cand = [n for n in zf.namelist() if n.endswith("draft_content.json")]
+            cand = [n for n in zf.namelist()
+                    if "__MACOSX" not in n and any(n.endswith(fn) for fn in _DRAFT_FILENAMES)
+                    and not n.endswith(".bak")]
             if not cand:
                 return None
-            content = json.loads(zf.read(cand[0]).decode("utf-8"))
-            # 원본 zip 바이트를 보관해 편집 후 그 항목만 갈아끼운다.
-            return {"content": content, "zip": data, "content_arcname": cand[0]}
+            parsed = []
+            for n in cand:
+                try:
+                    parsed.append((n, json.loads(zf.read(n).decode("utf-8"))))
+                except Exception:
+                    continue
+            if not parsed:
+                return None
+            # 트랙에 세그먼트가 있는 것을 우선(중첩 Timelines가 보통 실제 데이터를 가짐),
+            # 없으면 첫 후보(예: 오래된 draft_content.json 단일 구조)로 폴백.
+            chosen = next((p for p in parsed if _has_content(p[1])), parsed[0])
+            arcname, content = chosen
+            return {"content": content, "zip": data, "content_arcname": arcname}
     except Exception:
         log.exception("draft 읽기 실패")
     return None
