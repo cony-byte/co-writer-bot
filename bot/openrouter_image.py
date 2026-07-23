@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 import mimetypes
 import json
 import re
@@ -19,6 +20,8 @@ import urllib.request
 import uuid
 
 from . import config
+
+log = logging.getLogger("storyboard-bot")
 
 # register_element가 load→modify→save를 락 없이 하면, 짧은 시간에 여러 등록 요청이 겹칠 때
 # (예: 이미지 여러 장을 연달아 확정) 뒤에 저장한 쪽이 앞선 쪽을 덮어써서 등록이 조용히
@@ -136,6 +139,50 @@ def vision_check(png: bytes, ref_urls: list[str], question: str, *,
     except urllib.error.HTTPError as e:
         raise RuntimeError(f"OpenRouter vision 오류 {e.code}: {e.read().decode('utf-8','replace')[:200]}") from e
     return (data.get("choices") or [{}])[0].get("message", {}).get("content", "") or ""
+
+
+_SHEET_ANGLE_LABELS = ("정면", "측면", "뒷모습", "기타")
+
+
+def classify_sheet_angles(panels: list[bytes], *, model: str | None = None, timeout: int = 60) -> list[str]:
+    """★2026-07-23: 인물 시트를 분할한 각 패널이 정면/측면/뒷모습/기타 중 뭘 보여주는지 vision
+    으로 한 번에 분류(패널당 개별 호출 대신 멀티모달 1콜) — 사용자 요청: "인물 시트 등록에서
+    뒷모습 패널을 자동으로 뒷모습 참조로 쓰게". 실패/개수 불일치는 전부 "기타"로 안전 폴백
+    (호출부가 그 경우 그냥 기존 동작 그대로 — 뒷모습 보조 저장만 건너뜀, 시트 등록 자체는
+    안 막힘)."""
+    if not panels:
+        return []
+    if not config.OPENROUTER_API_KEY:
+        return ["기타"] * len(panels)
+    content = [{"type": "text", "text":
+        f"다음은 인물 참조 시트에서 나눈 {len(panels)}개의 컷입니다(순서대로 1번부터 "
+        f"{len(panels)}번). 각 컷이 그 인물을 어느 각도에서 보여주는지 분류하세요. 라벨은 "
+        "반드시 다음 중 하나만 사용: 정면(얼굴이 정면/거의 정면으로 보임), 측면(옆모습), "
+        "뒷모습(등/뒤통수만 보이고 얼굴이 안 보임), 기타(전신·클로즈업 표정 등 위 셋에 안 "
+        f'맞음). JSON 배열로만 답하세요, 다른 말 없이. 예: ["정면","측면","뒷모습","기타"] '
+        f"(반드시 길이 {len(panels)})."}]
+    for p in panels:
+        content.append({"type": "image_url", "image_url": {"url": png_data_url(p)}})
+    payload = {
+        "model": model or getattr(config, "OPENROUTER_LLM_MODEL", "anthropic/claude-sonnet-4.5"),
+        "messages": [{"role": "user", "content": content}],
+    }
+    req = urllib.request.Request(
+        _CHAT_URL, data=json.dumps(payload).encode("utf-8"),
+        headers={"Authorization": f"Bearer {config.OPENROUTER_API_KEY}",
+                 "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        text = (data.get("choices") or [{}])[0].get("message", {}).get("content", "") or ""
+        s, e = text.find("["), text.rfind("]")
+        labels = json.loads(text[s:e + 1]) if s != -1 and e != -1 and e > s else []
+    except Exception:
+        log.warning("시트 각도 분류 실패 — 전부 '기타'로 폴백", exc_info=True)
+        return ["기타"] * len(panels)
+    if len(labels) != len(panels):
+        return ["기타"] * len(panels)
+    return [lb if lb in _SHEET_ANGLE_LABELS else "기타" for lb in labels]
 
 
 def _nfc(s: str) -> str:

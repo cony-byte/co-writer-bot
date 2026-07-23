@@ -4811,9 +4811,22 @@ def _save_character_sheet(channel, thread_ts, work, name, panels, etype="person"
         fp.write_bytes(png)
         os.utime(fp, (base + i, base + i))   # 전면(i=0)이 mtime 최소 → 대표 이미지로 선택됨
         saved += 1
+    # ★2026-07-23(사용자 요청): 시트 패널 중 '뒷모습'으로 보이는 걸 자동 분류해 뒷모습 보조
+    # 참조로도 저장 — 그러면 상세콘티에 뒷모습 컷이 있을 때 shot_ref_entries가 그걸 자동으로
+    # 붙인다(_BACK_VIEW_RE). etype이 person이 아니면(의상 시트) 뒷모습 개념이 없어 건너뜀.
+    back_saved = False
+    if etype == "person" and panels:
+        try:
+            angles = oi.classify_sheet_angles(panels)
+            back_idx = next((i for i, a in enumerate(angles) if a == "뒷모습"), None)
+            if back_idx is not None:
+                back_saved = oi.save_back_view(work, name, panels[back_idx], ".png")
+        except Exception:
+            log.warning("시트 뒷모습 자동 분류/저장 실패 — 무시하고 계속", exc_info=True)
+    extra = " 뒷모습 컷도 자동으로 찾아 뒷모습 참조로 함께 저장했어요." if back_saved else ""
     _reply(channel, thread_ts,
            f"✅ '{name}' {tlabel} 시트를 {saved}개 뷰로 나눠 <{work}>에 저장했어요 — 정면을 대표 참조로, "
-           f"나머지(3/4·측면·뒷모습·전신 등)는 보조 참조로. 이제 스틸컷 생성 때 여러 각도가 참고돼요.")
+           f"나머지(3/4·측면·뒷모습·전신 등)는 보조 참조로.{extra} 이제 스틸컷 생성 때 여러 각도가 참고돼요.")
 
 
 def _maybe_character_sheet_register(channel, thread_ts, query, event) -> bool:
