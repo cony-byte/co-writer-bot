@@ -113,7 +113,14 @@ def _sb(name: str, args: dict, ctx) -> None:
     if name == "generate_scene_design":
         sb.sb_do_storyboard(channel, thread_ts, rest, stage=1)
     elif name == "generate_detail_conti":
-        sb.sb_do_storyboard(channel, thread_ts, rest, stage=2)
+        # ★2026-07-23 실측 — "<작품> N화 상세 콘티 작성해줘"가 이 스레드에 아직 씬 설계(1단계)가
+        # 없으면 곧장 stage=2를 호출해 "아직 콘티가 없어요, [스토리보드] 3화처럼 해보세요"라는
+        # 엉뚱한(화 번호도 예시일 뿐 실제 요청과 다름) 안내로 반려됐다 — 대본은 있는데도 그냥
+        # 실패. sb_do_storyboard(stage=2) 대신, "1단계 없으면 1단계부터, 있으면 2단계로" 이미
+        # 검증된 자동판단 로직(_do_storyboard_auto, [스토리보드] 명령이 쓰는 것과 동일)에
+        # 위임한다 — 1단계가 없으면 먼저 씬 설계를 만들고, 사용자가 이어서 다시 요청하면
+        # (이제 1단계가 있으니) 자연스럽게 2단계로 넘어간다.
+        sb._do_storyboard_auto(channel, thread_ts, rest)
     elif name == "rewrite_conti":
         ok = sb._do_conti_rewrite(channel, thread_ts, args.get("instruction") or "", event,
                                   work=args.get("work"), episode=args.get("episode"),
