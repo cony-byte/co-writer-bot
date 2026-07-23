@@ -74,6 +74,48 @@ def _label_components(mask):
     return boxes
 
 
+def _split_by_caption_columns(keep, raw_boxes, pw, ph):
+    """★2026-07-23 실측(사용자 시트) — 같은 행의 인접 패널끼리 그림 자체가 거의 안 떨어져 있어
+    (여백이 거의/전혀 없음) 팽창 전에도 이미 하나의 블롭으로 붙어있는 시트가 있었다(예: 정면·
+    3/4·측면 세 패널이 통째로 한 블롭). 반면 그 밑의 캡션 라벨(예: "[정면 (FRONT)]")은 컬럼별로
+    실제 공백을 두고 떨어져 있으므로, 큰 블롭 바로 아래 캡션 밴드에 있는 작은 텍스트 조각들의
+    x 군집 수로 그 블롭이 실제로 몇 컬럼인지 추정해 세로로 다시 나눈다. 캡션이 없거나 군집이
+    1개뿐이면(예: 전신처럼 원래 패널 하나) 그대로 둔다."""
+    cap_h_max = ph * 0.05
+    gap_thresh = ph * 0.02
+    out = []
+    for (x, y, w, h, a) in keep:
+        # ★2026-07-23: 캡션이 패널과 거의 안 떨어져 있으면(관찰상 1px 수준) 팽창된 keep
+        # 박스 안에 캡션 자체가 이미 통째로 흡수돼 있다 — "박스 바로 밑"이 아니라 "박스
+        # 아래쪽 20% 영역"에서 팽창 전(raw) 작은 조각을 찾는다(흡수됐든 안 됐든 다 잡힘).
+        band_top, band_bot = y + h * 0.80, y + h + ph * 0.05
+        frags = sorted(
+            (fb for fb in raw_boxes
+             if fb[3] <= cap_h_max and band_top <= fb[1] + fb[3] / 2 <= band_bot
+             and fb[0] >= x - 5 and fb[0] + fb[2] <= x + w + 5),
+            key=lambda f: f[0])
+        if not frags:
+            out.append((x, y, w, h, a))
+            continue
+        clusters = [[frags[0]]]
+        for f in frags[1:]:
+            prev = clusters[-1][-1]
+            if f[0] - (prev[0] + prev[2]) > gap_thresh:
+                clusters.append([f])
+            else:
+                clusters[-1].append(f)
+        if len(clusters) < 2:
+            out.append((x, y, w, h, a))
+            continue
+        centers = [sum(f[0] + f[2] / 2 for f in c) / len(c) for c in clusters]
+        bounds = ([x] + [(centers[i] + centers[i + 1]) / 2 for i in range(len(centers) - 1)]
+                  + [x + w])
+        for i in range(len(clusters)):
+            sx, ex = int(bounds[i]), int(bounds[i + 1])
+            out.append((sx, y, ex - sx, h, max(1, a // len(clusters))))
+    return out
+
+
 def split_panels(data: bytes, *, min_area_frac: float = 0.010, pad: int = 10) -> list[bytes]:
     """참조 시트 bytes → 각 컷 PNG bytes 리스트(행 우선 정렬). 컷을 2개 미만으로밖에 못 찾으면
     빈 리스트 반환(호출자는 '시트가 아님'으로 보고 통짜 등록으로 폴백)."""
@@ -90,14 +132,20 @@ def split_panels(data: bytes, *, min_area_frac: float = 0.010, pad: int = 10) ->
     small = full.resize((pw, ph), Image.BILINEAR)
     g = np.asarray(small.convert("L"))
     mask = g < 245                                  # 비흰색 = 내용
+    raw_boxes = _label_components(mask)             # 팽창 전(캡션 텍스트 조각 탐지용)
     # 라인아트 틈 메우기: 축소 이미지 크기에 비례한 픽셀만큼 팽창.
-    mask = _dilate(mask, max(3, pw // 60))
-    boxes = _label_components(mask)
+    # ★2026-07-23 실측(사용자 시트) — 기존 pw//60(약 8px)은 이 시트에서 행 사이·컬럼 사이
+    # 공백까지 다 메워버려 6개 패널이 통째로 1개 블롭으로 뭉쳤다(6번째 실측 시트에서 발견).
+    # 패널 안 선 끊김만 메우면 되므로 훨씬 작은 값으로 낮춘다 — 행/컬럼 사이 여백은 그대로
+    # 살아있어야 _split_by_caption_columns 이전에 이미 과도하게 뭉치지 않는다.
+    dilated = _dilate(mask, max(1, pw // 240))
+    boxes = _label_components(dilated)
     min_area = pw * ph * min_area_frac
     keep = [b for b in boxes
             if b[4] >= min_area and b[2] >= pw * 0.04 and b[3] >= ph * 0.04]
     if len(keep) < 2:
         return []
+    keep = _split_by_caption_columns(keep, raw_boxes, pw, ph)
     band = max(1.0, ph * 0.18)
     keep.sort(key=lambda b: (round(b[1] / band), b[0]))
     crops = []
