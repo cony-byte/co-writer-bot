@@ -7397,14 +7397,23 @@ _CAPCUT_EDIT_SYS = (
     '- {"op":"text_animation","text_no":N,"kind":"in|out","name":"...","duration_s":초(선택)}  '
     "(그 자막의 입장/퇴장 애니메이션)\n"
     '- {"op":"audio_fade","audio_no":N,"fade_in_s":초(선택,기본0),"fade_out_s":초(선택,기본0)}  '
-    "(그 배경음악이 서서히 커지고/작아지게)\n\n"
+    "(그 배경음악이 서서히 커지고/작아지게)\n"
+    '- {"op":"split","cut_no":N,"at_s":그 컷 시작부터 몇 초 지점에서 자를지}  '
+    "(한 컷을 그 지점에서 둘로 나눔 — 나뉜 뒤 컷 번호는 그 뒤로 하나씩 밀림)\n"
+    '- {"op":"duplicate","cut_no":N}  (그 컷을 바로 뒤에 복제)\n'
+    '- {"op":"background_fill","cut_no":N,"style":"blur|color"(기본blur),"blur":0~1(선택),'
+    '"color":"#RRGGBBAA"(선택)}  (세로/가로 비율이 안 맞는 클립 뒤에 블러/단색 배경 채우기)\n'
+    '- {"op":"zoom_pan","cut_no":N,"from_scale":시작배율(선택,기본1.0),"to_scale":끝배율(선택),'
+    '"from_x":..(선택),"to_x":..(선택),"from_y":..(선택),"to_y":..(선택)}  '
+    "(그 컷 안에서 서서히 확대/이동하는 켄번즈 효과. '줌인'=to_scale>1, '줌아웃'=to_scale<1)\n\n"
     "[규칙]\n"
     "- 'N컷'/'N번째 컷'은 cut_no로, 'N번째 음악'은 audio_no로, 'N번째 자막'은 text_no로 먼저 "
     "매칭하고, 출력할 때 reorder/drop/trim/speed/transition의 index·after_index는 그 목록에서 "
     "찾은 항목의 index(0-based) 값을 써라(직접 -1 계산하지 말고 목록에서 찾아라 — 계산 실수 방지). "
     "그 외 연산(add_audio/volume/mute/add_text/edit_text/style_text/filter/replace_clip/insert/"
-    "clip_animation/text_animation/audio_fade)의 cut_no/audio_no/text_no/after_cut_no는 "
-    "**1-based 그대로** 출력해라(이 연산들은 index가 아니라 번호를 받는다).\n"
+    "clip_animation/text_animation/audio_fade/split/duplicate/background_fill/zoom_pan)의 "
+    "cut_no/audio_no/text_no/after_cut_no는 **1-based 그대로** 출력해라(이 연산들은 index가 "
+    "아니라 번호를 받는다).\n"
     "- media를 쓰는 연산(add_audio/replace_clip/insert)은 반드시 [첨부된 미디어 파일] 목록에 있는 "
     "이름만 써라(지어내지 마라). 목록에 없는 파일을 요구하는 지시면 그 연산은 생략해라.\n"
     "- 지시 안 한 컷/음악/자막은 건드리지 마라. 여러 편집이면 배열에 여러 개. "
