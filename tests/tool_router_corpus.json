@@ -1,684 +1,708 @@
 {
- "_doc": "tool_router 회귀 코퍼스 — 실사용에서 실제로 오라우팅이 났던 발화들. python -m tests.test_tool_router --live 로 실행. expected 키: type/type_oneof(answer|clarification|tool_call|tool_calls), tool/tool_oneof/forbid_tool(첫 실행 호출 기준), forbid_tools_anywhere(모든 호출에서 금지), calls_min, args.work/episode/scene/cuts/kind 정확일치, args.attachment_id_required(true면 비어있지 않아야), args.instruction_contains",
- "cases": [
-  {
-   "id": "stillcut-exists-status",
-   "text": "1화 상세콘티랑 스틸컷 있어?",
-   "ctx": {
-    "tracked_work": "저는 연프 출연진이 아닌데요 !",
-    "tracked_episode": 1,
-    "sb_stage": 2,
-    "registered_works": {
-     "저는 연프 출연진이 아닌데요 !": [
-      "저연프"
-     ]
+  "_doc": "tool_router 회귀 코퍼스 — 실사용에서 실제로 오라우팅이 났던 발화들. python -m tests.test_tool_router --live 로 실행. expected 키: type/type_oneof(answer|clarification|tool_call|tool_calls), tool/tool_oneof/forbid_tool(첫 실행 호출 기준), forbid_tools_anywhere(모든 호출에서 금지), calls_min, args.work/episode/scene/cuts/kind 정확일치, args.attachment_id_required(true면 비어있지 않아야), args.instruction_contains",
+  "cases": [
+    {
+      "id": "stillcut-exists-status",
+      "text": "1화 상세콘티랑 스틸컷 있어?",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "sb_stage": 2,
+        "registered_works": {
+          "저는 연프 출연진이 아닌데요 !": [
+            "저연프"
+          ]
+        },
+        "answer_sources": {
+          "detail_conti_excerpt": "씬1 몽타주 (이영 나레이션) / 씬2 범인은 바로 저놈 / 씬3 촬영 큐 사인",
+          "generated_artifacts": {
+            "episode": 1,
+            "stillcut_scenes": [
+              "씬1",
+              "씬2",
+              "씬3",
+              "씬4",
+              "씬5",
+              "씬6",
+              "씬7"
+            ],
+            "video_file_count": 0,
+            "compiled": false,
+            "_note": "실제 저장된 생성물 기준(디스크 스캔)"
+          }
+        }
+      },
+      "expected": {
+        "type": "answer",
+        "answer_not_contains": [
+          "스틸컷은 아직",
+          "스틸컷이 아직",
+          "스틸컷은 아직 생성",
+          "스틸컷은 생성되지 않"
+        ]
+      },
+      "incident": "2026-07-21 실사용(cony): 1화 스틸컷이 다 있는데 '아직 생성 안 됨'으로 오답 — answer_sources가 대본/콘티 원문만 주고 생성물 상태(generated_artifacts) 부재가 근본 원인. context에 실제 아웃풋 디스크 스캔 주입 + 프롬프트 규칙(생성물 존재는 generated_artifacts만 근거)."
     },
-    "answer_sources": {
-     "detail_conti_excerpt": "씬1 몽타주 (이영 나레이션) / 씬2 범인은 바로 저놈 / 씬3 촬영 큐 사인",
-     "generated_artifacts": {
-      "episode": 1,
-      "stillcut_scenes": [
-       "씬1",
-       "씬2",
-       "씬3",
-       "씬4",
-       "씬5",
-       "씬6",
-       "씬7"
-      ],
-      "video_file_count": 0,
-      "compiled": false,
-      "_note": "실제 저장된 생성물 기준(디스크 스캔)"
-     }
-    }
-   },
-   "expected": {
-    "type": "answer",
-    "answer_not_contains": [
-     "스틸컷은 아직",
-     "스틸컷이 아직",
-     "스틸컷은 아직 생성",
-     "스틸컷은 생성되지 않"
-    ]
-   },
-   "incident": "2026-07-21 실사용(cony): 1화 스틸컷이 다 있는데 '아직 생성 안 됨'으로 오답 — answer_sources가 대본/콘티 원문만 주고 생성물 상태(generated_artifacts) 부재가 근본 원인. context에 실제 아웃풋 디스크 스캔 주입 + 프롬프트 규칙(생성물 존재는 generated_artifacts만 근거)."
-  },
-  {
-   "id": "multi-scene-video",
-   "text": "저연프 씬5, 씬6을 영상화해줘",
-   "ctx": {
-    "tracked_work": "저는 연프 출연진이 아닌데요 !",
-    "tracked_episode": 1,
-    "sb_stage": 2,
-    "registered_works": {
-     "저는 연프 출연진이 아닌데요 !": [
-      "저연프"
-     ]
-    }
-   },
-   "expected": {
-    "type_oneof": [
-     "tool_call",
-     "tool_calls"
-    ],
-    "calls_min": 2,
-    "tools_include": [
-     "generate_video"
-    ]
-   },
-   "incident": "2026-07-21 실사용(tia): '씬5, 씬6 영상화'가 두 호출로 나뉘어야 하는데, 실행부가 instruction 텍스트에서 씬 번호를 재파싱해 두 호출 모두 씬5만 잡음 — scene 파라미터를 executor가 그대로 넘기도록 수정"
-  },
-  {
-   "id": "attached-storyboard-same-stillcut",
-   "text": "이 스토리보드 그대로 1화 스틸컷을 만들고 싶어",
-   "ctx": {
-    "tracked_work": "저는 연프 출연진이 아닌데요 !",
-    "tracked_episode": 1,
-    "sb_stage": 2,
-    "attachments": [
-     {
-      "id": "F001",
-      "name": "storyboard_grid.png",
-      "mimetype": "image/png"
-     }
-    ]
-   },
-   "expected": {
-    "type_oneof": [
-     "tool_call",
-     "tool_calls"
-    ],
-    "tool": "generate_stillcuts",
-    "args": {
-     "episode": 1,
-     "attachment_id_required": true
-    }
-   },
-   "incident": "2026-07-21 실사용: 첨부 스토리보드를 무시하고 자유생성 — attachment_id 누락이 원인"
-  },
-  {
-   "id": "notion-storyboard-composition-lock",
-   "text": "씬 1. 스틸컷은 내가 노션에 첨부해둔 스토리보드 이미지를 보고 연출과 구도는 똑같이 하도록 해. 임의로 생성하지 말고.",
-   "ctx": {
-    "tracked_work": "저는 연프 출연진이 아닌데요 !",
-    "tracked_episode": 1,
-    "sb_stage": 2
-   },
-   "expected": {
-    "type_oneof": [
-     "tool_call",
-     "tool_calls"
-    ],
-    "tool": "generate_stillcuts",
-    "args": {
-     "scene": 1,
-     "use_notion_storyboard_ref": true
+    {
+      "id": "multi-scene-video",
+      "text": "저연프 씬5, 씬6을 영상화해줘",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "sb_stage": 2,
+        "registered_works": {
+          "저는 연프 출연진이 아닌데요 !": [
+            "저연프"
+          ]
+        }
+      },
+      "expected": {
+        "type_oneof": [
+          "tool_call",
+          "tool_calls"
+        ],
+        "calls_min": 2,
+        "tools_include": [
+          "generate_video"
+        ]
+      },
+      "incident": "2026-07-21 실사용(tia): '씬5, 씬6 영상화'가 두 호출로 나뉘어야 하는데, 실행부가 instruction 텍스트에서 씬 번호를 재파싱해 두 호출 모두 씬5만 잡음 — scene 파라미터를 executor가 그대로 넘기도록 수정"
     },
-    "forbid_tools_anywhere": [
-     "sync_notion",
-     "generate_storyboard_grid"
-    ]
-   },
-   "incident": "2026-07-21 실사용(tia): 노션 첨부 스토리보드 구도 고정 요청이 자유생성으로 샘 — use_notion_storyboard_ref 플래그로 배선"
-  },
-  {
-   "id": "costume-ref-regenerate-attached",
-   "text": "1화에 나올 이영 옷 상의는 이 이미지에 있는 거랑 동일하게 이미지 재생성해줘.",
-   "ctx": {
-    "tracked_work": "저는 연프 출연진이 아닌데요 !",
-    "tracked_episode": 1,
-    "attachments": [
-     {
-      "id": "F002",
-      "name": "IMG_8594.jpg",
-      "mimetype": "image/jpeg"
-     }
-    ]
-   },
-   "expected": {
-    "type_oneof": [
-     "tool_call",
-     "tool_calls"
-    ],
-    "tool_oneof": [
-     "generate_reference_image",
-     "generate_reference_images",
-     "replace_reference_image"
-    ],
-    "forbid_tool": "generate_scene_design",
-    "args": {
-     "kind": "의상"
-    }
-   },
-   "incident": "2026-07-21 실사용: 의상 참조 재생성이 씬설계/그리드로 오발되던 사고 계열"
-  },
-  {
-   "id": "pdlook-ref-attached",
-   "text": "이영 PD룩은 이 이미지에 있는거랑 비슷하게 해줘",
-   "ctx": {
-    "tracked_work": "저는 연프 출연진이 아닌데요 !",
-    "tracked_episode": 1,
-    "attachments": [
-     {
-      "id": "F003",
-      "name": "look.jpg",
-      "mimetype": "image/jpeg"
-     }
-    ]
-   },
-   "expected": {
-    "type_oneof": [
-     "tool_call",
-     "tool_calls"
-    ],
-    "tool_oneof": [
-     "generate_reference_image",
-     "replace_reference_image"
-    ],
-    "forbid_tools_anywhere": [
-     "generate_scene_design",
-     "generate_storyboard_grid",
-     "generate_stillcuts"
-    ]
-   },
-   "incident": "사고1: '~룩'+'이미지' 단어 조합이 scene_design 3화로 오발"
-  },
-  {
-   "id": "direct-label-register",
-   "text": "이영 PD룩 이걸로 등록해줘",
-   "ctx": {
-    "tracked_work": "저는 연프 출연진이 아닌데요 !",
-    "tracked_episode": 1,
-    "attachments": [
-     {
-      "id": "F004",
-      "name": "pdlook.jpg",
-      "mimetype": "image/jpeg"
-     }
-    ]
-   },
-   "expected": {
-    "type_oneof": [
-     "tool_call",
-     "tool_calls"
-    ],
-    "tool_oneof": [
-     "register_reference_image",
-     "register_reference_images"
-    ],
-    "args": {
-     "attachment_id_required": true
-    }
-   },
-   "incident": "사용자가 콘티 라벨을 직접 부른 등록 — 라벨 그대로 사용해야 함"
-  },
-  {
-   "id": "alias-regstatus-question",
-   "text": "지금 <저연프> 인물 이미지 뭐뭐 등록되어있지?",
-   "ctx": {
-    "registered_works": {
-     "저는 연프 출연진이 아닌데요 !": [
-      "저연프"
-     ]
+    {
+      "id": "attached-storyboard-same-stillcut",
+      "text": "이 스토리보드 그대로 1화 스틸컷을 만들고 싶어",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "sb_stage": 2,
+        "attachments": [
+          {
+            "id": "F001",
+            "name": "storyboard_grid.png",
+            "mimetype": "image/png"
+          }
+        ]
+      },
+      "expected": {
+        "type_oneof": [
+          "tool_call",
+          "tool_calls"
+        ],
+        "tool": "generate_stillcuts",
+        "args": {
+          "episode": 1,
+          "attachment_id_required": true
+        }
+      },
+      "incident": "2026-07-21 실사용: 첨부 스토리보드를 무시하고 자유생성 — attachment_id 누락이 원인"
     },
-    "registered_elements": {
-     "인물": [
-      "김신우",
-      "이영"
-     ]
-    }
-   },
-   "expected": {
-    "type": "answer"
-   },
-   "incident": "사고2: 별칭 조회 질문이 파이프라인 실행으로 새거나 '작품 안정해짐' 3연발"
-  },
-  {
-   "id": "question-not-command",
-   "text": "<저연프> 인물 등록 다 한 거 아냐? 스토리보드 이미지가 왜 그렇게 뽑힌 거지?",
-   "ctx": {
-    "registered_works": {
-     "저는 연프 출연진이 아닌데요 !": [
-      "저연프"
-     ]
+    {
+      "id": "notion-storyboard-composition-lock",
+      "text": "씬 1. 스틸컷은 내가 노션에 첨부해둔 스토리보드 이미지를 보고 연출과 구도는 똑같이 하도록 해. 임의로 생성하지 말고.",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "sb_stage": 2
+      },
+      "expected": {
+        "type_oneof": [
+          "tool_call",
+          "tool_calls"
+        ],
+        "tool": "generate_stillcuts",
+        "args": {
+          "scene": 1,
+          "use_notion_storyboard_ref": true
+        },
+        "forbid_tools_anywhere": [
+          "sync_notion",
+          "generate_storyboard_grid"
+        ]
+      },
+      "incident": "2026-07-21 실사용(tia): 노션 첨부 스토리보드 구도 고정 요청이 자유생성으로 샘 — use_notion_storyboard_ref 플래그로 배선"
     },
-    "registered_elements": {
-     "인물": [
-      "김신우",
-      "이영"
-     ]
+    {
+      "id": "costume-ref-regenerate-attached",
+      "text": "1화에 나올 이영 옷 상의는 이 이미지에 있는 거랑 동일하게 이미지 재생성해줘.",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "attachments": [
+          {
+            "id": "F002",
+            "name": "IMG_8594.jpg",
+            "mimetype": "image/jpeg"
+          }
+        ]
+      },
+      "expected": {
+        "type_oneof": [
+          "tool_call",
+          "tool_calls"
+        ],
+        "tool_oneof": [
+          "generate_reference_image",
+          "generate_reference_images",
+          "replace_reference_image"
+        ],
+        "forbid_tool": "generate_scene_design",
+        "args": {
+          "kind": "의상"
+        }
+      },
+      "incident": "2026-07-21 실사용: 의상 참조 재생성이 씬설계/그리드로 오발되던 사고 계열"
     },
-    "sb_stage": 2,
-    "tracked_episode": 1
-   },
-   "expected": {
-    "type": "answer"
-   },
-   "incident": "질문이 재생성 파이프라인 실행으로 오발되던 계열"
-  },
-  {
-   "id": "compound-register-then-still",
-   "text": "하루, 겨울 인물 등록하고 나서 씬3 스틸컷도 바로 뽑아줘",
-   "ctx": {
-    "tracked_work": "겨울 하루",
-    "tracked_episode": 1,
-    "sb_stage": 2,
-    "attachments": [
-     {
-      "id": "F005",
-      "name": "haru.png",
-      "mimetype": "image/png"
-     },
-     {
-      "id": "F006",
-      "name": "gyeoul.png",
-      "mimetype": "image/png"
-     }
-    ]
-   },
-   "expected": {
-    "type_oneof": [
-     "tool_call",
-     "tool_calls"
-    ],
-    "calls_min": 2,
-    "tools_include": [
-     "generate_stillcuts"
-    ]
-   },
-   "incident": "사고3: 복합 요청의 후속 스텝(스틸컷)이 소실되던 문제"
-  },
-  {
-   "id": "stillcut-wrong-person-fix",
-   "text": "방금 그 스틸컷에서 '신예은'을 '유나경'으로 바꿔. 기사에 신예은이라고 되어있는데 이 프로그램에 신예은은 없잖아.",
-   "ctx": {
-    "tracked_work": "저는 연프 출연진이 아닌데요 !",
-    "tracked_episode": 1,
-    "sb_stage": 2,
-    "registered_elements": {
-     "인물": [
-      "김신우",
-      "이영",
-      "유나경"
-     ]
+    {
+      "id": "pdlook-ref-attached",
+      "text": "이영 PD룩은 이 이미지에 있는거랑 비슷하게 해줘",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "attachments": [
+          {
+            "id": "F003",
+            "name": "look.jpg",
+            "mimetype": "image/jpeg"
+          }
+        ]
+      },
+      "expected": {
+        "type_oneof": [
+          "tool_call",
+          "tool_calls"
+        ],
+        "tool_oneof": [
+          "generate_reference_image",
+          "replace_reference_image"
+        ],
+        "forbid_tools_anywhere": [
+          "generate_scene_design",
+          "generate_storyboard_grid",
+          "generate_stillcuts"
+        ]
+      },
+      "incident": "사고1: '~룩'+'이미지' 단어 조합이 scene_design 3화로 오발"
+    },
+    {
+      "id": "direct-label-register",
+      "text": "이영 PD룩 이걸로 등록해줘",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "attachments": [
+          {
+            "id": "F004",
+            "name": "pdlook.jpg",
+            "mimetype": "image/jpeg"
+          }
+        ]
+      },
+      "expected": {
+        "type_oneof": [
+          "tool_call",
+          "tool_calls"
+        ],
+        "tool_oneof": [
+          "register_reference_image",
+          "register_reference_images"
+        ],
+        "args": {
+          "attachment_id_required": true
+        }
+      },
+      "incident": "사용자가 콘티 라벨을 직접 부른 등록 — 라벨 그대로 사용해야 함"
+    },
+    {
+      "id": "alias-regstatus-question",
+      "text": "지금 <저연프> 인물 이미지 뭐뭐 등록되어있지?",
+      "ctx": {
+        "registered_works": {
+          "저는 연프 출연진이 아닌데요 !": [
+            "저연프"
+          ]
+        },
+        "registered_elements": {
+          "인물": [
+            "김신우",
+            "이영"
+          ]
+        }
+      },
+      "expected": {
+        "type": "answer"
+      },
+      "incident": "사고2: 별칭 조회 질문이 파이프라인 실행으로 새거나 '작품 안정해짐' 3연발"
+    },
+    {
+      "id": "question-not-command",
+      "text": "<저연프> 인물 등록 다 한 거 아냐? 스토리보드 이미지가 왜 그렇게 뽑힌 거지?",
+      "ctx": {
+        "registered_works": {
+          "저는 연프 출연진이 아닌데요 !": [
+            "저연프"
+          ]
+        },
+        "registered_elements": {
+          "인물": [
+            "김신우",
+            "이영"
+          ]
+        },
+        "sb_stage": 2,
+        "tracked_episode": 1
+      },
+      "expected": {
+        "type": "answer"
+      },
+      "incident": "질문이 재생성 파이프라인 실행으로 오발되던 계열"
+    },
+    {
+      "id": "compound-register-then-still",
+      "text": "하루, 겨울 인물 등록하고 나서 씬3 스틸컷도 바로 뽑아줘",
+      "ctx": {
+        "tracked_work": "겨울 하루",
+        "tracked_episode": 1,
+        "sb_stage": 2,
+        "attachments": [
+          {
+            "id": "F005",
+            "name": "haru.png",
+            "mimetype": "image/png"
+          },
+          {
+            "id": "F006",
+            "name": "gyeoul.png",
+            "mimetype": "image/png"
+          }
+        ]
+      },
+      "expected": {
+        "type_oneof": [
+          "tool_call",
+          "tool_calls"
+        ],
+        "calls_min": 2,
+        "tools_include": [
+          "generate_stillcuts"
+        ]
+      },
+      "incident": "사고3: 복합 요청의 후속 스텝(스틸컷)이 소실되던 문제"
+    },
+    {
+      "id": "stillcut-wrong-person-fix",
+      "text": "방금 그 스틸컷에서 '신예은'을 '유나경'으로 바꿔. 기사에 신예은이라고 되어있는데 이 프로그램에 신예은은 없잖아.",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "sb_stage": 2,
+        "registered_elements": {
+          "인물": [
+            "김신우",
+            "이영",
+            "유나경"
+          ]
+        }
+      },
+      "expected": {
+        "type_oneof": [
+          "tool_call",
+          "tool_calls"
+        ],
+        "tool_oneof": [
+          "generate_stillcuts",
+          "rewrite_conti"
+        ],
+        "forbid_tools_anywhere": [
+          "rename_reference",
+          "cancel_current_job"
+        ]
+      },
+      "incident": "2026-07-21 실사용(tia): 직전 스틸컷 내용 수정 재생성 — 참조 개명이 아님"
+    },
+    {
+      "id": "cancel-explicit",
+      "text": "지금 하는 작업 중단해줘",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "sb_stage": 2
+      },
+      "expected": {
+        "type_oneof": [
+          "tool_call",
+          "tool_calls"
+        ],
+        "tool": "cancel_current_job"
+      },
+      "incident": "명시적 취소만 cancel — LLM 선행 재정렬 후에도 유지돼야 함"
+    },
+    {
+      "id": "rewrite-not-cancel",
+      "text": "콘티 다시 써줘. 씬2가 너무 밋밋해",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "sb_stage": 2
+      },
+      "expected": {
+        "type_oneof": [
+          "tool_call",
+          "tool_calls"
+        ],
+        "tool_oneof": [
+          "rewrite_conti",
+          "generate_detail_conti"
+        ],
+        "forbid_tools_anywhere": [
+          "cancel_current_job"
+        ]
+      },
+      "incident": "cancel-leak-rewrite: 재작성 요청이 '🛑 중단했어요' 오발로 새던 사고"
+    },
+    {
+      "id": "notion-material-not-sync",
+      "text": "노션에 3화 대본이랑 상세 콘티 있으니까 그거 확인해서 스토리보드 이미지 다시 만들어줘",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 3
+      },
+      "expected": {
+        "type_oneof": [
+          "tool_call",
+          "tool_calls"
+        ],
+        "tool": "generate_storyboard_grid",
+        "forbid_tools_anywhere": [
+          "sync_notion"
+        ],
+        "args": {
+          "episode": 3
+        }
+      },
+      "incident": "노션 언급만으로 sync가 끼어들던 계열 — 그리드 재생성 하나만 호출해야 함"
+    },
+    {
+      "id": "attached-images-as-stillcuts-then-video",
+      "text": "혹시 첨부한 이미지들로는 영상 만들기 어려울까요? 씬1의 컷1, 컷2, 컷3 이미지 첨부했어요. 봇이 임의로 생성한 이미지 말고 이걸로 영상 만들어주세요.",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "sb_stage": 2,
+        "attachments": [
+          {
+            "id": "F007",
+            "name": "s1c1.png",
+            "mimetype": "image/png"
+          },
+          {
+            "id": "F008",
+            "name": "s1c2.png",
+            "mimetype": "image/png"
+          },
+          {
+            "id": "F009",
+            "name": "s1c3.png",
+            "mimetype": "image/png"
+          }
+        ]
+      },
+      "expected": {
+        "type_oneof": [
+          "tool_call",
+          "tool_calls"
+        ],
+        "tools_include": [
+          "save_stillcuts"
+        ],
+        "forbid_tools_anywhere": [
+          "generate_stillcuts"
+        ]
+      },
+      "incident": "2026-07-21 실사용: 첨부 이미지 그대로 영상화 요청인데 임의 생성 이미지로 영상 제작"
+    },
+    {
+      "id": "placeholder-guard",
+      "text": "<작품명> 인물 이미지 만들어줘",
+      "ctx": {
+        "registered_works": {
+          "저는 연프 출연진이 아닌데요 !": [
+            "저연프"
+          ]
+        }
+      },
+      "expected": {
+        "type_oneof": [
+          "clarification",
+          "answer"
+        ]
+      },
+      "incident": "안내문 placeholder '<작품명>'을 실제 작품명으로 처리하던 사고"
+    },
+    {
+      "id": "rename-reference-no-attachment",
+      "text": "의상 유나경 출연자룩-B를 유나경 출연자룩-A로 바꿔줘",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "registered_elements": {
+          "의상": [
+            "유나경 출연자룩-B"
+          ]
+        }
+      },
+      "expected": {
+        "type_oneof": [
+          "tool_call",
+          "tool_calls"
+        ],
+        "tool": "rename_reference",
+        "forbid_tools_anywhere": [
+          "replace_reference_image"
+        ]
+      },
+      "incident": "첨부 없는 이름 변경이 이미지 교체(replace)로 오발되던 사고"
+    },
+    {
+      "id": "grid-fix-no-clarify",
+      "text": "1화 스토리보드 이미지가 이상하니까 고쳐줘",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "sb_stage": 2
+      },
+      "expected": {
+        "type_oneof": [
+          "tool_call",
+          "tool_calls"
+        ],
+        "tool": "generate_storyboard_grid",
+        "args": {
+          "episode": 1
+        }
+      },
+      "incident": "수정 세부사항 없는 재생성 요청에 불필요한 되묻기(clarify)로 새던 계열"
+    },
+    {
+      "id": "costume-question-noaction",
+      "text": "1화에 나올 이영 의상은 뭐지?",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "registered_elements": {
+          "의상": [
+            "이영 PD룩"
+          ]
+        }
+      },
+      "expected": {
+        "type": "answer"
+      },
+      "incident": "의상 질문이 scene_design 실행으로 오발되던 사고"
+    },
+    {
+      "id": "short-ack-blocked",
+      "text": "응",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !"
+      },
+      "expected": {
+        "type": "clarification"
+      },
+      "incident": "짧은 긍정이 임의 실행으로 이어지지 않게 — 버튼 UI만 재개/선택 담당 (결정적 가드, LLM 미호출)"
+    },
+    {
+      "id": "scene-cut-video-and-stills-split",
+      "text": "씬4 컷2는 영상으로 만들고 나머지 컷들은 스틸컷으로 뽑아줘",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "sb_stage": 2
+      },
+      "expected": {
+        "type_oneof": [
+          "tool_call",
+          "tool_calls"
+        ],
+        "calls_min": 2,
+        "tools_include": [
+          "generate_video",
+          "generate_stillcuts"
+        ]
+      },
+      "incident": "복합 요청 분해 검증(영상+스틸컷 두 호출)"
+    },
+    {
+      "id": "show-stillcut-read",
+      "text": "1화 7씬 1컷 스틸컷 보여줘",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "sb_stage": 2,
+        "registered_works": {
+          "저는 연프 출연진이 아닌데요 !": [
+            "저연프"
+          ]
+        }
+      },
+      "expected": {
+        "type_oneof": [
+          "tool_call",
+          "tool_calls"
+        ],
+        "tool": "show_media",
+        "forbid_tools_anywhere": [
+          "generate_stillcuts",
+          "generate_storyboard_grid",
+          "generate_scene_design"
+        ]
+      },
+      "incident": "2026-07-21 실사용(cony): '스틸컷 보여줘'가 씬설계로 샘 — read를 write로 오선택."
+    },
+    {
+      "id": "show-stillcut-again-read",
+      "text": "7씬 스틸컷 다시 보여줘",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "sb_stage": 2,
+        "registered_works": {
+          "저는 연프 출연진이 아닌데요 !": [
+            "저연프"
+          ]
+        }
+      },
+      "expected": {
+        "type_oneof": [
+          "tool_call",
+          "tool_calls"
+        ],
+        "tool": "show_media",
+        "forbid_tools_anywhere": [
+          "generate_stillcuts"
+        ]
+      },
+      "incident": "'다시 보여줘'는 열람(read)인데 '다시'가 붙어 생성으로 새기 쉬움."
+    },
+    {
+      "id": "gen-stillcut-write",
+      "text": "7씬 스틸컷 다시 뽑아줘",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "sb_stage": 2,
+        "registered_works": {
+          "저는 연프 출연진이 아닌데요 !": [
+            "저연프"
+          ]
+        }
+      },
+      "expected": {
+        "type_oneof": [
+          "tool_call",
+          "tool_calls"
+        ],
+        "tool": "generate_stillcuts",
+        "forbid_tools_anywhere": [
+          "show_media"
+        ]
+      },
+      "incident": "'뽑아줘'는 생성(write) — show_media로 잘못 가면 안 됨(쌍둥이 대조)."
+    },
+    {
+      "id": "show-conti-read",
+      "text": "1화 상세콘티 보여줘",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "sb_stage": 2,
+        "registered_works": {
+          "저는 연프 출연진이 아닌데요 !": [
+            "저연프"
+          ]
+        }
+      },
+      "expected": {
+        "type_oneof": [
+          "tool_call",
+          "tool_calls",
+          "answer"
+        ],
+        "tool": "show_media",
+        "forbid_tools_anywhere": [
+          "generate_detail_conti",
+          "generate_scene_design"
+        ]
+      },
+      "incident": "'콘티 보여줘'가 generate_detail_conti(생성)로 새던 read/write 대칭 공백."
+    },
+    {
+      "id": "delete-ref-write",
+      "text": "장소 과 배경 참조 삭제해줘",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "sb_stage": 2,
+        "registered_works": {
+          "저는 연프 출연진이 아닌데요 !": [
+            "저연프"
+          ]
+        }
+      },
+      "expected": {
+        "type_oneof": [
+          "tool_call",
+          "tool_calls"
+        ],
+        "tool": "delete_reference"
+      },
+      "incident": "참조 삭제(CRUD D)."
+    },
+    {
+      "id": "restore-trash-read",
+      "text": "방금 지운 과 배경 복구해줘",
+      "ctx": {
+        "tracked_work": "저는 연프 출연진이 아닌데요 !",
+        "tracked_episode": 1,
+        "sb_stage": 2,
+        "registered_works": {
+          "저는 연프 출연진이 아닌데요 !": [
+            "저연프"
+          ]
+        }
+      },
+      "expected": {
+        "type_oneof": [
+          "tool_call",
+          "tool_calls"
+        ],
+        "tool": "restore_reference",
+        "forbid_tools_anywhere": [
+          "delete_reference"
+        ]
+      },
+      "incident": "삭제 복구는 restore_reference(_trash 복구) — delete와 혼동 금지."
+    },
+    {
+      "id": "notion-url-reattach-no-resync",
+      "text": "https://app.notion.com/p/tainai/3a7beda6e49080869d70f36b49c70b33?source=copy_link 날혐남 1화 개요 생성",
+      "ctx": {
+        "registered_works": {
+          "날혐남": [
+            "제목없음"
+          ]
+        }
+      },
+      "expected": {
+        "type_oneof": [
+          "tool_call",
+          "tool_calls"
+        ],
+        "tools_include": [
+          "generate_script"
+        ],
+        "forbid_tools_anywhere": [
+          "sync_notion"
+        ]
+      },
+      "incident": "2026-07-23 실사용(cony): 이미 몇 분 전 '동기화'로 43개 반영 완료한 작품에, 노션 링크를 다시 붙이며 '1화 개요 생성'만 요청했는데 '동기화' 언급이 없었는데도 sync_notion이 또 걸려 122초+ 걸리며 실제 요청(개요 생성)을 못 함(사용자가 '멈춰'로 중단). URL만으로는 재동기화하지 말고 어떤 작품인지 식별용으로만 쓰게 수정."
     }
-   },
-   "expected": {
-    "type_oneof": [
-     "tool_call",
-     "tool_calls"
-    ],
-    "tool_oneof": [
-     "generate_stillcuts",
-     "rewrite_conti"
-    ],
-    "forbid_tools_anywhere": [
-     "rename_reference",
-     "cancel_current_job"
-    ]
-   },
-   "incident": "2026-07-21 실사용(tia): 직전 스틸컷 내용 수정 재생성 — 참조 개명이 아님"
-  },
-  {
-   "id": "cancel-explicit",
-   "text": "지금 하는 작업 중단해줘",
-   "ctx": {
-    "tracked_work": "저는 연프 출연진이 아닌데요 !",
-    "sb_stage": 2
-   },
-   "expected": {
-    "type_oneof": [
-     "tool_call",
-     "tool_calls"
-    ],
-    "tool": "cancel_current_job"
-   },
-   "incident": "명시적 취소만 cancel — LLM 선행 재정렬 후에도 유지돼야 함"
-  },
-  {
-   "id": "rewrite-not-cancel",
-   "text": "콘티 다시 써줘. 씬2가 너무 밋밋해",
-   "ctx": {
-    "tracked_work": "저는 연프 출연진이 아닌데요 !",
-    "tracked_episode": 1,
-    "sb_stage": 2
-   },
-   "expected": {
-    "type_oneof": [
-     "tool_call",
-     "tool_calls"
-    ],
-    "tool_oneof": [
-     "rewrite_conti",
-     "generate_detail_conti"
-    ],
-    "forbid_tools_anywhere": [
-     "cancel_current_job"
-    ]
-   },
-   "incident": "cancel-leak-rewrite: 재작성 요청이 '🛑 중단했어요' 오발로 새던 사고"
-  },
-  {
-   "id": "notion-material-not-sync",
-   "text": "노션에 3화 대본이랑 상세 콘티 있으니까 그거 확인해서 스토리보드 이미지 다시 만들어줘",
-   "ctx": {
-    "tracked_work": "저는 연프 출연진이 아닌데요 !",
-    "tracked_episode": 3
-   },
-   "expected": {
-    "type_oneof": [
-     "tool_call",
-     "tool_calls"
-    ],
-    "tool": "generate_storyboard_grid",
-    "forbid_tools_anywhere": [
-     "sync_notion"
-    ],
-    "args": {
-     "episode": 3
-    }
-   },
-   "incident": "노션 언급만으로 sync가 끼어들던 계열 — 그리드 재생성 하나만 호출해야 함"
-  },
-  {
-   "id": "attached-images-as-stillcuts-then-video",
-   "text": "혹시 첨부한 이미지들로는 영상 만들기 어려울까요? 씬1의 컷1, 컷2, 컷3 이미지 첨부했어요. 봇이 임의로 생성한 이미지 말고 이걸로 영상 만들어주세요.",
-   "ctx": {
-    "tracked_work": "저는 연프 출연진이 아닌데요 !",
-    "tracked_episode": 1,
-    "sb_stage": 2,
-    "attachments": [
-     {
-      "id": "F007",
-      "name": "s1c1.png",
-      "mimetype": "image/png"
-     },
-     {
-      "id": "F008",
-      "name": "s1c2.png",
-      "mimetype": "image/png"
-     },
-     {
-      "id": "F009",
-      "name": "s1c3.png",
-      "mimetype": "image/png"
-     }
-    ]
-   },
-   "expected": {
-    "type_oneof": [
-     "tool_call",
-     "tool_calls"
-    ],
-    "tools_include": [
-     "save_stillcuts"
-    ],
-    "forbid_tools_anywhere": [
-     "generate_stillcuts"
-    ]
-   },
-   "incident": "2026-07-21 실사용: 첨부 이미지 그대로 영상화 요청인데 임의 생성 이미지로 영상 제작"
-  },
-  {
-   "id": "placeholder-guard",
-   "text": "<작품명> 인물 이미지 만들어줘",
-   "ctx": {
-    "registered_works": {
-     "저는 연프 출연진이 아닌데요 !": [
-      "저연프"
-     ]
-    }
-   },
-   "expected": {
-    "type_oneof": [
-     "clarification",
-     "answer"
-    ]
-   },
-   "incident": "안내문 placeholder '<작품명>'을 실제 작품명으로 처리하던 사고"
-  },
-  {
-   "id": "rename-reference-no-attachment",
-   "text": "의상 유나경 출연자룩-B를 유나경 출연자룩-A로 바꿔줘",
-   "ctx": {
-    "tracked_work": "저는 연프 출연진이 아닌데요 !",
-    "registered_elements": {
-     "의상": [
-      "유나경 출연자룩-B"
-     ]
-    }
-   },
-   "expected": {
-    "type_oneof": [
-     "tool_call",
-     "tool_calls"
-    ],
-    "tool": "rename_reference",
-    "forbid_tools_anywhere": [
-     "replace_reference_image"
-    ]
-   },
-   "incident": "첨부 없는 이름 변경이 이미지 교체(replace)로 오발되던 사고"
-  },
-  {
-   "id": "grid-fix-no-clarify",
-   "text": "1화 스토리보드 이미지가 이상하니까 고쳐줘",
-   "ctx": {
-    "tracked_work": "저는 연프 출연진이 아닌데요 !",
-    "tracked_episode": 1,
-    "sb_stage": 2
-   },
-   "expected": {
-    "type_oneof": [
-     "tool_call",
-     "tool_calls"
-    ],
-    "tool": "generate_storyboard_grid",
-    "args": {
-     "episode": 1
-    }
-   },
-   "incident": "수정 세부사항 없는 재생성 요청에 불필요한 되묻기(clarify)로 새던 계열"
-  },
-  {
-   "id": "costume-question-noaction",
-   "text": "1화에 나올 이영 의상은 뭐지?",
-   "ctx": {
-    "tracked_work": "저는 연프 출연진이 아닌데요 !",
-    "tracked_episode": 1,
-    "registered_elements": {
-     "의상": [
-      "이영 PD룩"
-     ]
-    }
-   },
-   "expected": {
-    "type": "answer"
-   },
-   "incident": "의상 질문이 scene_design 실행으로 오발되던 사고"
-  },
-  {
-   "id": "short-ack-blocked",
-   "text": "응",
-   "ctx": {
-    "tracked_work": "저는 연프 출연진이 아닌데요 !"
-   },
-   "expected": {
-    "type": "clarification"
-   },
-   "incident": "짧은 긍정이 임의 실행으로 이어지지 않게 — 버튼 UI만 재개/선택 담당 (결정적 가드, LLM 미호출)"
-  },
-  {
-   "id": "scene-cut-video-and-stills-split",
-   "text": "씬4 컷2는 영상으로 만들고 나머지 컷들은 스틸컷으로 뽑아줘",
-   "ctx": {
-    "tracked_work": "저는 연프 출연진이 아닌데요 !",
-    "tracked_episode": 1,
-    "sb_stage": 2
-   },
-   "expected": {
-    "type_oneof": [
-     "tool_call",
-     "tool_calls"
-    ],
-    "calls_min": 2,
-    "tools_include": [
-     "generate_video",
-     "generate_stillcuts"
-    ]
-   },
-   "incident": "복합 요청 분해 검증(영상+스틸컷 두 호출)"
-  },
-  {
-   "id": "show-stillcut-read",
-   "text": "1화 7씬 1컷 스틸컷 보여줘",
-   "ctx": {
-    "tracked_work": "저는 연프 출연진이 아닌데요 !",
-    "tracked_episode": 1,
-    "sb_stage": 2,
-    "registered_works": {
-     "저는 연프 출연진이 아닌데요 !": [
-      "저연프"
-     ]
-    }
-   },
-   "expected": {
-    "type_oneof": [
-     "tool_call",
-     "tool_calls"
-    ],
-    "tool": "show_media",
-    "forbid_tools_anywhere": [
-     "generate_stillcuts",
-     "generate_storyboard_grid",
-     "generate_scene_design"
-    ]
-   },
-   "incident": "2026-07-21 실사용(cony): '스틸컷 보여줘'가 씬설계로 샘 — read를 write로 오선택."
-  },
-  {
-   "id": "show-stillcut-again-read",
-   "text": "7씬 스틸컷 다시 보여줘",
-   "ctx": {
-    "tracked_work": "저는 연프 출연진이 아닌데요 !",
-    "tracked_episode": 1,
-    "sb_stage": 2,
-    "registered_works": {
-     "저는 연프 출연진이 아닌데요 !": [
-      "저연프"
-     ]
-    }
-   },
-   "expected": {
-    "type_oneof": [
-     "tool_call",
-     "tool_calls"
-    ],
-    "tool": "show_media",
-    "forbid_tools_anywhere": [
-     "generate_stillcuts"
-    ]
-   },
-   "incident": "'다시 보여줘'는 열람(read)인데 '다시'가 붙어 생성으로 새기 쉬움."
-  },
-  {
-   "id": "gen-stillcut-write",
-   "text": "7씬 스틸컷 다시 뽑아줘",
-   "ctx": {
-    "tracked_work": "저는 연프 출연진이 아닌데요 !",
-    "tracked_episode": 1,
-    "sb_stage": 2,
-    "registered_works": {
-     "저는 연프 출연진이 아닌데요 !": [
-      "저연프"
-     ]
-    }
-   },
-   "expected": {
-    "type_oneof": [
-     "tool_call",
-     "tool_calls"
-    ],
-    "tool": "generate_stillcuts",
-    "forbid_tools_anywhere": [
-     "show_media"
-    ]
-   },
-   "incident": "'뽑아줘'는 생성(write) — show_media로 잘못 가면 안 됨(쌍둥이 대조)."
-  },
-  {
-   "id": "show-conti-read",
-   "text": "1화 상세콘티 보여줘",
-   "ctx": {
-    "tracked_work": "저는 연프 출연진이 아닌데요 !",
-    "tracked_episode": 1,
-    "sb_stage": 2,
-    "registered_works": {
-     "저는 연프 출연진이 아닌데요 !": [
-      "저연프"
-     ]
-    }
-   },
-   "expected": {
-    "type_oneof": [
-     "tool_call",
-     "tool_calls",
-     "answer"
-    ],
-    "tool": "show_media",
-    "forbid_tools_anywhere": [
-     "generate_detail_conti",
-     "generate_scene_design"
-    ]
-   },
-   "incident": "'콘티 보여줘'가 generate_detail_conti(생성)로 새던 read/write 대칭 공백."
-  },
-  {
-   "id": "delete-ref-write",
-   "text": "장소 과 배경 참조 삭제해줘",
-   "ctx": {
-    "tracked_work": "저는 연프 출연진이 아닌데요 !",
-    "tracked_episode": 1,
-    "sb_stage": 2,
-    "registered_works": {
-     "저는 연프 출연진이 아닌데요 !": [
-      "저연프"
-     ]
-    }
-   },
-   "expected": {
-    "type_oneof": [
-     "tool_call",
-     "tool_calls"
-    ],
-    "tool": "delete_reference"
-   },
-   "incident": "참조 삭제(CRUD D)."
-  },
-  {
-   "id": "restore-trash-read",
-   "text": "방금 지운 과 배경 복구해줘",
-   "ctx": {
-    "tracked_work": "저는 연프 출연진이 아닌데요 !",
-    "tracked_episode": 1,
-    "sb_stage": 2,
-    "registered_works": {
-     "저는 연프 출연진이 아닌데요 !": [
-      "저연프"
-     ]
-    }
-   },
-   "expected": {
-    "type_oneof": [
-     "tool_call",
-     "tool_calls"
-    ],
-    "tool": "restore_reference",
-    "forbid_tools_anywhere": [
-     "delete_reference"
-    ]
-   },
-   "incident": "삭제 복구는 restore_reference(_trash 복구) — delete와 혼동 금지."
-  }
- ]
+  ]
 }
