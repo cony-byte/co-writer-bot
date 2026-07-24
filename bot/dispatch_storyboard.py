@@ -5369,6 +5369,79 @@ def _show_videos(channel, thread_ts, work, episode, scene, cut, want_compiled=Fa
     return True
 
 
+def _do_check_reference_status(channel, thread_ts, work=None, episode=None, names=None) -> bool:
+    """★2026-07-22: "이영 인물 등록되어있어?"/"등록 안 된 인물 있어?" 같은 등록 여부 질문을
+    LLM 자유 텍스트 답변에 맡기지 않고 코드로 직접 대조해서 답한다.
+
+    배경 — agent_router(2026-07-21 신규, 지금 기본 라이브 경로)로 넘어오면서 tool_router의
+    respond_with_answer 자유텍스트 경로 자체가 없어졌는데도(agent는 텍스트로 바로 답할 수
+    있음), registered_elements를 정확히 대조하는 보장이 여전히 없어 "이영 등록돼 있어?"에
+    실제로 등록된 인물을 안 됐다고 잘못 답하는 사고가 재현됐다(실사용자 리포트). 이전에
+    tool_router.py에 만든 결정적 대조 로직(_deterministic_unregistered_answer)은 tool_router.
+    decide_from_context 안에만 있어서 agent_router 경로에서는 애초에 호출되지도 않는 죽은
+    코드였다 — 그래서 실행 도구(=이 함수)로 옮겨 agent_router에서도 실제로 타게 한다.
+
+    names가 있으면(예: "이영 등록됐어?") 그 이름들만 정확히 대조해 각각 등록/미등록을 답한다.
+    names가 없으면(예: "등록 안 된 인물/장소/의상 있어?") 그 화 콘티에서 후보를 뽑아
+    (LLM 추출 1회, 판정은 코드) 전부 대조해 미등록만 골라 답한다."""
+    work = _resolve_show_work(channel, thread_ts, work)
+    if not work:
+        _reply(channel, thread_ts, _WORK_NOT_FOUND_MSG)
+        return True
+
+    if names:
+        lines = []
+        for raw in names:
+            name = str(raw).strip()
+            if not name:
+                continue
+            e = oi.resolve_element(work, name)
+            if e:
+                lines.append(f"✅ {name} — 등록됨({e.get('type', '?')}, {e.get('display', name)})")
+            else:
+                lines.append(f"❌ {name} — 등록 안 됨")
+        _reply(channel, thread_ts, f"<{work}> 등록 여부 확인:\n" + "\n".join(lines))
+        return True
+
+    if not episode:
+        episode = (conti_state.get_episode(thread_ts) or {}).get("episode")
+    conti = None
+    if episode:
+        conti, _source = _fetch_external_conti(work, episode)
+    if not conti:
+        _reply(channel, thread_ts,
+              f"⚠️ <{work}>{f' {episode}화' if episode else ''} 콘티를 못 찾아서 등록 여부를 "
+              "확인 못 했어요 — 화 번호를 같이 말해주거나 상세 콘티를 먼저 만들어주세요.")
+        return True
+    try:
+        raw = oi.chat(prompts.element_extract_system(_place_categories(work)),
+                     prompts.element_extract_user(conti), timeout=60)
+        obj = _parse_json_object(raw)
+    except Exception:
+        log.exception("등록여부 확인: 후보 추출 실패")
+        _reply(channel, thread_ts, "⚠️ 콘티에서 인물/장소/의상 후보를 뽑는 중 오류가 났어요. 잠시 후 다시 시도해주세요.")
+        return True
+    chars = [c.strip() for c in (obj.get("characters") or []) if isinstance(c, str) and c.strip()]
+    places = [c.strip() for c in (obj.get("places") or []) if isinstance(c, str) and c.strip()]
+    costumes = [c.strip(" ,") for c in (obj.get("costumes") or []) if isinstance(c, str) and c.strip(" ,")]
+    props = [c.strip(" ,") for c in (obj.get("props") or []) if isinstance(c, str) and c.strip(" ,")]
+    new_chars = [c for c in dict.fromkeys(chars) if not oi.resolve_element(work, c)]
+    new_places = [c for c in dict.fromkeys(places) if not oi.resolve_element(work, c)]
+    new_costumes = [c for c in dict.fromkeys(costumes) if not oi.resolve_element(work, c)]
+    new_props = [c for c in dict.fromkeys(props) if not oi.resolve_element(work, c)]
+    ep_label = f"{episode}화 " if episode else ""
+    parts = [
+        f"현재 <{work}> {ep_label}기준:",
+        "**등록 안 된 인물**\n" + ("\n".join(f"- {c}" for c in new_chars) or "없음 — 모두 등록돼 있어요."),
+        "**등록 안 된 장소**\n" + ("\n".join(f"- {c}" for c in new_places) or "없음 — 모두 등록돼 있어요."),
+        "**등록 안 된 의상**\n" + ("\n".join(f"- {c}" for c in new_costumes) or "없음 — 모두 등록돼 있어요."),
+    ]
+    if new_props:
+        parts.append("**등록 안 된 소품**\n" + "\n".join(f"- {c}" for c in new_props))
+    _reply(channel, thread_ts, "\n\n".join(parts))
+    return True
+
+
 _SHOW_ALL_RE = re.compile(r"전부|전체|모든|다\s*보여|all")
 
 

@@ -291,6 +291,12 @@ def _show_media(args: dict, ctx) -> None:
                       kind=args.get("kind"), all_scenes=args.get("all_scenes"))
 
 
+def _check_reference_status(args: dict, ctx) -> None:
+    from . import dispatch_storyboard as sb
+    sb._do_check_reference_status(ctx.channel, ctx.thread_ts, work=args.get("work"),
+                                  episode=args.get("episode"), names=args.get("names"))
+
+
 def _delete_reference(args: dict, ctx) -> None:
     from . import dispatch_storyboard as sb
     kind = args.get("kind")
@@ -697,6 +703,18 @@ _add("show_media",
       "all_scenes": {"type": "boolean",
                      "description": "'스틸컷 전부/전체/다 보여줘'처럼 그 화 전 씬을 다 보려면 true"}},
      [], LOW, _show_media)
+
+_add("check_reference_status",
+     "인물·의상·장소·소품이 실제로 등록돼 있는지 확인해 정확히 답한다. 등록 여부를 묻는 모든 "
+     "질문에 이 도구를 반드시 호출하고, 기억이나 대본/콘티에 이름이 나온다는 것만으로 절대 "
+     "직접 답하지 않는다(코드가 실제 레지스트리와 대조해 확인함). "
+     "예: '이영 인물 등록되어있어?'(names=['이영']), '유나경, 강해민 등록됐어?'(names에 둘 다), "
+     "'1화에 등록 안 된 인물/장소/의상 있어?'(names 생략, episode만) 둘 다 지원.",
+     {"work": WORK, "episode": EPISODE,
+      "names": {"type": "array", "items": {"type": "string"}, "maxItems": 30,
+                "description": "특정 이름(들)의 등록 여부만 확인할 때 그 이름들. 생략하면 "
+                                "episode 콘티 전체에서 후보를 뽑아 미등록만 알려준다."}},
+     [], LOW, _check_reference_status)
 
 _add("delete_reference",
      "이미 등록된 참조(인물·의상·장소·소품)를 삭제한다. '과 배경 참조 삭제해줘', '이 인물 지워줘'처럼 잘못 등록했거나 필요 없어진 참조 제거 요청. 되돌릴 수 없는 작업이라 확인 버튼을 띄운 뒤 삭제한다. kind는 알면 넣고 애매하면 생략한다.",
