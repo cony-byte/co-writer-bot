@@ -417,14 +417,19 @@ def _data_url(p) -> str:
 
 
 def _load_by_stem(work: str | None, stem: str) -> str | None:
-    for d in _ref_dirs(work):                        # ① 로컬 data/refs
+    """★2026-07-24: visual-pipeline fixed-images가 '단일 소스'라고 주석에 써놓고도 정작
+    순서상 나중에 확인해서, 옛 data/refs 평면 파일(예전 방식, 재등록/수동 교체를 안 따라감)이
+    있으면 그게 fixed-images의 최신 이미지를 조용히 가려버렸다(실측 — "이영" 참조를 fixed-
+    images에서 최신 사진으로 교체했는데도 봇이 옛 data/refs 사진을 계속 보여줌). 문서화된
+    의도대로 fixed-images를 먼저 확인하고, 거기 없을 때만 옛 data/refs로 폴백한다."""
+    vp = _vp_person_images(work).get(_nfc(stem))     # ① visual-pipeline fixed-images(단일 소스)
+    if vp and vp.exists():
+        return _data_url(vp)
+    for d in _ref_dirs(work):                        # ② 옛 방식 폴백(fixed-images에 없을 때만)
         for ext in _REF_EXTS:
             p = d / f"{stem}{ext}"
             if p.exists():
                 return _data_url(p)
-    vp = _vp_person_images(work).get(_nfc(stem))     # ② visual-pipeline fixed-images(단일 소스)
-    if vp and vp.exists():
-        return _data_url(vp)
     return None
 
 
